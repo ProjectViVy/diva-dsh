@@ -1,0 +1,31 @@
+{
+  "name": "dsh-superagent-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A deployment-ready dsh-superagent template: patched source, pinned DeepSeek Harness release, and a tmux-free launcher that starts with one command.",
+  "license": "MIT",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "start": "node scripts/vivy-dsh.mjs start",
+    "stop": "node scripts/vivy-dsh.mjs stop",
+    "restart": "node scripts/vivy-dsh.mjs restart",
+    "status": "node scripts/vivy-dsh.mjs status",
+    "build:bundle": "node scripts/build-bundle.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.1-rc.5",
+    "@modelcontextprotocol/sdk": "1.25.1",
+    "semver": "^7.7.3"
+  },
+  "allowScripts": {
+    "@deepseek-ai/dsh-subprocess-local@0.2.1-rc.5": true,
+    "koffi@3.1.1": true,
+    "node-pty@1.2.0-beta.15": true,
+    "protobufjs@7.6.6": true,
+    "@google/genai@2.21.0": true
+  }
+}
