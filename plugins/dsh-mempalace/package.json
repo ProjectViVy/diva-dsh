@@ -1,0 +1,22 @@
+{
+  "name": "dsh-mempalace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistent agent memory for DeepSeek Harness: verbatim storage with local semantic search, palace graph, temporal knowledge graph, and diary.",
+  "license": "MIT",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./client": "./src/client.js"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "inject": [] }
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.0.1",
+    "better-sqlite3": "^12.9.0",
+    "sqlite-vec": "^0.1.6"
+  }
+}
