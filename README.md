@@ -1,8 +1,6 @@
 # diva-dsh
 
-<!-- 仓库头图：把鲸鱼娘 banner 放到 docs/resources/diva.png 之后，启用下面这一行。
-<img src="docs/resources/diva.png" align="right" width="500" />
--->
+<img src="docs/resources/diva.png" alt="diva-dsh" width="880" />
 
 QQ 群：**788599177**
 
