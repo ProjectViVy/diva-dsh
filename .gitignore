@@ -3,6 +3,12 @@ node_modules/
 .artifacts/
 reference/
 
+# 各模块已拆成独立仓库，分别建仓维护（上游来源与原作者见各自 README）
+# 需要重新纳入根仓库时，用 git submodule add <url> <path> 挂回来
+/plugins/*
+!/plugins/surfcore
+/stage-app/
+
 # 本地流程产物：设计探针截图/报告、子代理工作区、头脑风暴文档
 .oil-ui/
 .superpowers/

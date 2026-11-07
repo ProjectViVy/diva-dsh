@@ -61,3 +61,12 @@ npm --prefix stage-app run check
 
 工具会直接说「舞台没有运行」，不会偷偷退化成一套内嵌实现。
 宁可明确地少一个能力，也不要两套东西各说各话。
+
+## 来源与许可
+
+本仓库原为 `dsh-superagent-template` 工作区中的一个模块，现拆出来独立建仓维护。
+
+- **来源**：本项目原创。这里只有把 `l2d_*` 工具调用转给独立舞台进程的桥，
+  不含渲染层、界面与模型资产。
+- **相关**：舞台本体在 `stage-app`；Live2D Cubism Core 的加载方式与授权注意事项见那里的
+  [`vendor/README.md`](../../stage-app/vendor/README.md)。

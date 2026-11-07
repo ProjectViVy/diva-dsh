@@ -256,3 +256,11 @@ backs each artifact up and replaces it atomically, and artifacts written within
 - A failed automatic refinement degrades silently (only logged) and never interrupts the session. Automatic refinement is orchestrator-owned in this deployment, so the failure path only exists when a host registers `registerHarnessDriver` itself.
 - A content-shrink guard (rejecting updates that shrink an entry too far in one commit) is a planned follow-up and is not yet implemented; today only `maxEntryGrowth` caps how much an update may grow an entry.
 - A dedicated governance tool entry is deferred.
+
+## Provenance and license
+
+This repository was one module inside the `dsh-superagent-template` workspace and is now versioned on its own.
+
+- **Upstream**: [jasen215/dsh-continual-harness](https://github.com/jasen215/dsh-continual-harness) —
+  original author: dsh-continual-harness contributors. License: MIT, retained verbatim in [LICENSE](LICENSE).
+- **Design inspiration**: [PrimeIntellect-ai/prime-agent](https://github.com/PrimeIntellect-ai/prime-agent).

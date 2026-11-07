@@ -169,3 +169,15 @@ node --test tests/voice-*.test.mjs tests/component-ipc.test.mjs
 
 测试使用隔离状态目录、本地 HTTP 替身和模拟引擎，不连接真实 QQ/B 站，也不代表 Windows
 语音引擎已完成实机验证。
+
+## 来源与许可
+
+本仓库原为 `dsh-superagent-template` 工作区中的一个模块，现拆出来独立建仓维护。
+
+- **上游**：
+  - [SurfCore](https://github.com/Mieksido/surfcore) v0.8.6 —— `src/voice-tts.js`、`src/voice-packs.js`、
+    `voice-pack-import.js`、`voice-diagnostics.js`、`voice-pack-secrets.js`、`src/voice-core.js`、
+    `send-voice-lib.js` 的语音语义
+  - QQ 桥接中的触发规则、限流与发送审计
+- **原作者**：Derpyu520 and qq-bridge / QSH contributors
+- **上游许可**：MIT（版权声明保留在 [LICENSE](LICENSE)）

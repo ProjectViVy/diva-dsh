@@ -227,3 +227,11 @@ Drop `dsh-vivy-studio` from `dsh.profile.bundles` in the profile's
 `package.json`, drop the matching `link:` dependency and `node_modules` symlink,
 and restart. Nothing outside this directory and that manifest is
 needed to remove the skin; the manifest's previous revision is kept beside it.
+
+## Provenance and license
+
+This repository was one module inside the `dsh-superagent-template` workspace and is now versioned on its own.
+
+- **Upstream**: [mastwet/vivy-studio](https://github.com/mastwet/vivy-studio) — original author: mastwet.
+- **Bundled font**: `fonts/DivaWenKai-brand.woff2` is derived from LXGW WenKai and ships under the SIL Open Font
+  License; the license text is kept at [fonts/LXGWWenKai-OFL.txt](fonts/LXGWWenKai-OFL.txt).

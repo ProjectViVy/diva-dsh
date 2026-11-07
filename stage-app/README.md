@@ -110,3 +110,15 @@ node stage-app/tools/tap-check.mjs     # 真浏览器点一下，读数不看图
 
 注意启动参数里**不能有 `--disable-gpu`**：那会让 WebGL 不可用，PIXI 直接起不来。
 无头环境用 SwiftShader 软件渲染，慢但真实。
+
+## 来源与许可
+
+本仓库原为 `dsh-superagent-template` 工作区中的一个模块，现拆出来独立建仓维护。
+
+- **来源**：本项目原创 —— 渲染层、表演编译器、引擎、指令箱、能力说明、路径安全与 Kill Switch。
+- **第三方资产**：
+  - `vendor/live2dcubismcore.min.js` —— Live2D Cubism SDK for Web 的 Core。**专有许可，不随本仓库分发**，
+    需按 Live2D 授权条款自行获取后放入 `vendor/`（见 [vendor/README.md](vendor/README.md)）。
+    本仓库的 `.gitignore` 已把它排除。
+  - `vendor/pixi.min.js`、`vendor/cubism4.min.js` —— PIXI 与 pixi-live2d-display。
+  - `demo/Hiyori/` —— Live2D 官方示例模型，版权归 Live2D Inc.；使用与再分发前请确认其授权条款。

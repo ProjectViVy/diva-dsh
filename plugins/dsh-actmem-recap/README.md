@@ -135,3 +135,10 @@ node --test tests/actmem-recap.test.mjs
 - **常驻 L1**：`deliver: inject` 只是一次性注入。真正的常驻块应该是 `systemPrompt.section` 里的类型化 section，只在压缩边界刷新，避免每轮改提示词把前缀 KV cache 全废掉。
 - **回读**：简报写进卡之后，目前没有"从卡里读最近简报"的接口；卡本身会按平台注入，那才是它被读到的路径。
 - **不写 mempalace**：按 2026-11-05 的决定，简报只进衰减卡，不进长期归档。
+
+## 来源与许可
+
+本仓库原为 `dsh-superagent-template` 工作区中的一个模块，现拆出来独立建仓维护。
+
+- **来源**：本项目原创实现，未移植第三方代码。
+- **设计参考**：[OpenAI Codex](https://github.com/openai/codex) 的 `/recap`（`codex-rs/tui/src/app/recap.rs`）。

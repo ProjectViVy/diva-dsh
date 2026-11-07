@@ -202,3 +202,13 @@ node --test tests/asr-*.test.mjs
 ```sh
 DSH_ASR_E2E=1 node --test tests/asr-sensevoice-e2e.test.mjs
 ```
+
+## 来源与许可
+
+本仓库原为 `dsh-superagent-template` 工作区中的一个模块，现拆出来独立建仓维护。
+
+- **上游**：[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 的实验性语音输入四件套
+  （`speech-to-text`、`speech-to-text-sensevoice`、`api-speech-to-text`、`client-ui-voice-input`）——
+  本模块取其语义与协议，并按 `dsh-local-voice` 的组织形式重写，不依赖 `@deepseek-ai/dsh-experimental-*`。
+- **原作者**：DeepSeek
+- **上游许可**：MIT（Copyright (c) 2026 DeepSeek）

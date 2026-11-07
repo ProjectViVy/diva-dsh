@@ -223,3 +223,11 @@ publish, rollback, or edit: those remain on the record-write routes.
 - `_shared/ipc.mjs` 的 `names` 现含 `evolution`，`errorCodes` 有 `evolution: /^EVOLUTION_/`，因此组件的领域错误码可透传（不再一律降级为 `COMPONENT_REQUEST_FAILED`）。
 - `src/internal.mjs` 经 `registerComponentInternal` 暴露回环端点：`POST /evidence` → `store.recordEvidence(body)`、`POST /proposal` → 有 `proposalId` 走 `advanceProposal` 否则 `upsertProposal`。只经 loopback + `x-component-token`，不新增公开 HTTP 写路由；store 仍为懒打开，`apply` 不建库（只发布 `<home>/evolution/runtime.json`）。
 - 首个调用方是 `dsh-continual-harness`（E4-S7）：它把跨域候选投递为 Evidence + Proposal，不直接打开 `evolution.db`。
+
+## Provenance and license
+
+This repository was one module inside the `dsh-superagent-template` workspace and is now versioned on its own.
+
+- **Source**: original work; no third-party code was ported.
+- **Collaborates with**: `dsh-continual-harness` (MIT) — this console reads that plugin's state and edits its
+  profile configuration, and never writes outside the records it owns.

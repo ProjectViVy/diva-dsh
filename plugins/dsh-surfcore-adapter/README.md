@@ -44,3 +44,11 @@ SurfCore 桥接在收到一条已经过白名单、模式与拉黑检查，并�
 - SurfCore 控制台自身的 QQ 自发回复没有被拦截：若同时开启桥接应答与本插件，同一条提问可能收到两条回复（收口在 E5-S3）。
 - B站出站的结果不明时无法远程核对，只能保持未确认。
 - 语音、桌宠等其它副作用仍由 SurfCore 自己执行，未进入 Effect/Receipt 链。
+
+## 来源与许可
+
+本仓库原为 `dsh-superagent-template` 工作区中的一个模块，现拆出来独立建仓维护。
+
+- **来源**：本项目原创。适配器代码全部在本仓库；`plugins/surfcore` 目录里没有本模块的任何代码。
+- **相关上游**：[Mieksido/surfcore](https://github.com/Mieksido/surfcore) —— 作为只读子模块被接入，
+  本仓库不复制其代码。原作者：Derpyu520 and qq-bridge / QSH contributors，许可：MIT。

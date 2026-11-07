@@ -277,3 +277,11 @@ are available in the panel; listing and rollback are also available through
 
 MIT. See [NOTICE.md](NOTICE.md) for the upstream revision and the exact ported
 surface.
+
+## Provenance and license
+
+This repository was one module inside the `dsh-superagent-template` workspace and is now versioned on its own.
+
+- **Upstream**: [ProjectViVy/laputa](https://github.com/ProjectViVy/laputa), revision `c4d649d` —
+  original author: dashimaki. License: MIT. [NOTICE.md](NOTICE.md) records exactly what was ported and what
+  Phase 1 leaves out.

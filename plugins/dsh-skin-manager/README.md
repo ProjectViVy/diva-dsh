@@ -139,3 +139,12 @@ at any time.
 Remove `dsh-skin-manager` from the profile's `dsh.profile.bundles` and restart.
 The stored preference file is then unused and harmless; `dsh-vivy-studio` falls
 back to its own palette because the `data-dsh-skin` attribute is never set.
+
+## Provenance and license
+
+This repository was one module inside the `dsh-superagent-template` workspace and is now versioned on its own.
+
+- **Upstream**: [hust-open-atom-club/oh-dsh](https://github.com/hust-open-atom-club/oh-dsh) — the four palettes
+  (32 tokens each, 128 total) are carried verbatim from upstream. Original author: hust-open-atom-club.
+  License: MIT.
+- **Built-in `vivy` skin**: original work of this repository.

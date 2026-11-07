@@ -60,3 +60,11 @@ Laputa 仍是唯一人格事实源（`docs/architecture.md` §17 invariant 4）�
 npm run stop && npm run setup:vivy-tone && npm run start
 node --test tests/vivy-tone.test.mjs
 ```
+
+## 来源与许可
+
+本仓库原为 `dsh-superagent-template` 工作区中的一个模块，现拆出来独立建仓维护。
+
+- **来源**：本项目原创。中文提示词文本由本项目撰写，通过 Superagent 自己的 prompt API 替换其拥有的部分。
+- **相关上游**：[deepseek-ai/dsh-superagent-prototype](https://github.com/deepseek-ai/dsh-superagent-prototype) ——
+  被替换的提示词来自这里，本仓库不复制其代码。

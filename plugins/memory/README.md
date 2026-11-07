@@ -181,3 +181,15 @@ node --test tests/memory-*.test.mjs tests/session-memory*.test.mjs tests/compone
 ```
 
 测试使用隔离状态目录和本地 HTTP/IPC，不访问真实 QQ/B 站，也不修改用户记忆。
+
+## 来源与许可
+
+本仓库原为 `dsh-superagent-template` 工作区中的一个模块，现拆出来独立建仓维护。
+
+- **上游**：
+  - [SurfCore](https://github.com/Mieksido/surfcore) v0.8.6 —— `src/memory-card.js`、`src/bili-memory.js`、
+    `src/session-map.js`、`src/conversation-closure.js`、`src/slang-learner.js`、`src/history-catchup.js`、
+    `src/context-snapshot.js` 的记忆语义
+  - QQ 桥接中的会话记忆逻辑
+- **原作者**：Derpyu520 and qq-bridge / QSH contributors
+- **上游许可**：MIT（版权声明保留在 [LICENSE](LICENSE)）
