@@ -69,13 +69,8 @@ dsh-superagent-template/
 ├── deepseek-harness/   DSH 源码 submodule，固定在 b830ec950faba0a46dda564be3e2d854afed94f1
 ├── superagent/         Superagent 源码 submodule，固定在 6337fc823ce20251c8de8085948165c81aaa701e
 ├── plugins/surfcore/   SurfCore 源码 submodule，固定在 59ec3066f7d42a0452fae01f170c9a8484d5dbe5
-├── plugins/memory/     独立记忆插件（会话与社交记忆）
-├── plugins/voice/      独立语音插件（同时提供「设置 → 语音」页面）
-├── plugins/asr/        独立语音识别插件（输入框麦克风）
-├── plugins/dsh-mempalace/  语义记忆插件（SQLite 向量检索与记忆宫殿面板）
-├── plugins/dsh-continual-harness/  持续进化插件源码（TypeScript，本地构建后加载）
-├── plugins/dsh-evolution/  进化管理面板（只读状态 + continual-harness 配置 + 进化记录存储）
-├── plugins/dsh-laputa/     人格插件源码（Phase 1：六份 Markdown、首次引导、同级管理面板与提示词注入）
+├── plugins/            本地各模块已拆成独立仓库（见下「模块仓库」），根仓库不再跟踪其源码
+├── stage-app/          独立的 Live2D 舞台进程，同样是独立仓库
 ├── patches/            Superagent 的 Windows 路径兼容补丁
 ├── scripts/            本地安装、构建和启停脚本
 ├── tests/              启动器的本地路径、配置及补丁测试
@@ -84,6 +79,38 @@ dsh-superagent-template/
 ```
 
 DSH 固定提交对应 `dsh-v0.2.1-rc.5`，SurfCore 固定提交对应 `v0.8.6`。主仓库的 Git submodule 指针记录这些完整提交；`setup` 不会自动升级它们，如果本地子模块切换到其他提交，它会提示并保留现状。检出 submodule 时仍会有源码目录，但主仓库不再重复存放源码副本。
+
+### 模块仓库
+
+除三个上游 submodule 外，本地模块各自独立建仓维护，统一建在 <https://github.com/vivy-dsh> 下。
+根仓库用 `.gitignore` 排除它们；每个模块的 README 末尾都有「来源与许可」章节，记录同一份上游信息。
+**移植类模块的版权归上游原作者，本仓库只做 DeepSeek Harness / 本项目的移植与适配。**
+
+| 目录 | 仓库 | 上游来源 | 原作者 | 上游许可 |
+| --- | --- | --- | --- | --- |
+| `plugins/_shared` | `dsh-plugin-shared` | 本项目原创 | — | — |
+| `plugins/asr` | `dsh-local-asr` | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 实验性语音输入四件套 | DeepSeek | MIT |
+| `plugins/memory` | `dsh-local-memory` | [Mieksido/surfcore](https://github.com/Mieksido/surfcore) v0.8.6 + QQ 桥接 | Derpyu520 and qq-bridge / QSH contributors | MIT |
+| `plugins/voice` | `dsh-local-voice` | 同上 | 同上 | MIT |
+| `plugins/dsh-actmem-recap` | `dsh-actmem-recap` | 本项目原创；设计参考 [OpenAI Codex](https://github.com/openai/codex) 的 `/recap` | — | — |
+| `plugins/dsh-continual-harness` | `dsh-continual-harness` | [jasen215/dsh-continual-harness](https://github.com/jasen215/dsh-continual-harness) | dsh-continual-harness contributors | MIT |
+| `plugins/dsh-evolution` | `dsh-evolution` | 本项目原创 | — | — |
+| `plugins/dsh-laputa` | `dsh-laputa` | [ProjectViVy/laputa](https://github.com/ProjectViVy/laputa) @ `c4d649d` | dashimaki | MIT |
+| `plugins/dsh-live2d` | `dsh-live2d` | 本项目原创 | — | — |
+| `plugins/dsh-mempalace` | `dsh-mempalace` | [Jabbslad/pi-mempalace](https://github.com/Jabbslad/pi-mempalace) 0.2.1 | Jabbslad | ⚠️ 上游无 LICENSE 文件 |
+| `plugins/dsh-skin-manager` | `dsh-skin-manager` | [hust-open-atom-club/oh-dsh](https://github.com/hust-open-atom-club/oh-dsh) 的四个配色 | hust-open-atom-club | MIT |
+| `plugins/dsh-surfcore-adapter` | `dsh-surfcore-adapter` | 本项目原创（配合 [Mieksido/surfcore](https://github.com/Mieksido/surfcore)） | — | — |
+| `plugins/dsh-vivy-studio` | `dsh-vivy-studio` | [mastwet/vivy-studio](https://github.com/mastwet/vivy-studio)；内嵌 LXGW WenKai 字体 | mastwet / LXGW | SIL OFL |
+| `plugins/dsh-vivy-tone` | `dsh-vivy-tone` | 本项目原创 | — | — |
+| `stage-app` | `dsh-stage-app` | 本项目原创；`demo/` 为 Live2D 官方示例模型 | Live2D Inc.（仅 `demo/`、`vendor/`） | 专有 |
+
+⚠️ 两处**公开分发前必须确认**的授权问题：
+
+- `dsh-mempalace`：上游 `pi-mempalace` 仓库没有 LICENSE 文件（GitHub 许可证检测为 `null`）。
+  缺许可文件时默认「保留所有权利」，公开再分发前应先与上游确认。
+- `dsh-stage-app`：`vendor/live2dcubismcore.min.js` 是 Live2D Cubism SDK 的专有 Core，**不随仓库分发**
+  （`.gitignore` 已排除，见 `vendor/README.md`）；`demo/Hiyori/` 是 Live2D 官方示例模型，
+  其使用与再分发同样受 Live2D 授权条款约束。
 
 SurfCore 可通过 DSH 左侧与 Superagent 同级的 **SurfCore** 入口直接打开。DSH rc.5 与上游注册方式有冲突，项目在 `.artifacts/surfcore-adapter/` 生成本地兼容文件和界面产物，源码仍从固定的 submodule 加载。启动器把已发现的旧 `.dsh` 路径指向项目数据目录，并关闭 QQ、B 站、扩展、自动更新及相关自动任务的启动；这些进程级设置不会写入系统环境。
 
