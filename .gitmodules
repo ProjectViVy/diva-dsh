@@ -10,3 +10,48 @@
 	path = plugins/surfcore
 	url = https://github.com/Mieksido/surfcore.git
 	shallow = true
+[submodule "plugins/_shared"]
+	path = plugins/_shared
+	url = https://github.com/vivy-dsh/dsh-plugin-shared.git
+[submodule "plugins/asr"]
+	path = plugins/asr
+	url = https://github.com/vivy-dsh/dsh-local-asr.git
+[submodule "plugins/memory"]
+	path = plugins/memory
+	url = https://github.com/vivy-dsh/dsh-local-memory.git
+[submodule "plugins/voice"]
+	path = plugins/voice
+	url = https://github.com/vivy-dsh/dsh-local-voice.git
+[submodule "plugins/dsh-actmem-recap"]
+	path = plugins/dsh-actmem-recap
+	url = https://github.com/vivy-dsh/dsh-actmem-recap.git
+[submodule "plugins/dsh-continual-harness"]
+	path = plugins/dsh-continual-harness
+	url = https://github.com/vivy-dsh/dsh-continual-harness.git
+[submodule "plugins/dsh-evolution"]
+	path = plugins/dsh-evolution
+	url = https://github.com/vivy-dsh/dsh-evolution.git
+[submodule "plugins/dsh-laputa"]
+	path = plugins/dsh-laputa
+	url = https://github.com/vivy-dsh/dsh-laputa.git
+[submodule "plugins/dsh-live2d"]
+	path = plugins/dsh-live2d
+	url = https://github.com/vivy-dsh/dsh-live2d.git
+[submodule "plugins/dsh-mempalace"]
+	path = plugins/dsh-mempalace
+	url = https://github.com/vivy-dsh/dsh-mempalace.git
+[submodule "plugins/dsh-skin-manager"]
+	path = plugins/dsh-skin-manager
+	url = https://github.com/vivy-dsh/dsh-skin-manager.git
+[submodule "plugins/dsh-surfcore-adapter"]
+	path = plugins/dsh-surfcore-adapter
+	url = https://github.com/vivy-dsh/dsh-surfcore-adapter.git
+[submodule "plugins/dsh-vivy-studio"]
+	path = plugins/dsh-vivy-studio
+	url = https://github.com/vivy-dsh/dsh-vivy-studio.git
+[submodule "plugins/dsh-vivy-tone"]
+	path = plugins/dsh-vivy-tone
+	url = https://github.com/vivy-dsh/dsh-vivy-tone.git
+[submodule "stage-app"]
+	path = stage-app
+	url = https://github.com/vivy-dsh/dsh-stage-app.git
