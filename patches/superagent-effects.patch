@@ -1,0 +1,1704 @@
+diff --git a/docs/006-deployment.md b/docs/006-deployment.md
+index 8c70b14..25dd1ee 100644
+--- a/docs/006-deployment.md
++++ b/docs/006-deployment.md
+@@ -174,6 +174,7 @@ Agents may rely on these routes and fields. The other routes in `src/app/api.ts`
+ | `POST inputs` with an InputEnvelope | Submits one input to the `local` Source: `triggerId` and `outcome` (`stored`, `duplicate` or `filtered`). The body holds `subjectId`, `sourceId` (`local` only), `externalEventId`, `dedupeKey`, `payload` (`text`, optional `url`), optional `layer` (`person`, `platform`, `schedule`, `wake` or `evolution`, default `person`), optional `human`, and optional `provenance` (`actor`, `note`). It creates a Trigger (and at most an Eval), never a Ticket; a repeated `dedupeKey` returns `duplicate` with the first `triggerId`. 400 for an invalid, oversized or unowned input; 503 while stopping |
+ | `GET settings` | `blocks`: `policy`, `eval` and `executor`, each with its `value` and its `revision`; `sources`: the Source instances, each with `id`, `kind`, `installed`, its block's `value`, `{"enabled": …, "config": {…}}`, and `revision`, its kind's form, and its setup `problem` when it has one; `policyVersion`; and `environment`, the execution environment's `root` and `variables` |
+ | `GET sources` | Each Source's status: `state` (`missing`, `off`, `error`, `setup`, `starting`, `paused` or `ready`), the `health` of its parts, its setup `problem`, the last day's `stats`, the Triggers it `filtered` in that day, and the messages it `dropped` in that day, newest drop first, each with its `channel`, `preview`, `ticket` (`id` and `title`) when it was for one, its `thread` when the store has it, and `dropped.at` and `dropped.reason`, `channelGone` or `channelIgnored` |
++| `GET effects` | Stored external side effects, newest first, filtered by `ticket`, `state` (`pending`, `sent`, `unknown` or `failed`) and `kind`, with `offset` and `limit`: `items`, `total`, and `next_offset`. Each item has `effectId`, `kind`, `key`, `state`, `ticketId`, `receiptId`, `externalId`, `attempts`, `error`, `inFlight`, `confirmedAt`, `lastAttemptAt` and `since`; terminal `reply` rows stay so a Ticket can be reconciled with its Receipt and the remote message |
+ | `PUT settings/<block>` with `{"value": …, "revision": n}` | Saves one block: `saved`, the block's new `revision`, `policy_changed` and `restarting`. `value` is the whole block, as `GET settings` holds it; a missing key takes its default |
+ | `POST executor/pause` with `{"paused": true}` or `false` | Pauses or resumes processing: `paused` |
+ | `POST setup/check` | Runs setup again by restarting dsh-superagent: `restarting: true`. Refused when setup has nothing to fix |
+diff --git a/docs/007-architecture.md b/docs/007-architecture.md
+index b64242f..43dab12 100644
+--- a/docs/007-architecture.md
++++ b/docs/007-architecture.md
+@@ -38,7 +38,7 @@ Shutdown cancels turns, waits for passes, effects and agents, restores the proce
+ | --- | --- | --- |
+ | Setup | `src/app/setup.ts` | Resolves the repository and the accounts by probing their CLIs the way worker shells run them, writes and applies the workers' environment and command shims, and keeps the setup problems; Settings checks a changed account through it, and restarts through it, which runs setup again |
+ | Passes | `src/app/passes.ts` | One pass at a time, every two seconds and whenever a command asks: the due effects, then `Engine.evaluateDue`; a Source's Trigger reaches the Engine through it |
+-| Outbox | `src/app/outbox.ts` | The Engine's `Outbox` port, and the only writer of the receipts: `send` keeps a message's receipt and queues its `reply` effect in one transaction, and the effect's handler sends it through `SourceRegistry.send`; a message waits while its Source is off, and is dropped when the conversation is gone or not listened to |
++| Outbox | `src/app/outbox.ts` | The Engine's `Outbox` port, and the only writer of the receipts: `send` keeps a message's receipt and queues its `reply` effect in one transaction, and the effect's handler sends it through `SourceRegistry.send`; an effect whose outcome is unknown is checked through `SourceRegistry.query` before any retry, so a send is never repeated blindly; a message waits while its Source is off, and is dropped when the conversation is gone or not listened to |
+ | Notices | `src/app/notices.ts` | Converts domain events and worker activity into main-Session messages. `eventNotice` handles domain notices; `reportRelay` forwards questions immediately, keeps ordinary progress on its Ticket, and relays other reports; `followupRelay` names the Tickets that own a human follow-up. Relays arriving during a turn are delivered together at its next step through the DeepSeek Harness inbox |
+ 
+ ### Engine
+@@ -159,15 +159,24 @@ Its interfaces are grouped by purpose:
+ - **Outbox receipts:** `replyStatus` and `receipts`, written only by Outbox. Receipt operations are `get`, `waiting`, `behind`, `add`, `settle` and `withdraw`. `behind` checks whether an earlier message for the same Ticket and conversation is waiting with fewer than three failures. A withdrawn message settles with `channelGone` or `channelIgnored`. Read queries expose failed and dropped replies through `failingReplies`, `droppedReplies` and `droppedSince`.
+ - **Typed key-value records:** `get`, `set`, `delete` and `keys`, using entries from `KV`.
+ 
+-`afterCommit` runs an action only after the transaction commits, never after rollback. Runtime reads records in their stored shape; the schema 11 migration converts older supported records at startup.
++`afterCommit` runs an action only after the transaction commits, never after rollback. Runtime reads records in their stored shape; the schema 12 migration converts older supported records at startup.
+ 
+ ### Effects
+ 
+-`Effects` (`src/app/effects.ts`) is the durable side-effect queue. A command calls `enqueue(kind, key, payload)` inside its transaction; execution begins only after commit.
++`Effects` (`src/app/effects.ts`) is the durable side-effect queue. A command calls `enqueue(kind, key, payload, details?)` inside its transaction; execution begins only after commit. `details` records the correlation a reconciler needs: an idempotency key, the Receipt the effect delivers, and the Ticket it serves.
+ 
+-Each kind/key pair has one row. Enqueuing the same waiting key replaces its payload and makes it due immediately without changing queue order. `handle(kind, run, options)` registers one handler per kind. It processes due rows oldest first, up to the concurrency limit.
++Each kind/key pair has one row. Enqueuing the same active key replaces its payload and makes it due immediately without changing queue order. `handle(kind, run, options)` registers one handler per kind. It processes due rows oldest first, up to the concurrency limit. A row is dispatched only while `pending` or `unknown`, and only after an atomic claim (`in_flight`, guarded by the row's sequence and generation) so two passes never run it at once.
+ 
+-Failures retry with exponential backoff. Throwing `Later` defers work without counting a failure, for example when no worker slot is available. `start` begins processing after setup, `drain` stops it during shutdown while preserving pending rows, and `pending`/`idle` expose queue state.
++Each attempt settles the row in one of four states:
++
++| State | Written when | Row after |
++| --- | --- | --- |
++| `pending` | not yet run, or a generic failure | `attempts` counts the failure, `due` backs off |
++| `unknown` | the handler throws `Unknown`, or a row was interrupted in flight while its kind asks for `interrupted: 'unknown'` | `attempts` counts it, `due` backs off, and the next attempt queries the remote state before sending again |
++| `sent` | the handler returns an `EffectResult` | terminal, with the external ID and confirmation time when the handler reported them |
++| `failed` | the handler throws `Failed`, or a send target is gone or no longer allowed | terminal; later rows of an ordered kind are no longer blocked by it |
++
++Throwing `Later` defers work without counting a failure, for example when no worker slot is available. `record` keeps terminal rows so Ticket → Effect → Receipt stays queryable; without it a finished row is deleted. `get(kind, key)` reads a row's correlation and state, including kept terminal rows. `start` begins processing after setup, and also recovers rows left in flight by a previous process before dispatching; `drain` stops it during shutdown while preserving pending rows, and `pending`/`idle` expose queue state.
+ 
+ | Kind | Handler | Does | At once | Retry |
+ | --- | --- | --- | --- | --- |
+@@ -176,13 +185,13 @@ Failures retry with exponential backoff. Throwing `Later` defers work without co
+ | `delivery` | DshExecutor | Hands a Ticket's waiting Inputs to its running Assignment, in order | 4, none while paused | 2 s doubling to 60 s; one that waits for a worker slot tries again after 2 s |
+ | `relay` | Sessions | Steers a worker's report or question, or a person's follow-up, into the main Session's turn | 1, in queue order | 2 s doubling to 60 s |
+ | `notice` | Sessions | Injects a notice into the main Session without waking it | 1, in queue order | 2 s doubling to 60 s |
+-| `reply` | Outbox | Sends a message for a Channel through its Source, after the earlier messages of its Ticket to its conversation that have not failed three times; withdrawing the message cancels it | 1, none while paused | 5 s doubling to 300 s; one whose Source is off, or behind an earlier message, tries again after 5 s |
++| `reply` | Outbox | Sends a message for a Channel through its Source, after the earlier messages of its Ticket to its conversation that have not failed three times; withdrawing the message cancels it, unless the effect is in flight, unknown, or already sent. A message whose outcome is unknown is first looked up through `SourceRegistry.query`, and only sent again when the Source reports it absent | 1, none while paused | 5 s doubling to 300 s; one whose Source is off, or behind an earlier message, tries again after 5 s |
+ 
+-Each kind has a health entry under its name. It reports an error once one of its effects failed three times in a row, except `delivery`, whose failures show on their Ticket instead. Relays keep their order, and so do notices; a failed one holds back the later ones of its kind.
++`reply` is a recording kind: its terminal rows stay so a Receipt can be reconciled with the external ID its Channel returned. Each kind has a health entry under its name. It counts only active (`pending` and `unknown`) rows, and reports an error once one of its effects failed three times in a row, except `delivery`, whose failures show on their Ticket instead. Relays keep their order, and so do notices; a failed one holds back the later ones of its kind.
+ 
+ ### Sources
+ 
+-Sources extend the host through `SourceKind`, defined in `src/sources/kind.ts`. A kind declares its identity, title, description, configuration `schema` and `fields`, derived `facts`, and `health` entries. Optional behavior includes `scope`, a `channel` (`allowed`, `send`, `link`), `threadContext`, `find`, `policy`, `environment` and `refreshLabels`.
++Sources extend the host through `SourceKind`, defined in `src/sources/kind.ts`. A kind declares its identity, title, description, configuration `schema` and `fields`, derived `facts`, and `health` entries. Optional behavior includes `scope`, a `channel` (`allowed`, `send`, `query`, `link`), `threadContext`, `find`, `policy`, `environment` and `refreshLabels`. A Channel's `send` reports whether it was sent, with the external ID when the host returned one, or that the target is gone; `query` looks a message up by that external ID and reports it sent, absent, or unsupported when the host cannot look it up.
+ 
+ `SourceRegistry` (`registry.ts`) owns registered kinds and stored instances, and implements the Engine's `SourceScope`. Registration claims health entries on `HealthBoard`; duplicate claims and reserved `sync:` names are refused. A SourceContext writes only through its registration's claimed entries, so reports after unregistration do nothing.
+ 
+@@ -324,7 +333,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/app/notices.ts` | The main Session's notices and relays: `eventNotice`, `reportRelay`, `resultRelay` and `followupRelay` |
+ | `src/app/store.ts` | The Store, and `Receipt`, a message of the outbox |
+ | `src/app/store-read.ts` | `storeReads`: the Store's read queries for the views, the tools and the Sources' polls, which never write |
+-| `src/app/migration.ts` | The schema 11 migration: one step from schema 10 that writes every stored record in its current shape |
++| `src/app/migration.ts` | The schema 12 migration: steps from schema 10 and 11 that write every stored record in its current shape and backfill the effect's correlation columns |
+ | `src/app/effects.ts` | Effects |
+ | `src/app/versions.ts` | `Versions`: a record kept as numbered snapshots with a pointer to the current one, for the settings and the prompts |
+ | `src/app/cache.ts` | `TextCache`: texts kept in memory within a size, the least recently used dropped first |
+@@ -437,7 +446,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `tests/settings.spec.ts` | Settings saves that race a model or account check, a Policy sync that a save outran, and the refusals of the pause, a sync and a block |
+ | `tests/views.spec.ts` | What the management views derive from the Store, such as the Thread a dropped message belongs to |
+ | `tests/timeline.spec.ts` | A Thread's pages and a Trigger's neighbours by time and then id, with every received Trigger's time in one form |
+-| `tests/migration.spec.ts` | The schema 11 migration: every stored record in its current shape, and the refusal of older schemas |
++| `tests/migration.spec.ts` | The schema 12 migration: every stored record in its current shape, the effect correlation backfill, and the refusal of older schemas |
+ | `tests/store.spec.ts` | Repositories and their working sets, in SQLite as in memory, the kv area, with every key of `KV` spelled only in `src/kv.ts` and the migration, settings history and queries |
+ | `tests/prompts.spec.ts` | Prompt validation, assembly and versions |
+ | `tests/cards.spec.ts` | The rules the built-in text must state, file by file |
+@@ -466,8 +475,8 @@ One SQLite file, `<stateDir>/orchestrator.sqlite`, which only the Store opens.
+ | `thread` | Threads: Subscriptions, the Tickets that follow it for context, queued Triggers, the Eval in progress, the count of its expiries and `meta`; the generated columns `active`, set while Triggers are queued or an Eval runs, and `subscribed`, its Source while a Ticket subscribes to it | Engine; Sources write `meta` |
+ | `ticket` | Tickets with their Mandate, origin, execution, Assignments, Channels, Inputs and the Threads they follow; the generated columns `open`, set while it has not ended, and `active`, set while Inputs are undelivered or the latest Assignment is pending or running | Engine |
+ | `decision` | Decisions, by Thread | Engine |
+-| `effect` | The effect queue: per kind and key, the payload, its order, failed attempts with the last error, and when it is due | Effects; the schema 11 migration queues what earlier versions kept for the main Session |
+-| `outbox` | The receipt of each message for a Channel, by id, with the Ticket it is for and its `status`, `pending`, `sent` or `dropped`, kept so an id is never queued twice; for a dropped message, when and why, as the generated column `dropped`, its time, and a reason code. A message that waits has a `reply` effect, which holds its attempts | The Outbox |
++| `effect` | The effect queue: per kind and key, the payload, its order, attempts with the last error, when it is due, and the correlation that makes an external side effect traceable — `effect_id`, `idempotency_key`, the `receipt_id` it delivers, the `external_id` its Channel reported, and the `ticket_id` it serves — plus `state` (`pending`, `sent`, `unknown`, `failed`), `confirmed_at`, `last_attempt_at` and `in_flight`; terminal rows survive only for recording kinds such as `reply` | Effects; the schema 12 migration backfills the correlation from what earlier versions stored |
++| `outbox` | The receipt of each message for a Channel, by id, with the Ticket it is for and its `status`, `pending`, `sent` or `dropped`, kept so an id is never queued twice; for a sent message, its `external_id` and `confirmed_at`; for a dropped message, when and why, as the generated column `dropped`, its time, and a reason code. A message that waits has a `reply` effect, which holds its attempts | The Outbox |
+ | `kv` | Every other record, by key | The part that names it |
+ 
+ A generated column is computed from its row's JSON and is empty outside its set, and each has an index over its set, so a pass reads only active work. A database that predates a column gets it when the Store opens it.
+@@ -490,7 +499,7 @@ Read caches use bounded in-memory `TextCache` instances and are lost on restart.
+ 
+ Nothing deletes old records yet, so these grow without bound: the `trigger`, `disposition` and `decision` rows; ended Tickets and their Threads; the outbox's receipts; and in `kv`, every saved settings revision and prompt version, the prompt revisions each Session worked under, and the Sources' records per Thread and per Issue or pull request.
+ 
+-`SCHEMA_VERSION` only increases. A database of a newer version refuses to start; `src/app/migration.ts` upgrades a database of the pre-release schema 10 once, at start, and refuses an older one.
++`SCHEMA_VERSION` only increases. A database of a newer version refuses to start; `src/app/migration.ts` upgrades a database of the pre-release schema 10 or schema 11 once, at start, and refuses an older one.
+ 
+ ## Model-facing interfaces
+ 
+diff --git a/docs/008-cookbook.md b/docs/008-cookbook.md
+index 22c279a..477ef4d 100644
+--- a/docs/008-cookbook.md
++++ b/docs/008-cookbook.md
+@@ -154,28 +154,42 @@ Revalidation calls `scope` with the Mandate's stored metadata. Make it depend on
+   channel: {
+     allowed: (address, config) => config.conversations.some(item => item.id === address.conversation),
+     send: sendWebhook,
++    query: queryWebhook,
+     link: address => ({ url: address.url ?? '',
+       label: { zh: `Webhook 对话 ${address.conversation}`, en: `Webhook conversation ${address.conversation}` } }),
+   },
+ ```
+ 
+ ```ts
+-export async function sendWebhook(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone'> {
++export async function sendWebhook(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<SendResult> {
+   const { conversation, message: to } = message.channel.address
+   if (!conversation || !to) throw new Error('Missing webhook reply target')
+   try {
+-    await host.commands.run('hookq', ['reply', '--conversation', conversation, '--to', to, '--key', message.id,
++    const sent = await host.commands.run('hookq', ['reply', '--conversation', conversation, '--to', to, '--key', message.id,
+       '--text', message.text])
+-    return 'sent'
++    // The host's answer carries the remote ID; it is what a Receipt and a later query reconcile against.
++    const { id } = JSON.parse(sent) as { id?: string }
++    return { outcome: 'sent', ...(id ? { externalId: id } : {}) }
+   } catch (error) {
+-    if (error instanceof CliError && error.code === 410) return 'gone'
++    if (error instanceof CliError && error.code === 410) return { outcome: 'gone' }
++    throw error
++  }
++}
++
++export async function queryWebhook(host: Pick<SourceContext, 'commands'>, message: OutboundMessage, externalId?: string): Promise<QueryResult> {
++  if (!externalId) return { outcome: 'unsupported' }
++  try {
++    const found = await host.commands.run('hookq', ['lookup', '--id', externalId])
++    return found ? { outcome: 'sent', externalId } : { outcome: 'absent' }
++  } catch (error) {
++    if (error instanceof CliError && error.code === 404) return { outcome: 'absent' }
+     throw error
+   }
+ }
+ ```
+ 
+-- **Idempotent sends.** Outbox calls `SourceRegistry.send`, which invokes `channel.send`. Messages wait while the Source plugin is unloaded. A send may fail after the remote service received it, so retries must not duplicate messages. Use `message.id` as an idempotency key: `hookq` supports `--key`; GitHub stores a hidden comment marker; Feishu accepts an idempotency key.
+-- **Permanent versus retryable failure.** Return `sent` on success and `gone` only when delivery is permanently impossible, such as the example's 410. A gone message is retained as dropped and never queued again; it appears in `GET sources` and on the Source page. Throw for other failures so Outbox retries after 5 seconds, doubling to 300 seconds. `CliError.code` is the code reported by the CLI output.
++- **Idempotent sends.** Outbox calls `SourceRegistry.send`, which invokes `channel.send`. Messages wait while the Source plugin is unloaded. A send may fail after the remote service received it, so retries must not duplicate messages. Use `message.id` as an idempotency key: `hookq` supports `--key`; GitHub stores a hidden comment marker; Feishu accepts an idempotency key. Return the host's remote ID as `externalId` so the Receipt, the Effect, and the remote message can be reconciled.
++- **Permanent versus retryable failure.** Return `{ outcome: 'sent' }` on success and `{ outcome: 'gone' }` only when delivery is permanently impossible, such as the example's 410. A gone message is retained as dropped and never queued again; it appears in `GET sources` and on the Source page. Throw for other failures so Outbox retries after 5 seconds, doubling to 300 seconds; an Effect interrupted in flight is marked unknown and, before any retry, `query` asks the host whether the message landed, so an absent answer is the only case that sends again. `CliError.code` is the code reported by the CLI output.
+ - **Allowed destinations.** `allowed(address, config)` checks only the saved address and current configuration. Put every required fact in the address; for example, Feishu records whether the chat is direct. A destination no longer listened to is dropped, while a disabled Source leaves messages waiting. Without `allowed`, all addresses are permitted while the Source is enabled.
+ - **Links.** `link(address, links)` returns the URL and label the panel displays through `SourceRegistry.link`.
+ 
+diff --git a/src/app/api.ts b/src/app/api.ts
+index f66b24a..8148dc1 100644
+--- a/src/app/api.ts
++++ b/src/app/api.ts
+@@ -1,10 +1,12 @@
+ /** Type-only management API contract between the web panel and host routes, imported by the panel without bundling host code. */
+ import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
+ import type { InputReceipt, InputSubmission, SubjectBinding } from '../core/model.ts'
++import type { EffectState } from '../core/ports.ts'
+ import type { PromptConfig, Prompts } from './prompts.ts'
+ import type { PromptsView, StateView, TicketPageView } from './http.ts'
+ import type { HistoryView } from './settings-history.ts'
+ import type { OverviewView } from './views/overview.ts'
++import type { EffectPageView } from './views/records.ts'
+ import type { SettingsView } from './views/settings.ts'
+ import type { SourceStatusView } from './views/sources.ts'
+ import type { DecisionListView, SearchView, ThreadDetailView, ThreadListView } from './views/threads.ts'
+@@ -36,6 +38,7 @@ export interface Api {
+   'POST decisions/:id/dismiss': { response: { dismissed: true } }
+   'GET tickets': { query?: Paged & { state?: TicketFilter }; response: TicketListView }
+   'GET tickets/:id': { response: TicketPageView }
++  'GET effects': { query?: Paged & { ticket?: string; state?: EffectState; kind?: string }; response: EffectPageView }
+   'POST tickets/:id/retry': { response: { retried: true } }
+   'POST tickets/:id/stop': { response: { stopped: true } }
+   'POST executor/pause': { body: { paused: boolean }; response: { paused: boolean } }
+diff --git a/src/app/effects.ts b/src/app/effects.ts
+index 9255cda..000104f 100644
+--- a/src/app/effects.ts
++++ b/src/app/effects.ts
+@@ -3,8 +3,16 @@
+  * Effects reschedules the row after the initial retry delay without incrementing its failure count, and DshExecutor throws it from launch and delivery handlers.
+  */
+ export class Later extends Error {}
++/**
++ * Signals that a handler cannot tell whether its external side effect happened, such as after a send timed out.
++ * Effects records the row as `unknown`; Outbox queries the remote state before sending again.
++ */
++export class Unknown extends Error {}
++/** Signals that a handler's external side effect can never succeed; Effects records a terminal `failed` row instead of retrying. */
++export class Failed extends Error {}
+ /** Consecutive failures before an effect kind reports an error, matching the Sources poll failure threshold. */
+ export const FAILURES_BEFORE_ERROR = 3
++import type { EffectState } from '../core/index.ts'
+ import type { HealthBoard, HealthEntry } from '../infra/health.ts'
+ import type { Store } from './store.ts'
+ 
+@@ -23,8 +31,30 @@ export interface EffectPayloads {
+   reply: Record<string, never>
+ }
+ export type EffectKind = keyof EffectPayloads
++/** What a handler's side effect produced; the external ID lets the Effect, Receipt, and remote state be reconciled. */
++export interface EffectResult { externalId?: string }
++/** Correlation recorded when an effect is queued: its idempotency key, the Receipt it delivers, and the Ticket it serves. */
++export interface EffectDetails { idempotencyKey?: string; receiptId?: string; ticketId?: string }
++/** A persisted effect row as the Outbox and views read it, including its correlation and state. */
++export interface EffectRecord {
++  kind: EffectKind
++  key: string
++  effectId: string
++  idempotencyKey: string
++  state: EffectState
++  receiptId?: string
++  externalId?: string
++  ticketId?: string
++  attempts: number
++  error: string
++  confirmedAt?: string
++  lastAttemptAt?: string
++  inFlight: boolean
++  payload: unknown
++  since: string
++}
+ interface Handler<K extends EffectKind> {
+-  run: (payload: EffectPayloads[K], key: string) => Promise<void>
++  run: (payload: EffectPayloads[K], key: string) => Promise<void | EffectResult>
+   /** How many may run at once now; 0 holds the kind, such as while processing is paused. */
+   limit: () => number
+   /** Initial and maximum retry backoff delays, in milliseconds. */
+@@ -33,15 +63,24 @@ interface Handler<K extends EffectKind> {
+   ordered: boolean
+   /** When true, repeated failures do not mark the effect kind's health entry as `error` (used when failures are already surfaced on a ticket). */
+   quiet: boolean
++  /** Keep terminal (`sent` and `failed`) rows so the effect stays queryable; otherwise a finished row is deleted. */
++  record: boolean
++  /** How a row interrupted by shutdown is recovered: `retry` runs it again, `unknown` asks the channel before retrying. */
++  interrupted: 'retry' | 'unknown'
++}
++type Options<K extends EffectKind> = Partial<Pick<Handler<K>, 'limit' | 'retry' | 'ordered' | 'quiet' | 'record' | 'interrupted'>>
++/** `seq` preserves the row's queue position; `generation` increments on payload updates so a running attempt does not overwrite a newer payload. */
++interface Row { key: string; value: string; seq: number; generation: number; attempts: number; due: number; state: EffectState }
++type StoredRow = Row & {
++  kind: string; value: string; effect_id: string; idempotency_key: string; receipt_id: string | null; external_id: string | null
++  confirmed_at: string | null; last_attempt_at: string | null; in_flight: number; ticket_id: string | null; error: string; since: string
+ }
+-type Options<K extends EffectKind> = Partial<Pick<Handler<K>, 'limit' | 'retry' | 'ordered' | 'quiet'>>
+-/** `seq` preserves the row's queue position; `generation` increments on payload updates so a running attempt does not delete a newer payload. */
+-interface Row { key: string; value: string; seq: number; generation: number; attempts: number; due: number }
+ type Task = { kind: EffectKind; key: string; done: Promise<void> }
+ 
+ /**
+  * Durable SQLite-backed queue that persists side effects inside command transactions and dispatches them after commit.
+- * Coordinates per-kind handlers, concurrency limits, exponential backoff, and health reporting for MasterAssessor, DshExecutor, Sessions, and Outbox.
++ * Coordinates per-kind handlers, concurrency limits, exponential backoff, and health reporting for MasterAssessor, DshExecutor, Sessions, and Outbox;
++ * recording kinds keep their terminal rows so an external side effect can be traced from its Ticket through its Receipt.
+  */
+ export class Effects {
+   private readonly handlers = new Map<EffectKind, Handler<never>>()
+@@ -57,30 +96,56 @@ export class Effects {
+   constructor(private readonly store: Store, private readonly board: Pick<HealthBoard, 'claim'>, private readonly now = () => Date.now()) {
+     this.seq = Number(store.db.prepare('SELECT IFNULL(MAX(seq), 0) AS seq FROM effect').get()?.seq ?? 0)
+   }
+-  /** Upserts an effect in the caller's transaction, coalescing with any waiting row of the same kind and key while keeping its queue position. */
+-  enqueue<K extends EffectKind>(kind: K, key: string, payload: EffectPayloads[K]): void {
+-    this.store.db.prepare(`INSERT INTO effect (kind, key, value, seq, due, since) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(kind, key) DO UPDATE
+-      SET value = excluded.value, generation = generation + 1, attempts = 0, error = '', due = excluded.due`)
+-      .run(kind, key, JSON.stringify(payload), ++this.seq, this.now(), new Date(this.now()).toISOString())
++  /**
++   * Upserts an effect in the caller's transaction, coalescing with any waiting row of the same kind and key while keeping its queue position.
++   * Re-queuing a finished row resets its state and external confirmation.
++   */
++  enqueue<K extends EffectKind>(kind: K, key: string, payload: EffectPayloads[K], details?: EffectDetails): void {
++    const at = this.now()
++    const ticketId = details?.ticketId ?? (typeof (payload as { ticketId?: unknown }).ticketId === 'string' ? (payload as { ticketId: string }).ticketId : null)
++    this.store.db.prepare(`INSERT INTO effect (kind, key, value, seq, due, since, effect_id, idempotency_key, receipt_id, ticket_id)
++      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(kind, key) DO UPDATE SET value = excluded.value, generation = generation + 1,
++      attempts = 0, error = '', due = excluded.due, state = 'pending', in_flight = 0, last_attempt_at = NULL, external_id = NULL,
++      confirmed_at = NULL, receipt_id = COALESCE(excluded.receipt_id, effect.receipt_id), ticket_id = COALESCE(excluded.ticket_id, effect.ticket_id)`)
++      .run(kind, key, JSON.stringify(payload), ++this.seq, at, new Date(at).toISOString(), `${kind}:${key}`,
++        details?.idempotencyKey ?? key, details?.receiptId ?? null, ticketId)
+     this.kick()
+   }
+   handle<K extends EffectKind>(kind: K, run: Handler<K>['run'], options: Options<K> = {}): void {
+     if (this.handlers.has(kind)) throw new Error(`The ${kind} effects already have a handler`)
+     this.health.set(kind, this.board.claim(kind))
+-    const { limit = () => 1, retry = [2000, 60_000], ordered = false, quiet = false } = options
+-    this.handlers.set(kind, { run, limit: ordered ? () => Math.min(1, limit()) : limit, retry, ordered, quiet } as unknown as Handler<never>)
++    const { limit = () => 1, retry = [2000, 60_000], ordered = false, quiet = false, record = false, interrupted = 'retry' } = options
++    this.handlers.set(kind, { run, limit: ordered ? () => Math.min(1, limit()) : limit, retry, ordered, quiet, record, interrupted } as unknown as Handler<never>)
++    if (this.started) this.recover(kind)
+     this.report(kind)
+     this.kick()
+   }
++  /** Whether a row of `kind` (or of that kind and key) still waits to run or has an unknown outcome. */
+   pending(kind: EffectKind, key?: string): boolean {
+-    return key === undefined ? !!this.store.db.prepare('SELECT 1 FROM effect WHERE kind = ? LIMIT 1').get(kind) : !!this.store.db.prepare('SELECT 1 FROM effect WHERE kind = ? AND key = ?').get(kind, key)
++    return key === undefined
++      ? !!this.store.db.prepare("SELECT 1 FROM effect WHERE kind = ? AND state IN ('pending', 'unknown') LIMIT 1").get(kind)
++      : !!this.store.db.prepare("SELECT 1 FROM effect WHERE kind = ? AND key = ? AND state IN ('pending', 'unknown')").get(kind, key)
++  }
++  /** Reads a row's correlation and state, including terminal rows kept by recording kinds. */
++  get(kind: EffectKind, key: string): EffectRecord | undefined {
++    const row = this.store.db.prepare('SELECT * FROM effect WHERE kind = ? AND key = ?').get(kind, key) as unknown as StoredRow | undefined
++    if (!row) return undefined
++    return { kind: row.kind as EffectKind, key: row.key, effectId: row.effect_id, idempotencyKey: row.idempotency_key,
++      state: row.state, receiptId: row.receipt_id ?? undefined, externalId: row.external_id ?? undefined, ticketId: row.ticket_id ?? undefined,
++      attempts: row.attempts, error: row.error, confirmedAt: row.confirmed_at ?? undefined, lastAttemptAt: row.last_attempt_at ?? undefined,
++      inFlight: row.in_flight === 1, payload: JSON.parse(row.value), since: row.since }
+   }
+   /** Drops a queued row by kind and key; if it is already running, that attempt finishes normally. */
+   cancel(kind: EffectKind, key: string): void {
+     this.store.db.prepare('DELETE FROM effect WHERE kind = ? AND key = ?').run(kind, key)
+     this.store.afterCommit(() => { this.report(kind) })
+   }
+-  start(): void { this.started = true; this.kick() }
++  start(): void {
++    if (this.started) return
++    this.started = true
++    for (const kind of this.handlers.keys()) this.recover(kind)
++    this.kick()
++  }
+   kick(): void {
+     if (this.scheduled) return
+     this.scheduled = true
+@@ -105,10 +170,13 @@ export class Effects {
+     for (const [kind, handler] of this.handlers) {
+       try {
+         const running = new Set([...this.tasks].filter(task => task.kind === kind).map(task => task.key))
++        // Terminal rows are kept by recording kinds but must not block later rows, so only active states are dispatched.
+         // Ordered kinds block behind their oldest row even when it is not yet due; limit() is queried only after ready rows exist.
+         const rows = (handler.ordered
+-          ? this.store.db.prepare('SELECT key, value, seq, generation, attempts, due FROM effect WHERE kind = ? ORDER BY seq LIMIT 1').all(kind)
+-          : this.store.db.prepare('SELECT key, value, seq, generation, attempts, due FROM effect WHERE kind = ? AND due <= ? ORDER BY seq LIMIT ?')
++          ? this.store.db.prepare(`SELECT key, value, seq, generation, attempts, due, state FROM effect
++              WHERE kind = ? AND state IN ('pending', 'unknown') AND in_flight = 0 ORDER BY seq LIMIT 1`).all(kind)
++          : this.store.db.prepare(`SELECT key, value, seq, generation, attempts, due, state FROM effect
++              WHERE kind = ? AND state IN ('pending', 'unknown') AND in_flight = 0 AND due <= ? ORDER BY seq LIMIT ?`)
+             .all(kind, this.now(), 16 + running.size)) as unknown as Row[]
+         const ready = handler.ordered && running.size ? [] : rows.filter(row => row.due <= this.now() && !running.has(row.key))
+         let room = ready.length ? handler.limit() - running.size : 0
+@@ -121,28 +189,71 @@ export class Effects {
+     }
+   }
+   private run(kind: EffectKind, handler: Handler<never>, row: Row): void {
++    // Claim before the first await so a later dispatch cannot start the same row twice.
++    if (!this.claim(kind, row)) return
+     const task: Task = { kind, key: row.key, done: Promise.resolve() }
+     task.done = this.attempt(kind, handler, row)
+       .catch((error: unknown) => { this.failed(kind, error) })
+       .finally(() => { this.tasks.delete(task); this.kick() })
+     this.tasks.add(task)
+   }
++  private claim(kind: EffectKind, row: Row): boolean {
++    const claimed = this.store.db.prepare(`UPDATE effect SET in_flight = 1, last_attempt_at = ?
++      WHERE kind = ? AND key = ? AND seq = ? AND generation = ? AND in_flight = 0 AND state IN ('pending', 'unknown')`)
++      .run(new Date(this.now()).toISOString(), kind, row.key, row.seq, row.generation)
++    return Number(claimed.changes) > 0
++  }
+   private async attempt(kind: EffectKind, handler: Handler<never>, row: Row): Promise<void> {
+-    let failure: { error: unknown } | undefined
+-    try { await handler.run(JSON.parse(row.value) as never, row.key) } catch (error) { failure = { error } }
++    let answer: 'success' | 'later' | 'unknown' | 'failed' | 'error' = 'success', result: void | EffectResult = undefined, error: unknown = undefined
++    try { result = await handler.run(JSON.parse(row.value) as never, row.key) }
++    catch (caught) {
++      // A shutdown leaves the claimed row in flight so recovery can tell it was interrupted.
++      if (this.stopped) return
++      error = caught
++      answer = caught instanceof Later ? 'later' : caught instanceof Unknown ? 'unknown' : caught instanceof Failed ? 'failed' : 'error'
++    }
++    try { this.settle(kind, handler, row, answer, error, result) }
++    catch (caught) { this.failed(kind, caught); return }
++    if (!this.stopped) this.report(kind)
++  }
++  private settle(kind: EffectKind, handler: Handler<never>, row: Row, answer: 'success' | 'later' | 'unknown' | 'failed' | 'error',
++    error?: unknown, result?: void | EffectResult): void {
+     // Match seq and generation so a row replaced or re-queued while running is not overwritten.
+     const own = 'kind = ? AND key = ? AND seq = ? AND generation = ?', ownRow = [kind, row.key, row.seq, row.generation] as const
+-    if (!failure) this.store.db.prepare(`DELETE FROM effect WHERE ${own}`).run(...ownRow)
+-    // Leave running rows untouched on shutdown so they retry on the next start.
+-    else if (this.stopped) return
+-    else if (failure.error instanceof Later) {
+-      this.store.db.prepare(`UPDATE effect SET due = ? WHERE ${own}`).run(this.now() + handler.retry[0], ...ownRow)
+-    } else {
+-      const delay = Math.min(handler.retry[1], handler.retry[0] * 2 ** Math.min(row.attempts, 16))
+-      this.store.db.prepare(`UPDATE effect SET attempts = attempts + 1, error = ?, due = ? WHERE ${own}`)
+-        .run(String(failure.error).slice(0, 1000), this.now() + delay, ...ownRow)
++    switch (answer) {
++      case 'success':
++        if (!handler.record) { this.store.db.prepare(`DELETE FROM effect WHERE ${own}`).run(...ownRow); return }
++        this.store.db.prepare(`UPDATE effect SET state = 'sent', in_flight = 0, error = '', confirmed_at = ?, due = 0,
++          external_id = COALESCE(?, external_id) WHERE ${own}`).run(new Date(this.now()).toISOString(), (result as EffectResult | undefined)?.externalId ?? null, ...ownRow)
++        return
++      case 'later':
++        this.store.db.prepare(`UPDATE effect SET in_flight = 0, due = ? WHERE ${own}`).run(this.now() + handler.retry[0], ...ownRow)
++        return
++      case 'unknown':
++        this.store.db.prepare(`UPDATE effect SET state = 'unknown', in_flight = 0, attempts = attempts + 1, error = ?, due = ? WHERE ${own}`)
++          .run(String(error).slice(0, 1000), this.now() + this.delay(handler, row.attempts), ...ownRow)
++        return
++      case 'failed':
++        if (!handler.record) { this.store.db.prepare(`DELETE FROM effect WHERE ${own}`).run(...ownRow); return }
++        this.store.db.prepare(`UPDATE effect SET state = 'failed', in_flight = 0, attempts = attempts + 1, error = ?, due = 0 WHERE ${own}`)
++          .run(String(error).slice(0, 1000), ...ownRow)
++        return
++      case 'error':
++        this.store.db.prepare(`UPDATE effect SET in_flight = 0, state = CASE WHEN state = 'unknown' THEN 'unknown' ELSE 'pending' END,
++          attempts = attempts + 1, error = ?, due = ? WHERE ${own}`)
++          .run(String(error).slice(0, 1000), this.now() + this.delay(handler, row.attempts), ...ownRow)
+     }
+-    if (!this.stopped) this.report(kind)
++  }
++  private delay(handler: Handler<never>, attempts: number): number {
++    return Math.min(handler.retry[1], handler.retry[0] * 2 ** Math.min(attempts, 16))
++  }
++  /** Releases rows a previous process claimed but did not finish, marking them unknown when the handler asks the channel first. */
++  private recover(kind: EffectKind): void {
++    const interrupted = this.handlers.get(kind)?.interrupted === 'unknown' ? 1 : 0
++    this.store.db.prepare(`UPDATE effect SET in_flight = 0,
++      state = CASE WHEN ? = 1 AND state = 'pending' THEN 'unknown' ELSE state END,
++      error = CASE WHEN ? = 1 AND state = 'pending' THEN 'Interrupted while running' ELSE error END
++      WHERE kind = ? AND in_flight = 1`).run(interrupted, interrupted, kind)
+   }
+   private failed(kind: EffectKind, error: unknown): void {
+     this.broken.add(kind)
+@@ -150,7 +261,8 @@ export class Effects {
+   }
+   private report(kind: EffectKind): void {
+     const row = this.store.db.prepare(`SELECT COUNT(*) AS waiting, MIN(since) AS since, MAX(attempts) AS attempts,
+-      (SELECT error FROM effect WHERE kind = ? AND attempts > 0 ORDER BY seq DESC LIMIT 1) AS error FROM effect WHERE kind = ?`).get(kind, kind)
++      (SELECT error FROM effect WHERE kind = ? AND state IN ('pending', 'unknown') AND attempts > 0 ORDER BY seq DESC LIMIT 1) AS error
++      FROM effect WHERE kind = ? AND state IN ('pending', 'unknown')`).get(kind, kind)
+     const waiting = Number(row?.waiting ?? 0)
+     const failing = Number(row?.attempts ?? 0) >= FAILURES_BEFORE_ERROR && !this.handlers.get(kind)?.quiet
+     const detail = waiting ? `${waiting} waiting since ${String(row?.since)}` : 'Nothing waiting'
+diff --git a/src/app/http.ts b/src/app/http.ts
+index b792a51..7c23cec 100644
+--- a/src/app/http.ts
++++ b/src/app/http.ts
+@@ -12,7 +12,7 @@ import { policyVersion } from '../policy.ts'
+ import { InputError, type Inputs } from './input.ts'
+ import { SettingsConflict, type Settings } from './settings.ts'
+ import { SetupError, type SetupProblem } from '../setup.ts'
+-import { UserError, type EngineForPeople, type Ticket } from '../core/index.ts'
++import { UserError, EFFECT_STATES, type EngineForPeople, type Ticket } from '../core/index.ts'
+ import type { Deployment, Machine } from '../deployment.ts'
+ import type { DshExecutor } from '../executor/dsh.ts'
+ import type { Health } from '../sources/host.ts'
+@@ -22,6 +22,7 @@ import type { Store } from './store.ts'
+ import type { Subject } from './subject.ts'
+ import type { TextCache } from './cache.ts'
+ import type { LinkTarget, ViewHost } from './views/records.ts'
++import { effectPage } from './views/records.ts'
+ import type { Variable } from './execution-environment.ts'
+ import { policyHistory } from './settings-history.ts'
+ import { overview } from './views/overview.ts'
+@@ -150,6 +151,8 @@ const ThreadsQuery = z.object({ filter: z.enum(THREAD_FILTERS).catch('subscribed
+ const ThreadQuery = z.object({ limit: limit(50, 100), before: z.string().optional(), around: z.string().optional() })
+ const DecisionsQuery = z.object({ kind: z.string().default(''), window: z.literal('24h').optional().catch(undefined), offset,
+   limit: limit(30, 200) })
++const EffectsQuery = z.object({ ticket: z.string().optional(), state: z.enum(EFFECT_STATES).optional().catch(undefined),
++  kind: z.string().optional(), offset, limit: limit(30, 200) })
+ const count = z.coerce.number().int().nonnegative()
+ const PromptsQuery = z.object({ revision: count.optional(), offset: count.default(0) })
+ const SubjectRename = z.object({ displayName: z.string().trim().min(1).max(80) }).strict()
+@@ -206,6 +209,10 @@ function routes(runtime: HttpHost): Routes {
+       return ticketList(views(runtime), state, offset, limit)
+     },
+     'GET tickets/:id': ({ params }) => ticketPage(runtime, params.id),
++    'GET effects': ({ query }) => {
++      const { ticket: ticketId, state, kind, offset, limit } = EffectsQuery.parse(query)
++      return effectPage(views(runtime), { ticketId, state, kind }, offset, limit)
++    },
+     'POST tickets/:id/retry': ({ params }) => { const id = ticket(params.id); runtime.engine.retryTicket(id); return { retried: true } },
+     'POST tickets/:id/stop': ({ params }) => { const id = ticket(params.id); runtime.engine.stopTicket(id); return { stopped: true } },
+     'POST executor/pause': async ({ body }) => runtime.settings.pause(z.object({ paused: z.boolean() }).parse(await body()).paused, 'panel'),
+diff --git a/src/app/migration.ts b/src/app/migration.ts
+index 567c628..40c9147 100644
+--- a/src/app/migration.ts
++++ b/src/app/migration.ts
+@@ -1,5 +1,5 @@
+ /**
+- * Migrates a schema 10 database to schema 11 in a single transaction so runtime readers never convert legacy shapes.
++ * Migrates a schema 10 or 11 database to schema 12 in a single transaction so runtime readers never convert legacy shapes.
+  * Databases older than schema 10 are rejected: this version cannot migrate them.
+  */
+ import { basename } from 'node:path'
+@@ -17,7 +17,7 @@ import type { SettingsVersion, Store } from './store.ts'
+ import { Versions } from './versions.ts'
+ import { KV, type Key } from '../kv.ts'
+ 
+-export const SCHEMA_VERSION = 11
++export const SCHEMA_VERSION = 12
+ /** The oldest database schema version this build can open and migrate directly. */
+ export const OLDEST_SCHEMA = 10
+ /** Returns an error message explaining why `version` cannot be opened: older schemas need a new state directory. */
+@@ -89,6 +89,20 @@ export function migrateTo11(store: Store): void {
+   step('the reasons', () => { reasonsAsCodes(store) })
+   step('the Triggers\' times', () => { triggerTimes(store) })
+ }
++/**
++ * Correlate effect rows created before schema 12 with their idempotency key, receipt, and Ticket; the new columns and
++ * indexes are added by `Store.addColumns` before this runs, because old tables lack them during the fresh DDL.
++ */
++export function migrateTo12(store: Store): void {
++  store.db.exec(`
++    UPDATE effect SET effect_id = kind || ':' || key WHERE effect_id = '';
++    UPDATE effect SET idempotency_key = key WHERE idempotency_key = '';
++    UPDATE effect SET receipt_id = key WHERE kind = 'reply' AND receipt_id IS NULL;
++    UPDATE effect SET ticket_id = CASE WHEN kind = 'reply'
++      THEN (SELECT value ->> '$.ticketId' FROM outbox WHERE outbox.id = effect.key)
++      ELSE json_extract(value, '$.ticketId') END WHERE ticket_id IS NULL;
++  `)
++}
+ /**
+  * Normalize trigger and thread timestamps to fixed-width millisecond ISO strings so lexicographical text order matches
+  * chronological order (GitHub wrote whole seconds like `…:00Z`, which sorted after `…:00.001Z`).
+diff --git a/src/app/outbox.ts b/src/app/outbox.ts
+index a5f64b5..fdbeada 100644
+--- a/src/app/outbox.ts
++++ b/src/app/outbox.ts
+@@ -3,13 +3,13 @@ import type { OutboundMessage, Outbox as OutboxPort, ReplyStatus } from '../core
+ import type { Commands } from '../infra/commands.ts'
+ import { checkedImText } from '../infra/text.ts'
+ import type { SourceRegistry } from '../sources/registry.ts'
+-import { FAILURES_BEFORE_ERROR, Later, type Effects } from './effects.ts'
++import { FAILURES_BEFORE_ERROR, Failed, Later, type EffectResult, type Effects } from './effects.ts'
+ import type { Store } from './store.ts'
+ 
+ export interface OutboxHost {
+   readonly store: Pick<Store, 'atomic' | 'receipts'>
+-  readonly effects: Pick<Effects, 'enqueue' | 'cancel' | 'handle' | 'idle'>
+-  readonly sources: Pick<SourceRegistry, 'instance' | 'channelAllowed' | 'send'>
++  readonly effects: Pick<Effects, 'enqueue' | 'cancel' | 'get' | 'handle' | 'idle'>
++  readonly sources: Pick<SourceRegistry, 'instance' | 'channelAllowed' | 'send' | 'query'>
+   readonly commands: Commands
+   paused(): boolean
+ }
+@@ -18,35 +18,82 @@ export interface OutboxHost {
+  * Persists outbound channel messages as receipts and delivers them sequentially through `Effects` and `SourceRegistry`.
+  * Implements the core `Outbox` port for `Engine` and source contexts, ensuring per-conversation ordering for each ticket until an earlier message fails repeatedly.
+  * Messages wait while processing is paused or their source is unavailable, and settle as dropped when the target conversation is ignored or gone.
++ * An interrupted or ambiguous attempt stays `unknown`; the Source is queried before any retry, and its external ID is written to both the effect and the receipt.
+  */
+ export class Outbox implements OutboxPort {
+   constructor(private readonly host: OutboxHost) {
+-    host.effects.handle('reply', (_payload, id) => this.deliver(id), { limit: () => host.paused() ? 0 : 1, retry: [5000, 300_000] })
++    host.effects.handle('reply', (_payload, id) => this.deliver(id),
++      { limit: () => host.paused() ? 0 : 1, retry: [5000, 300_000], record: true, interrupted: 'unknown' })
+   }
+   /** Record a message receipt and enqueue its delivery effect atomically; duplicate message IDs are ignored. */
+   send(message: OutboundMessage): void {
+     // Validate IM reply length here; acknowledgements are already validated when decided.
+     if (message.kind === 'reply' && message.channel.source === 'feishu') checkedImText(message.text)
+     const { store, effects } = this.host
+-    store.atomic(() => { if (store.receipts.add(message)) effects.enqueue('reply', message.id, {}) })
++    store.atomic(() => {
++      if (store.receipts.add(message)) {
++        effects.enqueue('reply', message.id, {},
++          { idempotencyKey: message.id, receiptId: message.id, ticketId: message.ticketId })
++      }
++    })
+   }
+   status(id: string): ReplyStatus | undefined { return this.host.store.receipts.get(id)?.status }
++  /** Withdraws a reply still waiting; one that is running, ambiguous, or already sent keeps its receipt. */
+   withdraw(id: string): void {
+     const { store, effects } = this.host
+-    store.atomic(() => { if (store.receipts.withdraw(id)) effects.cancel('reply', id) })
++    store.atomic(() => {
++      const effect = effects.get('reply', id)
++      if (effect?.inFlight || effect?.state === 'unknown' || effect?.state === 'sent') return
++      const receipt = store.receipts.get(id)
++      if (receipt?.status === 'pending' && store.receipts.withdraw(id)) effects.cancel('reply', id)
++    })
+   }
+   sent(): Promise<void> { return this.host.effects.idle('reply') }
+-  private async deliver(id: string): Promise<void> {
+-    const { store, sources, commands } = this.host
++  private async deliver(id: string): Promise<EffectResult | undefined> {
++    const { store, sources, commands, effects } = this.host
+     const receipt = store.receipts.get(id)
+-    if (receipt?.status !== 'pending') return
++    if (!receipt) { effects.cancel('reply', id); return }
++    if (receipt.status === 'sent') return receipt.externalId ? { externalId: receipt.externalId } : {}
++    if (receipt.status !== 'pending') throw new Failed('The reply was dropped')
++
++    const effect = effects.get('reply', id)
++    if (!effect) {
++      effects.enqueue('reply', id, {}, { idempotencyKey: id, receiptId: id, ticketId: receipt.ticketId })
++      throw new Later('The reply effect was missing')
++    }
++    if (effect.state === 'sent') {
++      store.receipts.settle(receipt, 'sent', { externalId: effect.externalId, confirmedAt: effect.confirmedAt })
++      return effect.externalId ? { externalId: effect.externalId } : {}
++    }
++    if (effect.state === 'failed') throw new Failed(effect.error || 'The reply failed')
++
+     if (!sources.instance(receipt.channel.source)?.enabled) throw new Later('The Source is off or not installed')
++    // An ambiguous attempt is reconciled with the Source first, so a reply that already landed is never sent twice.
++    if (effect.state === 'unknown') {
++      const found = await sources.query(receipt, commands, effect.externalId)
++      if (found.outcome === 'sent') {
++        store.receipts.settle(receipt, 'sent',
++          { externalId: found.externalId ?? effect.externalId, confirmedAt: new Date().toISOString() })
++        const externalId = found.externalId ?? effect.externalId
++        return externalId ? { externalId } : {}
++      }
++      // `absent` falls through to an idempotent retry; `unsupported` relies on the channel's idempotency key.
++    }
++
+     // Hold later messages for the same ticket and conversation behind an earlier pending message until it exceeds the failure threshold.
+     if (store.receipts.behind(id, FAILURES_BEFORE_ERROR)) throw new Later('An earlier message of this ticket to this conversation waits')
+-    if (!sources.channelAllowed(receipt.channel)) { store.receipts.settle(receipt, 'channelIgnored'); return }
++    if (!sources.channelAllowed(receipt.channel)) {
++      store.receipts.settle(receipt, 'channelIgnored')
++      throw new Failed('The reply target is no longer allowed')
++    }
+     // A permanently unreachable target (such as a recalled message or deleted Issue) settles as `channelGone` so its receipt prevents retries.
+     const result = await sources.send(receipt, commands)
+-    if (result === 'waiting') throw new Later('The Source is not installed')
+-    store.receipts.settle(receipt, result === 'gone' ? 'channelGone' : 'sent')
++    if (result.outcome === 'waiting') throw new Later('The Source is not installed')
++    if (result.outcome === 'gone') {
++      store.receipts.settle(receipt, 'channelGone')
++      throw new Failed('The reply target is gone')
++    }
++    store.receipts.settle(receipt, 'sent', { externalId: result.externalId, confirmedAt: new Date().toISOString() })
++    return result.externalId ? { externalId: result.externalId } : {}
+   }
+ }
+diff --git a/src/app/store-read.ts b/src/app/store-read.ts
+index 4ffd045..e29864a 100644
+--- a/src/app/store-read.ts
++++ b/src/app/store-read.ts
+@@ -3,6 +3,13 @@ import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
+ import type { Decision, Thread, Trigger } from '../core/index.ts'
+ import type { Dropped, Receipt, TimelinePlace } from './store.ts'
+ 
++/** Raw `effect` row as the reconciliation views list it. */
++export interface EffectRowRecord {
++  kind: string; key: string; effect_id: string; idempotency_key: string; receipt_id: string | null; external_id: string | null
++  state: string; confirmed_at: string | null; last_attempt_at: string | null; in_flight: number; ticket_id: string | null
++  attempts: number; error: string; since: string
++}
++
+ export function storeReads(db: DatabaseSync) {
+   const values = <T>(sql: string, ...parameters: SQLInputValue[]): T[] => db.prepare(sql).all(...parameters).map(row => JSON.parse(String(row.value)) as T)
+   return {
+@@ -68,8 +75,22 @@ export function storeReads(db: DatabaseSync) {
+   decisionsOfKinds: (kinds: string[], limit = 30): Decision[] => db.prepare(`SELECT value FROM decision WHERE json_extract(value, '$.kind') IN (${kinds.map(() => '?').join(',')}) ORDER BY rowid DESC LIMIT ?`).all(...kinds, limit).map(row => JSON.parse(String(row.value)) as Decision),
+   /** Messages whose `reply` effect failed, with consecutive failure count and last error, oldest first. */
+   failingReplies: (): (Receipt & { attempts: number; error: string })[] => db.prepare(`SELECT o.value, e.attempts, e.error FROM effect e
+-    JOIN outbox o ON o.id = e.key WHERE e.kind = 'reply' AND e.attempts > 0 ORDER BY e.seq`).all()
++    JOIN outbox o ON o.id = e.key WHERE e.kind = 'reply' AND e.state IN ('pending', 'unknown') AND e.attempts > 0 ORDER BY e.seq`).all()
+     .map(row => ({ ...JSON.parse(String(row.value)) as Receipt, attempts: Number(row.attempts), error: String(row.error) })),
++  /** Effect rows matching the filters, newest queue position first; kept terminal rows are listed too. */
++  effects: (filter: { ticketId?: string; state?: string; kind?: string }, offset = 0, limit = 50): { items: EffectRowRecord[]; total: number } => {
++    const where = ['1 = 1']
++    const parameters: SQLInputValue[] = []
++    if (filter.ticketId) { where.push('ticket_id = ?'); parameters.push(filter.ticketId) }
++    if (filter.state) { where.push('state = ?'); parameters.push(filter.state) }
++    if (filter.kind) { where.push('kind = ?'); parameters.push(filter.kind) }
++    const clause = where.join(' AND ')
++    const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM effect WHERE ${clause}`).get(...parameters)?.n ?? 0)
++    const items = db.prepare(`SELECT kind, key, effect_id, idempotency_key, receipt_id, external_id, state, confirmed_at,
++      last_attempt_at, in_flight, ticket_id, attempts, error, since FROM effect WHERE ${clause} ORDER BY seq DESC LIMIT ? OFFSET ?`)
++      .all(...parameters, limit, offset) as unknown as EffectRowRecord[]
++    return { items, total }
++  },
+   droppedReplies: (limit = 20): Dropped[] =>
+     values('SELECT value FROM outbox WHERE dropped IS NOT NULL ORDER BY dropped DESC LIMIT ?', limit),
+   droppedSince: (since: string): number => Number(db.prepare('SELECT COUNT(*) AS n FROM outbox WHERE dropped >= ?').get(since)?.n ?? 0),
+diff --git a/src/app/store.ts b/src/app/store.ts
+index 6dcb8b0..32b4e41 100644
+--- a/src/app/store.ts
++++ b/src/app/store.ts
+@@ -6,7 +6,7 @@ import { key, threadKey, type ChannelRef, type Decision, type OutboundMessage, t
+   type ThreadFacts, type Ticket, type Trigger, type TriggerDisposition } from '../core/index.ts'
+ import { KV, type Family, type Key } from '../kv.ts'
+ import { SettingsSchema, type Settings, type SettingsOrigin, type SettingsSave } from '../policy.ts'
+-import { OLDEST_SCHEMA, SCHEMA_VERSION, migrateTo11, tooOld } from './migration.ts'
++import { OLDEST_SCHEMA, SCHEMA_VERSION, migrateTo11, migrateTo12, tooOld } from './migration.ts'
+ import { Versions } from './versions.ts'
+ import { storeReads } from './store-read.ts'
+ 
+@@ -15,7 +15,12 @@ export interface TimelinePlace { at: string; id: string }
+ /** Why a message was dropped: its conversation can never receive it (`channelGone`), or its Source no longer listens to it (`channelIgnored`). */
+ export type DropReason = 'channelGone' | 'channelIgnored'
+ /** Outbound message receipt tracked in the outbox from the moment it is queued (`pending`, `sent`, or `dropped`); delivery attempt counts live on its `reply` effect. */
+-export interface Receipt extends OutboundMessage { status: ReplyStatus; dropped?: { at: string; reason: DropReason } }
++export interface Receipt extends OutboundMessage {
++  status: ReplyStatus
++  dropped?: { at: string; reason: DropReason }
++  externalId?: string
++  confirmedAt?: string
++}
+ /** A dropped outbound message receipt, with the timestamp and reason it was dropped. */
+ export type Dropped = Receipt & { dropped: { at: string; reason: DropReason } }
+ /** Saved settings snapshot with the policy version and ticket notifications it produced (`internal` saves have no origin). */
+@@ -51,9 +56,9 @@ export { SCHEMA_VERSION }
+ export class Store implements Repositories {
+   readonly db: DatabaseSync
+   /**
+-   * Opens or creates the SQLite database at `path`, migrating schema 10 to schema 11 in a single transaction.
++   * Opens or creates the SQLite database at `path`, migrating a schema 10 or 11 database to schema 12 in a single transaction.
+    * @param report - Receives errors thrown by `afterCommit` callbacks without failing the committed transaction.
+-   * @throws When the database schema is older than `OLDEST_SCHEMA` (10), newer than `SCHEMA_VERSION` (11), or when migration fails; in every case the database file is left unchanged and the SQLite handle is closed so a later attempt in the same process can open it.
++   * @throws When the database schema is older than `OLDEST_SCHEMA` (10), newer than `SCHEMA_VERSION` (12), or when migration fails; in every case the database file is left unchanged and the SQLite handle is closed so a later attempt in the same process can open it.
+    */
+   constructor(path: string, private readonly report: (error: unknown) => void = () => {}) {
+     mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+@@ -79,14 +84,16 @@ export class Store implements Repositories {
+               PRIMARY KEY (thread, id));
+             CREATE TABLE IF NOT EXISTS effect (kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, seq INTEGER NOT NULL,
+               generation INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '', due INTEGER NOT NULL,
+-              since TEXT NOT NULL, PRIMARY KEY (kind, key));
++              since TEXT NOT NULL, effect_id TEXT NOT NULL DEFAULT '', idempotency_key TEXT NOT NULL DEFAULT '', receipt_id TEXT,
++              external_id TEXT, state TEXT NOT NULL DEFAULT 'pending', confirmed_at TEXT, last_attempt_at TEXT,
++              in_flight INTEGER NOT NULL DEFAULT 0, ticket_id TEXT, PRIMARY KEY (kind, key));
+             CREATE INDEX IF NOT EXISTS trigger_at ON trigger(at);
+             CREATE INDEX IF NOT EXISTS trigger_thread_at ON trigger_thread(thread, at);
+             CREATE INDEX IF NOT EXISTS decision_thread ON decision(thread);
+-            CREATE INDEX IF NOT EXISTS effect_due ON effect(kind, due, seq);
+           `)
+           this.addColumns()
+-          if (migrating) migrateTo11(this)
++          if (version !== undefined && version < 11) migrateTo11(this)
++          if (version !== undefined && version < 12) migrateTo12(this)
+           if (version !== SCHEMA_VERSION) this.set(KV.store.schema, SCHEMA_VERSION)
+         })
+       } catch (error) {
+@@ -116,7 +123,19 @@ export class Store implements Repositories {
+         this.db.exec(`CREATE INDEX IF NOT EXISTS ${table}_${name} ON ${table}(${name}) WHERE ${name} IS NOT NULL`)
+       }
+     }
+-    if (!columns('effect').has('generation')) this.db.exec('ALTER TABLE effect ADD COLUMN generation INTEGER NOT NULL DEFAULT 0')
++    const effectColumns: Readonly<Record<string, string>> = {
++      generation: 'INTEGER NOT NULL DEFAULT 0', effect_id: "TEXT NOT NULL DEFAULT ''", idempotency_key: "TEXT NOT NULL DEFAULT ''",
++      receipt_id: 'TEXT', external_id: 'TEXT', state: "TEXT NOT NULL DEFAULT 'pending'", confirmed_at: 'TEXT', last_attempt_at: 'TEXT',
++      in_flight: 'INTEGER NOT NULL DEFAULT 0', ticket_id: 'TEXT',
++    }
++    const existing = columns('effect')
++    for (const [name, definition] of Object.entries(effectColumns)) {
++      if (!existing.has(name)) this.db.exec(`ALTER TABLE effect ADD COLUMN ${name} ${definition}`)
++    }
++    // Columns must exist before indexes can reference them; both are added here because old tables lack them during the DDL.
++    this.db.exec(`DROP INDEX IF EXISTS effect_due;
++      CREATE INDEX IF NOT EXISTS effect_active ON effect(kind, state, in_flight, due, seq);
++      CREATE INDEX IF NOT EXISTS effect_ticket ON effect(ticket_id) WHERE ticket_id IS NOT NULL`)
+   }
+   /** Closes the underlying SQLite database connection. */
+   close(): void { this.db.close() }
+@@ -271,8 +290,10 @@ export class Store implements Repositories {
+      * Marks a pending receipt as sent or dropped (with drop reason and timestamp), recreating the receipt if the message
+      * was withdrawn while being sent so its ID cannot be queued again.
+      */
+-    settle: (message: OutboundMessage, outcome: 'sent' | DropReason): void => {
+-      const settled = outcome === 'sent' ? { status: 'sent' } : { status: 'dropped', dropped: { at: new Date().toISOString(), reason: outcome } }
++    settle: (message: OutboundMessage, outcome: 'sent' | DropReason, details: { externalId?: string; confirmedAt?: string } = {}): void => {
++      const settled = outcome === 'sent'
++        ? { status: 'sent', confirmedAt: details.confirmedAt ?? new Date().toISOString(), ...details.externalId ? { externalId: details.externalId } : {} }
++        : { status: 'dropped', dropped: { at: new Date().toISOString(), reason: outcome } }
+       const { id, channel, text, kind, ticketId } = message
+       const updated = this.db.prepare("UPDATE outbox SET value = json_patch(value, ?) WHERE id = ? AND value ->> '$.status' = 'pending'")
+         .run(JSON.stringify(settled), id)
+@@ -280,11 +301,16 @@ export class Store implements Repositories {
+         .run(id, JSON.stringify({ id, channel, text, kind, ...ticketId ? { ticketId } : {}, ...settled }))
+     },
+     /**
+-     * Withdraws a pending message that has not yet been sent.
++     * Withdraws a pending message that has not yet been sent, unless its effect is running or its outcome is already
++     * confirmed or unknown.
+      * @returns Whether a pending message with `id` was waiting and removed.
+      */
+-    withdraw: (id: string): boolean =>
+-      Number(this.db.prepare("DELETE FROM outbox WHERE id = ? AND value ->> '$.status' = 'pending'").run(id).changes) > 0,
++    withdraw: (id: string): boolean => {
++      const active = this.db.prepare(`SELECT 1 FROM effect WHERE kind = 'reply' AND key = ?
++        AND (in_flight = 1 OR state IN ('unknown', 'sent'))`).get(id)
++      if (active) return false
++      return Number(this.db.prepare("DELETE FROM outbox WHERE id = ? AND value ->> '$.status' = 'pending'").run(id).changes) > 0
++    },
+   }
+ }
+ export { key, threadKey }
+diff --git a/src/app/views/records.ts b/src/app/views/records.ts
+index 74dab2e..41d14fd 100644
+--- a/src/app/views/records.ts
++++ b/src/app/views/records.ts
+@@ -1,12 +1,13 @@
+ /** Shared view projections for triggers, tickets, threads, decisions, and channel links. */
+ import { z } from 'zod'
+ import { canRetry, followupOwners, latestReport, liveTicket, settled, threadKey, ticketStage, type ActorRef, type ChannelRef, type Decision,
+-  type DecisionKind, type Thread, type ThreadFacts, type Ticket, type TicketStage, type Trigger } from '../../core/index.ts'
++  type DecisionKind, type EffectState, type Thread, type ThreadFacts, type Ticket, type TicketStage, type Trigger } from '../../core/index.ts'
+ import { allowedSender, listedBot } from '../../policy.ts'
+ import type { ChannelLink, Localized } from '../../sources/kind.ts'
+ import type { SourceRegistry } from '../../sources/registry.ts'
+ import { workerSessionId } from '../../executor/dsh.ts'
+ import type { Store } from '../store.ts'
++import type { EffectRowRecord } from '../store-read.ts'
+ import { attribute, markdown, plain, preview, readable } from './text.ts'
+ 
+ export type LinkTarget = (channel: ChannelRef) => ChannelLink
+@@ -15,6 +16,22 @@ export const page = <T>(items: T[], offset: number, limit: number) => ({ items:
+ const DAY = 86_400_000
+ export const dayAgo = () => new Date(Date.now() - DAY).toISOString()
+ export const newestFirst = (a: Ticket, b: Ticket) => b.updatedAt.localeCompare(a.updatedAt)
++/** One effect row as the reconciliation views list it; `state` distinguishes not sent, running, unknown, sent, and failed. */
++export interface EffectRowView {
++  effectId: string; kind: string; key: string; state: EffectState; ticketId?: string; receiptId?: string; externalId?: string
++  attempts: number; error?: string; inFlight: boolean; confirmedAt?: string; lastAttemptAt?: string; since: string
++}
++export interface EffectPageView { items: EffectRowView[]; total: number; next_offset: number | null }
++export function effectView(row: EffectRowRecord): EffectRowView {
++  return { effectId: row.effect_id, kind: row.kind, key: row.key, state: row.state as EffectState, ticketId: row.ticket_id ?? undefined,
++    receiptId: row.receipt_id ?? undefined, externalId: row.external_id ?? undefined, attempts: row.attempts, error: row.error || undefined,
++    inFlight: row.in_flight === 1, confirmedAt: row.confirmed_at ?? undefined, lastAttemptAt: row.last_attempt_at ?? undefined, since: row.since }
++}
++export function effectPage(host: ViewHost, filter: { ticketId?: string; state?: EffectState; kind?: string }, offset = 0,
++  limit = 30): EffectPageView {
++  const { items, total } = host.store.read.effects(filter, offset, limit)
++  return { items: items.map(effectView), total, next_offset: offset + items.length < total ? offset + items.length : null }
++}
+ 
+ /** Sender projection for the UI; automated notices have an empty `id` and no `name`. */
+ export interface ActorView { source: string; id: string; name?: Localized }
+diff --git a/src/app/views/tickets.ts b/src/app/views/tickets.ts
+index e5b18bb..b9c4c22 100644
+--- a/src/app/views/tickets.ts
++++ b/src/app/views/tickets.ts
+@@ -3,7 +3,7 @@ import { liveTicket, threadKey, ticketStage, type AcceptMode, type AdmissionCell
+   type TicketStage } from '../../core/index.ts'
+ import { workerSessionId } from '../../executor/dsh.ts'
+ import type { Store } from '../store.ts'
+-import { channelLink, decisionView, newestFirst, page, snapshot, threadSummary, ticketLine, type Snapshot,
++import { channelLink, decisionView, effectPage, newestFirst, page, snapshot, threadSummary, ticketLine, type Snapshot,
+   type ViewHost } from './records.ts'
+ import { markdown, preview } from './text.ts'
+ 
+@@ -75,6 +75,8 @@ export function ticketDetail(host: ViewHost, id: string) {
+     basis: basisFacts(ticket.mandate.basis, view.rule), paused: store.settings().paused,
+     channels: ticket.channels.map(channel => channelLink(view, channel)),
+     decision: decision ? decisionView(view, decision) : undefined,
++    // External side effects this Ticket caused, so an unknown or failed delivery is traceable to its receipt and external ID.
++    effects: effectPage(host, { ticketId: id }, 0, 20),
+     // Every started Assignment ran in the ticket's one worker Session. A running assignment whose worker reported a non-progress state has finished its turn unless a human response resumed the ticket.
+     assignments: ticket.assignments.map(assignment => ({ ...assignment, ...assignment.startedAt ? { ref: workerSessionId(ticket.id) } : {},
+       ...assignment.state === 'running' && assignment.report && assignment.report.state !== 'progress' && stage !== 'working'
+diff --git a/src/client/api.ts b/src/client/api.ts
+index f58f44e..fcc4723 100644
+--- a/src/client/api.ts
++++ b/src/client/api.ts
+@@ -128,6 +128,7 @@ export type ThreadRow = ApiResponse<'GET threads'>['items'][number]
+ export type ThreadPageView = ApiResponse<'GET threads/:key'>
+ export type TriggerRow = ThreadPageView['timeline'][number]
+ export type DecisionRow = ApiResponse<'GET decisions'>['items'][number]
++export type EffectRow = ApiResponse<'GET effects'>['items'][number]
+ export type Problem = ApiResponse<'GET overview'>['problems'][number]
+ export type DroppedReply = SourceStatusRow['dropped'][number]
+ export type SearchView = ApiResponse<'GET search'>
+diff --git a/src/client/locales.ts b/src/client/locales.ts
+index 6f21200..7916fda 100644
+--- a/src/client/locales.ts
++++ b/src/client/locales.ts
+@@ -341,6 +341,22 @@ const TEXT = {
+   assignmentSpan: ['{from} → {to}', '{from} → {to}'],
+   inputUndelivered: ['未送达', 'Undelivered'],
+   mandateDetails: ['授权详情', 'Mandate details'],
++  effectsTitle: ['外部副作用', 'External effects'],
++  'effect.pending': ['未执行', 'Not sent'],
++  'effect.sent': ['成功', 'Sent'],
++  'effect.unknown': ['未知', 'Unknown'],
++  'effect.failed': ['失败', 'Failed'],
++  effectRunning: ['执行中', 'Running'],
++  effectAttempts: ['已尝试 {n} 次', 'Attempted {n} times'],
++  effectExternalId: ['外部 ID', 'External ID'],
++  effectLastFailure: ['最近错误：{error}', 'Last error: {error}'],
++  effectUnknownHint: ['结果未知，已先查询远程状态，不会重复发送。', 'Outcome unknown; the remote state is checked before any retry.'],
++  'effectKind.reply': ['消息发送', 'Reply delivery'],
++  'effectKind.launch': ['启动执行', 'Assignment launch'],
++  'effectKind.delivery': ['输入投递', 'Input delivery'],
++  'effectKind.relay': ['转述', 'Relay'],
++  'effectKind.notice': ['通知', 'Notice'],
++  'effectKind.assessment': ['评估投递', 'Assessment delivery'],
+   now: ['现在', 'now'],
+   stopHint: ['停止后当前派工结束，Session 和执行目录保留；停止收回授权，之后线程里的消息不再恢复它，要继续需要重新接单。', 'Stopping ends the current Assignment; its Session and directory stay. Stopping withdraws its Mandate: later messages on its Threads do not resume it, and continuing needs a new accept.'],
+   idleHint: ['执行器结束了当前回合，没有提出问题；这些工单订阅的线程收到新触发时继续。', 'The Executor ended its turn without asking anything; a new Trigger on a subscribed Thread resumes it.'],
+diff --git a/src/client/marks.ts b/src/client/marks.ts
+index c6fd27d..01262b4 100644
+--- a/src/client/marks.ts
++++ b/src/client/marks.ts
+@@ -1,5 +1,5 @@
+ /** Pure mappers from domain states (Tickets, Threads, Sources, Decisions) to UI status indicators. */
+-import type { DecisionRow, SourceStatusRow, ThreadRow, TicketStage, TicketSummary } from './api.ts'
++import type { DecisionRow, EffectRow, SourceStatusRow, ThreadRow, TicketStage, TicketSummary } from './api.ts'
+ import type { DshSuperagentKey } from './locales.ts'
+ import { valueLabel, type T } from './text.ts'
+ import type { DotState, IconName, TagTone } from './controls.tsx'
+@@ -55,3 +55,15 @@ const DECISION_MARKS: Record<Outcome, Omit<Mark, 'label'>> = {
+ export function decisionMark(t: T, outcome: Outcome): Mark {
+   return { ...DECISION_MARKS[outcome], label: outcome === 'wouldAccept' ? t('wouldAccept') : valueLabel(t, 'decision', outcome) }
+ }
++
++const EFFECT_MARKS: Record<EffectRow['state'], Omit<Mark, 'label'>> = {
++  pending: { tone: 'neutral', dot: 'idle', icon: 'queue' },
++  unknown: { tone: 'warning', dot: 'warning', icon: 'alert' },
++  sent: { tone: 'success', dot: 'done', icon: 'decision' },
++  failed: { tone: 'danger', dot: 'error', icon: 'blocked' },
++}
++/** Maps an Effect state to its visual mark; a pending effect claimed by a worker reads as running. */
++export function effectMark(t: T, state: EffectRow['state'], inFlight: boolean): Mark {
++  if (state === 'pending' && inFlight) return { label: t('effectRunning'), tone: 'neutral', dot: 'ongoing', icon: 'running' }
++  return { ...EFFECT_MARKS[state], label: valueLabel(t, 'effect', state) }
++}
+diff --git a/src/client/ticket.tsx b/src/client/ticket.tsx
+index f240a95..455c1b4 100644
+--- a/src/client/ticket.tsx
++++ b/src/client/ticket.tsx
+@@ -2,7 +2,7 @@
+ import { useState, type ReactNode } from 'react'
+ import { ApiError, usePoll, type TicketPageView } from './api.ts'
+ import { DisclosureRow, Dot, Icon, Tag, type IconName } from './controls.tsx'
+-import { decisionMark, reportDot, ticketMark } from './marks.ts'
++import { decisionMark, effectMark, reportDot, ticketMark } from './marks.ts'
+ import { usePanel } from './provider.tsx'
+ import { settingsRoute } from './route.ts'
+ import { Earlier, ThreadLine, automatedRuns } from './rows.tsx'
+@@ -154,6 +154,26 @@ export function TicketPage({ id }: { id: string }) {
+       <span className="dt-banner-label">{t('deliveryFailedPrefix')}</span>{data.deliveryError}
+     </p>}
+     <MandateDetails ticket={data} actor={actor} />
++    {data.effects.items.length > 0 && <Section title={t('effectsTitle')} count={data.effects.items.length}>
++      <ul className="dt-list">{data.effects.items.map(effect => {
++        const mark = effectMark(t, effect.state, effect.inFlight)
++        return <li key={effect.effectId} className="dt-row">
++          <StageMark state={mark.dot} icon={mark.icon} label={mark.label} />
++          <div className="dt-row-main">
++            <div className="dt-row-title">{valueLabel(t, 'effectKind', effect.kind)}</div>
++            <div className="dt-row-meta">
++              <span>{valueLabel(t, 'effect', effect.state)}</span>
++              {effect.inFlight && <span>{t('effectRunning')}</span>}
++              {effect.attempts > 0 && <span>{t('effectAttempts', { n: effect.attempts })}</span>}
++              {effect.confirmedAt && <When at={effect.confirmedAt} />}
++            </div>
++            {effect.externalId && <div className="dt-row-meta"><span>{t('effectExternalId')}</span><code className="dt-code">{effect.externalId}</code></div>}
++            {effect.error && <Hint>{t('effectLastFailure', { error: effect.error })}</Hint>}
++            {effect.state === 'unknown' && <Hint>{t('effectUnknownHint')}</Hint>}
++          </div>
++        </li>
++      })}</ul>
++    </Section>}
+     {undelivered.length > 0 && <Section title={t('undeliveredInputs')} count={undelivered.length}>
+       <Hint>{data.deliveryError ? t('inputRetryHint') : data.paused ? t('inputPausedHint') : t('inputWaitingHint')}</Hint>
+       <InputList inputs={undelivered} />
+diff --git a/src/core/ports.ts b/src/core/ports.ts
+index aa0d1b3..7f4f26d 100644
+--- a/src/core/ports.ts
++++ b/src/core/ports.ts
+@@ -72,6 +72,9 @@ export interface Executor {
+ 
+ /** A message for a Channel; `ticketId` names the Ticket it is for, when there is one. */
+ export interface OutboundMessage { id: string; channel: ChannelRef; text: string; kind: 'acknowledgement' | 'reply' | 'notice'; ticketId?: string }
++/** States of an external effect: not yet run (`pending`), outcome unknown after an ambiguous attempt (`unknown`), confirmed done (`sent`), or permanently failed (`failed`). */
++export const EFFECT_STATES = ['pending', 'sent', 'unknown', 'failed'] as const
++export type EffectState = typeof EFFECT_STATES[number]
+ /** A queued message waits (`pending`), went out (`sent`), or was dropped because its conversation can never receive it (`dropped`). */
+ export type ReplyStatus = 'pending' | 'sent' | 'dropped'
+ /** The messages queued for Channels; the Engine queues them inside its commands, and a sender delivers them later. */
+diff --git a/src/sources/feishu-channel.ts b/src/sources/feishu-channel.ts
+index db2d33d..5eca8ad 100644
+--- a/src/sources/feishu-channel.ts
++++ b/src/sources/feishu-channel.ts
+@@ -3,7 +3,7 @@ import type { OutboundMessage } from '../core/index.ts'
+ import { CliError } from '../infra/commands.ts'
+ import { checkedImText } from '../infra/text.ts'
+ import type { SourceContext } from './host.ts'
+-import type { ChannelLink, ChannelLinks } from './kind.ts'
++import type { ChannelLink, ChannelLinks, QueryResult, SendResult } from './kind.ts'
+ import { feishuTriggerId } from './feishu-trigger.ts'
+ 
+ /** Feishu or Lark AppLink that opens a chat; used when the message's own link was not delivered with the event. */
+@@ -16,17 +16,36 @@ export const feishuChatLink = (brand: 'feishu' | 'lark', chatId: string): string
+ const gone = (error: unknown): boolean => error instanceof CliError && error.code !== undefined && (error.code === 230011
+   || /withdrawn/i.test(error.message) || (Math.floor(error.code / 100) === 2300 && /not found/i.test(error.message)))
+ /** Replies in the topic of the target message; Feishu keeps at most one reply per idempotency key (the outgoing message's `message.id`). */
+-export async function sendFeishu(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone'> {
++export async function sendFeishu(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<SendResult> {
+   const messageId = message.channel.address.messageId
+   if (!messageId) throw new Error('Missing Feishu reply target')
+   const text = checkedImText(message.text)
+   const reply = ['im', '+messages-reply', '--message-id', messageId, '--markdown', text, '--reply-in-thread', '--idempotency-key', message.id]
+-  try { await host.commands.lark(reply) }
++  let data: { message_id?: string } | undefined
++  try { data = await host.commands.lark<{ message_id?: string }>(reply) }
+   catch (error) {
+-    if (gone(error)) return 'gone'
++    if (gone(error)) return { outcome: 'gone' }
++    throw error
++  }
++  return { outcome: 'sent', ...(data?.message_id ? { externalId: data.message_id } : {}) }
++}
++/**
++ * Looks up a previously sent reply by the Feishu message ID kept on its effect.
++ * Without one the channel cannot tell whether an ambiguous reply landed, so it reports `unsupported` and the caller retries idempotently.
++ */
++export async function queryFeishu(host: Pick<SourceContext, 'commands'>, _message: OutboundMessage,
++  externalId?: string): Promise<QueryResult> {
++  if (!externalId) return { outcome: 'unsupported' }
++  try {
++    const data = await host.commands.lark<{ messages: { message_id: string; deleted?: boolean }[] }>(
++      ['im', '+messages-mget', '--message-ids', externalId, '--no-reactions'])
++    const found = data.messages.find(item => item.message_id === externalId && !item.deleted)
++    return found ? { outcome: 'sent', externalId } : { outcome: 'absent' }
++  } catch (error) {
++    // 230001 means the message ID is unknown, so the reply never landed.
++    if (error instanceof CliError && error.code === 230001) return { outcome: 'absent' }
+     throw error
+   }
+-  return 'sent'
+ }
+ /** Fallback chat link on the bot's brand; the message's own deep link on its Trigger is preferred when available. */
+ export const feishuLink = (address: Record<string, string>, links: ChannelLinks): ChannelLink => ({
+diff --git a/src/sources/feishu.ts b/src/sources/feishu.ts
+index 075d559..6654c1d 100644
+--- a/src/sources/feishu.ts
++++ b/src/sources/feishu.ts
+@@ -2,7 +2,7 @@
+ import type { Context } from '@deepseek-ai/cordis'
+ import { z } from 'zod'
+ import { FeishuBotSchema } from '../deployment.ts'
+-import { feishuLink, sendFeishu } from './feishu-channel.ts'
++import { feishuLink, queryFeishu, sendFeishu } from './feishu-channel.ts'
+ import { feishuThreadContext } from './feishu-read.ts'
+ import { refreshChatNames, runFeishu } from './feishu-loops.ts'
+ import { SOURCE, feishuTriggerId } from './feishu-trigger.ts'
+@@ -61,7 +61,7 @@ export const feishuKind: SourceKind<FeishuConfig> = {
+   channel: {
+     allowed: (address, config) =>
+       feishuKind.scope!({ meta: { chatId: address.chatId ?? '', direct: address.direct === 'true' } }, config).listened,
+-    send: sendFeishu, link: feishuLink,
++    send: sendFeishu, query: queryFeishu, link: feishuLink,
+   },
+   threadContext: feishuThreadContext,
+   find: query => ({ threads: [], terms: [...new Set(query.match(/om_[A-Za-z0-9_-]+/g) ?? [])] }),
+diff --git a/src/sources/github-channel.ts b/src/sources/github-channel.ts
+index 9f37c93..14ab0d1 100644
+--- a/src/sources/github-channel.ts
++++ b/src/sources/github-channel.ts
+@@ -5,7 +5,7 @@ import { requireGithub } from '../deployment.ts'
+ import { CliError } from '../infra/commands.ts'
+ import { sameName } from '../infra/text.ts'
+ import type { SourceContext } from './host.ts'
+-import type { ChannelLink, ChannelLinks } from './kind.ts'
++import type { ChannelLink, ChannelLinks, QueryResult, SendResult } from './kind.ts'
+ import { githubAddress, githubPage } from './github-trigger.ts'
+ 
+ const CommentSchema = z.looseObject({
+@@ -15,35 +15,52 @@ const CommentSchema = z.looseObject({
+ const gone = (error: unknown): boolean => error instanceof CliError
+   && (error.code === 410 || (error.code === 403 && /locked/i.test(error.message)))
+ const missing = (error: unknown): boolean => error instanceof CliError && (error.code === 404 || error.code === 410)
+-/** Posts a comment or review-thread reply with an embedded HTML marker so retries do not create duplicate comments. */
+-export async function sendGithub(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone'> {
++/** Resolves the comment collection to scan or post to, plus the predicate that identifies this message's own comment by its marker. */
++async function target(host: Pick<SourceContext, 'commands'>, message: OutboundMessage) {
+   const { commands } = host
+   const { repository, github } = requireGithub(commands.deployment)
+   const number = Number(message.channel.address.number)
+   if (!number) throw new Error('Missing GitHub reply target')
++  // Retained trigger URLs also route replies queued before thread-aware delivery.
++  const address = githubAddress(message.channel.address.url ?? '', repository)
++  let rootId: number | undefined
++  if (address?.pr && address.discussion && address.number === number) {
++    // Fall back to a top-level PR comment if the target inline review comment was deleted.
++    const source = await commands.api(CommentSchema, `pulls/comments/${address.discussion}`)
++      .catch((error: unknown) => { if (missing(error)) return undefined; throw error })
++    rootId = source ? source.in_reply_to_id ?? source.id : undefined
++  }
++  const path = rootId === undefined ? `issues/${number}/comments` : `pulls/${number}/comments`
++  const marker = `<!-- dsh-superagent:${message.id} -->`
++  const mine = (comment: z.infer<typeof CommentSchema>) => sameName(comment.user?.login ?? '', github.login)
++    && (rootId === undefined || comment.in_reply_to_id === rootId) && (comment.body ?? '').includes(marker)
++  return { path, rootId, marker, mine }
++}
++/** Posts a comment or review-thread reply with an embedded HTML marker so retries do not create duplicate comments. */
++export async function sendGithub(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<SendResult> {
++  const { commands } = host
+   try {
+-    // Retained trigger URLs also route replies queued before thread-aware delivery.
+-    const address = githubAddress(message.channel.address.url ?? '', repository)
+-    let rootId: number | undefined
+-    if (address?.pr && address.discussion && address.number === number) {
+-      // Fall back to a top-level PR comment if the target inline review comment was deleted.
+-      const source = await commands.api(CommentSchema, `pulls/comments/${address.discussion}`)
+-        .catch((error: unknown) => { if (missing(error)) return undefined; throw error })
+-      rootId = source ? source.in_reply_to_id ?? source.id : undefined
+-    }
+-    const path = rootId === undefined ? `issues/${number}/comments` : `pulls/${number}/comments`
+-    const marker = `<!-- dsh-superagent:${message.id} -->`
+-    const mine = (comment: z.infer<typeof CommentSchema>) => sameName(comment.user?.login ?? '', github.login)
+-      && (rootId === undefined || comment.in_reply_to_id === rootId) && (comment.body ?? '').includes(marker)
+-    if ((await commands.pages(CommentSchema, path)).some(mine)) return 'sent'
+-    const target = rootId === undefined ? path : `${path}/${rootId}/replies`
+-    await commands.api(z.unknown(), target, '--method', 'POST', '-f', `body=${message.text}\n\n${marker}`)
+-    return 'sent'
++    const { path, rootId, marker, mine } = await target(host, message)
++    const existing = (await commands.pages(CommentSchema, path)).find(mine)
++    if (existing) return { outcome: 'sent', externalId: String(existing.id) }
++    const post = rootId === undefined ? path : `${path}/${rootId}/replies`
++    const posted = await commands.api(z.looseObject({ id: z.number().nullish() }), post,
++      '--method', 'POST', '-f', `body=${message.text}\n\n${marker}`)
++    return { outcome: 'sent', ...(posted.id == null ? {} : { externalId: String(posted.id) }) }
+   } catch (error) {
+-    if (gone(error)) return 'gone'
++    if (gone(error)) return { outcome: 'gone' }
+     throw error
+   }
+ }
++/**
++ * Finds this message's own comment without posting.
++ * Lookup errors are left to the caller so an ambiguous delivery stays unknown rather than being reported absent.
++ */
++export async function queryGithub(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<QueryResult> {
++  const { path, mine } = await target(host, message)
++  const found = (await host.commands.pages(CommentSchema, path)).find(mine)
++  return found ? { outcome: 'sent', externalId: String(found.id) } : { outcome: 'absent' }
++}
+ export function githubLink(address: Record<string, string>, links: ChannelLinks): ChannelLink {
+   const number = address.number ?? ''
+   const review = !!links.repository && !!githubAddress(address.url ?? '', links.repository)?.discussion
+diff --git a/src/sources/github.ts b/src/sources/github.ts
+index 37ba7cc..a5cd9c2 100644
+--- a/src/sources/github.ts
++++ b/src/sources/github.ts
+@@ -7,7 +7,7 @@ import { CliError, validItems, type Tally } from '../infra/commands.ts'
+ import { ciCounts, ciFact, ciFailures, ciSummary, githubThreadContext, pullChecks } from './github-read.ts'
+ import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, githubAddress, issueTrigger, IssueSchema, pullTrigger, SOURCE }
+   from './github-trigger.ts'
+-import { githubLink, sendGithub } from './github-channel.ts'
++import { githubLink, queryGithub, sendGithub } from './github-channel.ts'
+ import type { GithubComment, PullRef } from './github-trigger.ts'
+ import { observePull, pullsOf, readPull, type Pull } from './github-pull.ts'
+ import { health, sourceContext, type Health, type SourceContext } from './host.ts'
+@@ -62,7 +62,7 @@ export const githubKind: SourceKind<GithubConfig> = {
+   },
+   health: ['github'],
+   available: deployment => deployment.mode === 'github',
+-  channel: { send: sendGithub, link: githubLink },
++  channel: { send: sendGithub, query: queryGithub, link: githubLink },
+   threadContext: githubThreadContext,
+   // `#12`, `12`, or the page of an Issue or PR, of any repository, names Thread 12.
+   find: query => {
+diff --git a/src/sources/kind.ts b/src/sources/kind.ts
+index b977879..283c530 100644
+--- a/src/sources/kind.ts
++++ b/src/sources/kind.ts
+@@ -43,15 +43,24 @@ export interface SourcePolicyPart<P extends Record<string, unknown>> {
+ export interface ChannelLink { url: string; label: Localized; triggerId?: string }
+ /** UI link inputs supplied by the deployment; each channel ignores fields it does not need. */
+ export interface ChannelLinks { repository?: string; feishu?: FeishuBot }
++/** Result of an idempotent send: delivered (with the remote ID when known) or permanently unreachable. */
++export type SendResult = { outcome: 'sent'; externalId?: string } | { outcome: 'gone' }
++/** Result of reconciling an earlier send: the remote state is present (with its ID when known), absent, or cannot be queried. */
++export type QueryResult = { outcome: 'sent'; externalId?: string } | { outcome: 'absent' } | { outcome: 'unsupported' }
+ /** Outbound messaging adapter for a source kind's threads. */
+ export interface SourceChannel<C> {
+   /** Whether a reply may still go to `address`; without it, every address may receive replies. */
+   allowed?(address: Record<string, string>, config: C): boolean
+   /**
+-   * Sends a message idempotently by ID; returns `'gone'` when the target conversation no longer accepts replies.
+-   * @throws when delivery failed but may succeed on a later retry.
++   * Sends a message idempotently by ID; returns `gone` when the target conversation no longer accepts replies.
++   * @throws when delivery failed but may succeed on a later retry, or when the outcome cannot be determined.
+    */
+-  send(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone'>
++  send(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<SendResult>
++  /**
++   * Reconciles an earlier send after an ambiguous outcome. `unsupported` lets the caller retry, relying on the send's
++   * idempotency; errors stay ambiguous and keep the effect unknown.
++   */
++  query?(host: Pick<SourceContext, 'commands'>, message: OutboundMessage, externalId?: string): Promise<QueryResult>
+   /** Returns the URL and label for `address`; `url` is empty when `links` lack the required deployment info. */
+   link(address: Record<string, string>, links: ChannelLinks): ChannelLink
+ }
+diff --git a/src/sources/registry.ts b/src/sources/registry.ts
+index 28ed828..260c1c4 100644
+--- a/src/sources/registry.ts
++++ b/src/sources/registry.ts
+@@ -3,7 +3,7 @@ import type { ChannelRef, OutboundMessage, ScopeResult, SourceScope, Trigger } f
+ import type { Commands } from '../infra/commands.ts'
+ import { HealthBoard, type HealthEntry } from '../infra/health.ts'
+ import { AdmissionTableSchema, type Settings } from '../policy.ts'
+-import type { ChannelLink, ChannelLinks, SourceInstance, SourceKind, TriggerContext, VariableSpec } from './kind.ts'
++import type { ChannelLink, ChannelLinks, QueryResult, SendResult, SourceInstance, SourceKind, TriggerContext, VariableSpec } from './kind.ts'
+ 
+ 
+ /**
+@@ -94,13 +94,18 @@ export class SourceRegistry implements SourceScope {
+     })
+   }
+   /**
+-   * Sends a message idempotently through its Channel's kind; returns `'waiting'` while the kind is not installed, or
+-   * `'gone'` when the target (or a kind without channels) can never receive it.
++   * Sends a message idempotently through its Channel's kind; returns `waiting` while the kind is not installed, or
++   * `gone` when the target (or a kind without channels) can never receive it.
+    */
+-  async send(message: OutboundMessage, commands: Commands): Promise<'sent' | 'gone' | 'waiting'> {
++  async send(message: OutboundMessage, commands: Commands): Promise<SendResult | { outcome: 'waiting' }> {
+     const kind = this.kinds.get(message.channel.source)
+-    if (!kind) return 'waiting'
+-    return kind.channel ? kind.channel.send({ commands }, message) : 'gone'
++    if (!kind) return { outcome: 'waiting' }
++    return kind.channel ? kind.channel.send({ commands }, message) : { outcome: 'gone' }
++  }
++  /** Reconciles an earlier send through its Channel's kind; kinds without a query adapter answer `unsupported`. */
++  async query(message: OutboundMessage, commands: Commands, externalId?: string): Promise<QueryResult> {
++    const kind = this.kinds.get(message.channel.source)
++    return kind?.channel?.query ? kind.channel.query({ commands }, message, externalId) : { outcome: 'unsupported' }
+   }
+   link(channel: ChannelRef, links: ChannelLinks): ChannelLink {
+     const link = this.kinds.get(channel.source)?.channel?.link(channel.address, links)
+diff --git a/tests/commands.spec.ts b/tests/commands.spec.ts
+index 004e65e..a7c254a 100644
+--- a/tests/commands.spec.ts
++++ b/tests/commands.spec.ts
+@@ -34,14 +34,15 @@ describe('account-isolated operations', () => {
+   })
+   it('reconciles an uncertain GitHub send with its stable marker', async () => {
+     const commands = new Commands(() => deployment, {}, new AbortController().signal)
+-    vi.spyOn(commands,'pages').mockResolvedValue([{ body:'<!-- dsh-superagent:stable-operation -->',user:{login:'agent-bot'} }])
++    vi.spyOn(commands,'pages').mockResolvedValue([{ id: 9, body:'<!-- dsh-superagent:stable-operation -->',user:{login:'agent-bot'} }])
+     const gh = vi.spyOn(commands,'gh')
+-    await send(commands, reply); expect(gh).not.toHaveBeenCalled()
++    expect(await send(commands, reply)).toEqual({ outcome: 'sent', externalId: '9' })
++    expect(gh).not.toHaveBeenCalled()
+   })
+   it('posts the reply as the model wrote it, only to the fixed repository', async () => {
+     const commands = new Commands(() => deployment, {}, new AbortController().signal); vi.spyOn(commands,'pages').mockResolvedValue([])
+-    const gh = vi.spyOn(commands,'gh').mockResolvedValue({})
+-    await send(commands, reply)
++    const gh = vi.spyOn(commands,'gh').mockResolvedValue({ id: 9 })
++    expect(await send(commands, reply)).toEqual({ outcome: 'sent', externalId: '9' })
+     // The disclosure line is prompt text: the model writes it, and the host adds nothing.
+     expect(gh).toHaveBeenCalledWith(['api',`repos/${REPOSITORY}/issues/8/comments`,'--method','POST','-f',expect.stringMatching(/^body=Done\n\n<!-- dsh-superagent:stable-operation -->$/)])
+     await expect(new Commands(() => deployment, {}, new AbortController().signal).pages(z.unknown(),
+@@ -54,8 +55,10 @@ describe('account-isolated operations', () => {
+     expect(gh.mock.calls[1]![0]).toEqual(['api', `repos/${REPOSITORY}/pulls/8/comments/3/replies`, '--method', 'POST', '-f', expect.stringContaining('Done')])
+   })
+   it('uses Feishu bot identity and one idempotency key on retries', async () => {
+-    const commands = new Commands(() => deployment, {}, new AbortController().signal); const run = vi.spyOn(commands,'run').mockResolvedValue('{"ok":true,"data":{}}')
+-    await send(commands, { ...reply, channel: feishuChannel('oc_1', 'om_1') })
++    const commands = new Commands(() => deployment, {}, new AbortController().signal)
++    const run = vi.spyOn(commands,'run').mockResolvedValue('{"ok":true,"data":{"message_id":"om_out"}}')
++    expect(await send(commands, { ...reply, channel: feishuChannel('oc_1', 'om_1') }))
++      .toEqual({ outcome: 'sent', externalId: 'om_out' })
+     expect(run.mock.calls[0]![1]).toEqual(expect.arrayContaining(['--as','bot','--idempotency-key','stable-operation','--message-id','om_1']))
+   })
+ })
+@@ -75,7 +78,7 @@ describe('Channels', () => {
+     for (const [code, message] of [[230011, 'The message is recalled'], [230001, 'message not found'], [231003,
+       'The message is withdrawn']] as const) {
+       run.mockRejectedValueOnce(lark(code, message))
+-      expect(await send(value, feishu)).toBe('gone')
++      expect(await send(value, feishu)).toEqual({ outcome: 'gone' })
+     }
+     run.mockRejectedValueOnce(lark(232011, 'operator is not in the chat'))
+     const hint = 'The Feishu bot is not a member of the chat. Add the bot in the chat settings, then retry.'
+@@ -95,7 +98,7 @@ describe('Channels', () => {
+     const gh = vi.spyOn(value, 'gh')
+     for (const stderr of ['gh: This issue was deleted (HTTP 410)', 'gh: Unable to create comment because issue is locked. (HTTP 403)']) {
+       gh.mockRejectedValueOnce(commandError({ stderr, code: 1 }))
+-      expect(await send(value, reply)).toBe('gone')
++      expect(await send(value, reply)).toEqual({ outcome: 'gone' })
+     }
+     // GitHub also answers 404 for a private repository the agent lost access to, so 404 is retried rather than dropped.
+     for (const stderr of ['gh: Not Found (HTTP 404)', 'gh: Server Error (HTTP 500)']) {
+@@ -108,11 +111,22 @@ describe('Channels', () => {
+     const pages = vi.spyOn(value, 'pages').mockResolvedValue([])
+     const gh = vi.spyOn(value, 'gh')
+       .mockRejectedValueOnce(commandError({ stderr: 'gh: Not Found (HTTP 404)', code: 1 })).mockResolvedValueOnce({})
+-    expect(await send(value, { ...reply, channel: githubChannel(8, `https://github.com/${REPOSITORY}/pull/8#discussion_r7`) })).toBe('sent')
++    expect(await send(value, { ...reply, channel: githubChannel(8, `https://github.com/${REPOSITORY}/pull/8#discussion_r7`) }))
++      .toEqual({ outcome: 'sent' })
+     expect((pages.mock.calls[0] as unknown[])[1]).toBe('issues/8/comments')
+     const post = ['api', `repos/${REPOSITORY}/issues/8/comments`, '--method', 'POST', '-f', expect.stringContaining('Done')]
+     expect(gh.mock.calls[1]![0]).toEqual(post)
+   })
++  it('queries whether an uncertain GitHub comment landed, without posting again', async () => {
++    const value = commands()
++    const pages = vi.spyOn(value, 'pages')
++    const gh = vi.spyOn(value, 'gh')
++    pages.mockResolvedValue([{ id: 9, body: '<!-- dsh-superagent:stable-operation -->', user: { login: 'agent-bot' } }])
++    expect(await sources.query(reply, value)).toEqual({ outcome: 'sent', externalId: '9' })
++    pages.mockResolvedValue([])
++    expect(await sources.query(reply, value)).toEqual({ outcome: 'absent' })
++    expect(gh).not.toHaveBeenCalled()
++  })
+   it('link each address to its page with its label', () => {
+     const links = { repository: REPOSITORY, feishu: deployment.feishu! }
+     expect(githubKind.channel!.link(githubChannel(8).address, links)).toEqual({ url: `https://github.com/${REPOSITORY}/issues/8`,
+diff --git a/tests/effects.spec.ts b/tests/effects.spec.ts
+index c022237..b616eeb 100644
+--- a/tests/effects.spec.ts
++++ b/tests/effects.spec.ts
+@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+-import { Effects, Later } from '../src/app/effects.ts'
++import { Effects, Later, Unknown } from '../src/app/effects.ts'
+ import { Store } from '../src/app/store.ts'
+ import { HealthBoard } from '../src/infra/health.ts'
+ import { deferred } from './fixtures/async.ts'
+@@ -26,6 +26,42 @@ beforeEach(() => {
+ afterEach(() => { store.close(); rmSync(directory, { recursive: true, force: true }) })
+ const relay = (text: string) => ({ text })
+ 
++it('retains terminal rows only for recording kinds', async () => {
++  effects.handle('relay', async () => ({ externalId: 'x1' }), { record: true })
++  effects.enqueue('relay', 'k1', relay('a'))
++  await effects.idle()
++  expect(effects.get('relay', 'k1')).toMatchObject({ state: 'sent', externalId: 'x1', inFlight: false })
++  effects.enqueue('relay', 'k1', relay('b'))
++  // kick() dispatches on a microtask, so the re-queued row is observable synchronously.
++  expect(effects.get('relay', 'k1')).toMatchObject({ state: 'pending', attempts: 0, externalId: undefined, confirmedAt: undefined })
++})
++
++it('keeps an unknown row across a retry and clears it on success', async () => {
++  let calls = 0
++  effects.handle('reply', async () => { calls += 1; if (calls === 1) throw new Unknown('timeout'); return {} })
++  effects.enqueue('reply', 'm1', {})
++  await effects.idle()
++  expect(effects.get('reply', 'm1')).toMatchObject({ state: 'unknown', attempts: 1, inFlight: false })
++  clock += 60_000
++  await effects.idle()
++  expect(calls).toBe(2)
++  expect(effects.get('reply', 'm1')).toBeUndefined()
++})
++
++it('recovers interrupted rows per handler preference before dispatching', async () => {
++  effects.enqueue('reply', 'm1', {})
++  effects.enqueue('relay', 'r1', relay('x'))
++  store.db.prepare('UPDATE effect SET in_flight = 1').run()
++  const next = new Effects(store, board, () => clock)
++  next.start() // no handlers registered yet: recovery must also run in handle()
++  next.handle('reply', async () => ({}), { interrupted: 'unknown' })
++  next.handle('relay', async () => {})
++  // handle() recovers synchronously before kick() dispatches on a microtask.
++  expect(next.get('reply', 'm1')).toMatchObject({ state: 'unknown', inFlight: false })
++  expect(next.get('relay', 'r1')).toMatchObject({ state: 'pending', inFlight: false })
++  await next.drain()
++})
++
+ it('runs an effect queued inside a transaction once it commits, and none from a transaction that rolled back', async () => {
+   const run = vi.fn(async () => {})
+   effects.handle('relay', run)
+diff --git a/tests/fixtures/panel-server.ts b/tests/fixtures/panel-server.ts
+index 74d6547..4c327a1 100644
+--- a/tests/fixtures/panel-server.ts
++++ b/tests/fixtures/panel-server.ts
+@@ -8,8 +8,8 @@ import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-
+ import type { Api, ApiResponse, RouteParams } from '../../src/app/api.ts'
+ import { SKILL_NAME, SKILL_PREFIX, TEAM_SECTIONS, builtInBase, builtInPart, builtInParts, composePrompt, composeSkill, defaultPrompts,
+   environmentSection, policySection, promptParts } from '../../src/app/prompts.ts'
+-import type { DroppedReply, HistoryView, Problem, PromptsView, SetupView, SourceStatusRow, SourceView, StateView, ThreadPageView,
+-  ThreadRow, TicketPageView,
++import type { DroppedReply, EffectRow, HistoryView, Problem, PromptsView, SetupView, SourceStatusRow, SourceView, StateView,
++  ThreadPageView, ThreadRow, TicketPageView,
+   TicketRow, TicketStage,
+   TriggerRow } from '../../src/client/api.ts'
+ import { SETUP_FIELDS } from '../../src/deployment.ts'
+@@ -109,6 +109,7 @@ export interface PanelServer {
+   opened: string[]
+   dropped: DroppedReply[]
+   failing: Extract<Problem, { kind: 'outgoing' }>['outgoing'][]
++  effects: EffectRow[]
+ }
+ export let server: PanelServer
+ 
+@@ -223,6 +224,7 @@ const ticketDetail = (): TicketPageView => ({
+   inputs: [{ id: 'i1', kind: 'trigger', triggerId: 'e2', at: '2026-09-22T00:03:00Z', delivered: false,
+     trigger: { id: 'e2', actor: actor('feishu', MEMBER), human: true, preview: '顺便改标题', thread: 'feishu:oc_1:om_root' } },
+   { id: 'i2', kind: 'policy-changed', at: '2026-09-22T00:04:00Z', delivered: true, from: 'aaaaaaaaaaaaaaaa', to: 'bbbbbbbbbbbbbbbb' }],
++  effects: { items: [], total: 0, next_offset: null },
+ })
+ function threadPage(key: string, { before, around }: { before?: string; around?: string }): ThreadPageView | undefined {
+   if (key !== threadSummary().key) return undefined
+@@ -250,7 +252,7 @@ function initial(): PanelServer {
+     en: 'Feishu message' } }
+   const defaults = { revision: 0, previousRevision: null, savedAt: '', source: 'defaults' }
+   return {
+-    health: {}, down: false, pending: 0, opened: [], requests: [], misuse: [], queued: new Set(), dropped: [], failing: [],
++    health: {}, down: false, pending: 0, opened: [], requests: [], misuse: [], queued: new Set(), dropped: [], failing: [], effects: [],
+     setup: { machine: MACHINE, problem: null, feishuProblem: null,
+       accounts: { mode: 'github', repository: 'acme/widgets', agent: 'agent-bot', feishu: { appId: 'cli_bot', brand: 'feishu', botId: 'ou_bot',
+         name: 'Widgets Bot' } } },
+@@ -342,6 +344,7 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
+     ({ items: query.kind === 'ignore' ? [] : [acceptDecision()], next_offset: null }) },
+   'POST decisions/:id/dismiss': { answer: ({ params }) => params.id === 'u1' ? { dismissed: true } : refuse(404,
+     'Unavailable Eval not found') },
++  'GET effects': { query: ['ticket', 'state', 'kind', 'offset', 'limit'], answer: () => page(server.effects) },
+   'GET tickets': { query: ['state', 'offset', 'limit'], answer: ({ query }) => page(server.tickets[query.state === 'ended' ? 'ended'
+     : 'open']) },
+   'GET tickets/:id': { answer: ({ params }) => server.ticketDetails[params.id] ?? refuse(404, 'Ticket not found') },
+diff --git a/tests/http.spec.ts b/tests/http.spec.ts
+index 7b340b7..c47a9b1 100644
+--- a/tests/http.spec.ts
++++ b/tests/http.spec.ts
+@@ -68,6 +68,17 @@ it('decodes path parameters and parses each route\'s query', async () => {
+   expect(seen).toEqual(['feishu:oc_1:om/root', { filter: { kinds: ['accept', 'reopen'], since: expect.any(String) }, offset: 0, limit: 200 }])
+ })
+ 
++it('lists effects with filters and a clamped limit', async () => {
++  const seen: unknown[] = []
++  const call = serve({
++    store: { read: { effects: (filter: unknown, offset: number, limit: number) => { seen.push({ filter, offset, limit }); return { items: [], total: 0 } } } },
++    // views(runtime) resolves the Source links eagerly, so the new route needs them even when its result is empty.
++    links: () => () => ({ url: '', label: { zh: '', en: '' } }),
++  })
++  expect(await call('GET', 'effects?ticket=t1&state=unknown&limit=500')).toEqual({ status: 200, body: { items: [], total: 0, next_offset: null } })
++  expect(seen).toEqual([{ filter: { ticketId: 't1', state: 'unknown', kind: undefined }, offset: 0, limit: 200 }])
++})
++
+ it('answers only a same-origin request from the panel on the loopback address', async () => {
+   const call = serve({ sessions: { delivery: async () => 'injected' }, engine: { unsubscribe: () => true } })
+   const post = (headers: Headers) => call('POST', 'threads/github%3A1/unsubscribe', undefined, headers)
+diff --git a/tests/marks.spec.ts b/tests/marks.spec.ts
+index 8598464..c696b44 100644
+--- a/tests/marks.spec.ts
++++ b/tests/marks.spec.ts
+@@ -1,6 +1,6 @@
+ import { expect, it } from 'vitest'
+ import { zh } from '../src/client/locales.ts'
+-import { decisionMark, reportDot, sourceMark, threadMark, ticketMark } from '../src/client/marks.ts'
++import { decisionMark, effectMark, reportDot, sourceMark, threadMark, ticketMark } from '../src/client/marks.ts'
+ import { translator } from './fixtures/panel.tsx'
+ 
+ const t = translator(zh)
+@@ -35,3 +35,10 @@ it('marks each Thread stage, Source state and Decision outcome', () => {
+     ['续做', 'success', 'done', 'refresh'], ['停止', 'danger', 'idle', 'stop'], ['忽略', 'neutral', 'idle', 'dismiss'],
+     ['未完成', 'warning', 'warning', 'alert'], ['忽略（可接单，仅观察）', 'warning', 'idle', 'dismiss']])
+ })
++
++it('marks every effect state, and a running claim as ongoing', () => {
++  const marks = (['pending', 'unknown', 'sent', 'failed'] as const).map(state => effectMark(t, state, false))
++  expect(marks.map(({ label, tone, dot, icon }) => [label, tone, dot, icon])).toEqual([['未执行', 'neutral', 'idle', 'queue'],
++    ['未知', 'warning', 'warning', 'alert'], ['成功', 'success', 'done', 'decision'], ['失败', 'danger', 'error', 'blocked']])
++  expect(effectMark(t, 'pending', true)).toEqual({ label: '执行中', tone: 'neutral', dot: 'ongoing', icon: 'running' })
++})
+diff --git a/tests/migration.spec.ts b/tests/migration.spec.ts
+index ce86bb1..684409a 100644
+--- a/tests/migration.spec.ts
++++ b/tests/migration.spec.ts
+@@ -37,6 +37,24 @@ function schema10(path: string, records: Record<string, unknown>, rows: { ticket
+ const actor = { source: 'feishu', id: 'ou_alice' }
+ const mandate = (basis: object) => ({ strength: 'explicit', policyVersion: 'v1', basis, actor, scope: 'small' })
+ 
++it('migrates schema 11 effects to correlated state columns', () => {
++  const path = join(directory, 'schema-11.sqlite')
++  const store = new Store(path)
++  store.db.prepare(`INSERT INTO effect (kind, key, value, seq, due, since) VALUES ('reply', 'm1', '{}', 1, 0, '2026-01-01T00:00:00.000Z')`).run()
++  store.db.prepare(`INSERT INTO outbox (id, value) VALUES ('m1', ?)`).run(JSON.stringify({
++    id: 'm1', channel: { source: 'github', conversation: 'c', thread: 't', address: {} },
++    text: 'hi', kind: 'reply', ticketId: 't1', status: 'pending',
++  }))
++  store.close()
++  const db = new DatabaseSync(path)
++  db.prepare('UPDATE kv SET value = ? WHERE key = ?').run(JSON.stringify(11), KV.store.schema)
++  db.close()
++  const next = new Store(path)
++  expect(next.db.prepare('SELECT effect_id, idempotency_key, receipt_id, ticket_id, state, in_flight FROM effect').get())
++    .toEqual({ effect_id: 'reply:m1', idempotency_key: 'm1', receipt_id: 'm1', ticket_id: 't1', state: 'pending', in_flight: 0 })
++  next.close()
++})
++
+ it('refuses a database older than schema 10 and asks for a new state directory', () => {
+   const path = join(directory, 'db.sqlite')
+   new Store(path).close()
+@@ -202,7 +220,7 @@ it('changes nothing when one step fails: the database stays at schema 10 as it w
+     updatedAt: '2', mandate: mandate({ via: 'listed' }), meta: { sourceTriggerId: 'trig-1', workspace: '/w/fix-1' } }
+   // The current settings must validate; an invalid value aborts the migration transaction.
+   schema10(path, { settings: { executor: { maxWorkers: 'many' } } }, { ticket: [ticket] })
+-  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 11 failed: the settings: /)
++  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 12 failed: the settings: /)
+   const db = new DatabaseSync(path)
+   expect(db.prepare("SELECT value FROM kv WHERE key='schema'").get()).toEqual({ value: '10' })
+   expect(JSON.parse(String(db.prepare("SELECT value FROM ticket WHERE id='t1'").get()!.value))).toMatchObject({ meta: { workspace: '/w/fix-1' } })
+@@ -475,7 +493,7 @@ it('names the ticket it stopped at when a ticket does not read, and leaves the d
+   const path = join(directory, 'db.sqlite')
+   const { inputs: _inputs, ...broken } = ticket10('t9')
+   schema10(path, {}, { ticket: [broken] })
+-  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 11 failed: ticket t9: /)
++  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 12 failed: ticket t9: /)
+   const db = new DatabaseSync(path)
+   expect(db.prepare("SELECT value FROM kv WHERE key='schema'").get()).toEqual({ value: '10' })
+   expect(JSON.parse(String(db.prepare("SELECT value FROM ticket WHERE id='t9'").get()!.value))).toEqual(broken)
+diff --git a/tests/outbox.spec.ts b/tests/outbox.spec.ts
+index bc00f93..4588d96 100644
+--- a/tests/outbox.spec.ts
++++ b/tests/outbox.spec.ts
+@@ -2,6 +2,7 @@
+ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+ import { z } from 'zod'
+ import type { OutboundMessage } from '../src/core/index.ts'
++import { Unknown } from '../src/app/effects.ts'
+ import { Commands } from '../src/infra/commands.ts'
+ import type { SourceKind } from '../src/sources/kind.ts'
+ import { feishu, startRuntime, type Host } from './fixtures/host.ts'
+@@ -31,7 +32,8 @@ it('keeps a message for a Source that is not installed waiting, and sends it onc
+   const sent: OutboundMessage[] = []
+   const probe: SourceKind<Record<string, never>> = { kind: 'probe', title: { zh: '探针', en: 'Probe' }, description: { zh: '', en: '' }, health: [],
+     schema: z.object({}).strict(), fields: [],
+-    channel: { send: async (_host, message) => { sent.push(message); return 'sent' }, link: () => ({ url: '', label: { zh: '探针', en: 'Probe' } }) } }
++    channel: { send: async (_host, message) => { sent.push(message); return { outcome: 'sent' as const } },
++      link: () => ({ url: '', label: { zh: '探针', en: 'Probe' } }) } }
+   h.runtime.outbox.send({ id: 'waiting', channel: { source: 'probe', thread: 'probe:1', address: {} }, text: 'Done', kind: 'reply' })
+   await h.runtime.sendReplies()
+   expect([h.runtime.outbox.status('waiting'), h.runtime.health.reply?.state]).toEqual(['pending', 'ready'])
+@@ -40,3 +42,17 @@ it('keeps a message for a Source that is not installed waiting, and sends it onc
+   await at(5000)
+   expect([h.runtime.outbox.status('waiting'), sent.map(message => message.id)]).toEqual(['sent', ['waiting']])
+ })
++
++it('queries an unknown effect before sending again and never sends twice', async () => {
++  const send = vi.spyOn(h.runtime.sources, 'send').mockRejectedValueOnce(new Unknown('timeout'))
++  h.runtime.outbox.send({ id: 'unknown', channel: feishu('1', 'x').channel!, text: '完成。', kind: 'reply' })
++  await h.runtime.sendReplies()
++  expect(h.runtime.effects.get('reply', 'unknown')).toMatchObject({ state: 'unknown', inFlight: false })
++  expect(h.runtime.store.receipts.get('unknown')).toMatchObject({ status: 'pending' })
++  send.mockClear()
++  const query = vi.spyOn(h.runtime.sources, 'query').mockResolvedValue({ outcome: 'sent', externalId: 'om_query' })
++  await at(5000)
++  expect(query).toHaveBeenCalledWith(expect.objectContaining({ id: 'unknown' }), expect.anything(), undefined)
++  expect(send).not.toHaveBeenCalled()
++  expect(h.runtime.store.receipts.get('unknown')).toMatchObject({ status: 'sent', externalId: 'om_query' })
++})
+diff --git a/tests/panel-execution.spec.tsx b/tests/panel-execution.spec.tsx
+index 0fca556..4d91535 100644
+--- a/tests/panel-execution.spec.tsx
++++ b/tests/panel-execution.spec.tsx
+@@ -75,6 +75,19 @@ it('shows a Ticket with its stage, its Mandate details with the Trigger and Deci
+   expect(tab(zh['tab.trigger']).getAttribute('aria-selected')).toBe('true')
+ })
+ 
++it('lists a Ticket\'s external effects between the Mandate and its undelivered Inputs', async () => {
++  server.ticketDetails.t1 = { ...server.ticketDetails.t1!, effects: { items: [{ effectId: 'reply:m1', kind: 'reply', key: 'm1',
++    state: 'unknown', ticketId: 't1', receiptId: 'm1', externalId: 'om_1', attempts: 2, inFlight: false,
++    since: '2026-09-23T00:00:00Z' }], total: 1, next_offset: null } }
++  await mount()
++  await click(all('.dt-open').find(button => button.textContent === '修复回归')!)
++  expect(all('.dt-section-title').map(title => title.querySelector('.dt-section-name')?.textContent))
++    .toEqual(['授权详情', '外部副作用', '未送达的输入', '订阅的线程'])
++  expect(text()).toContain('消息发送')
++  expect(text()).toContain('未知')
++  expect(text()).toContain('结果未知，已先查询远程状态，不会重复发送。')
++})
++
+ it('reports a missing Ticket instead of rendering an empty page', async () => {
+   at({ page: 'execution', id: 'missing' })
+   await mount()
+diff --git a/tests/registry.spec.ts b/tests/registry.spec.ts
+index e8f70b8..1141d33 100644
+--- a/tests/registry.spec.ts
++++ b/tests/registry.spec.ts
+@@ -44,7 +44,7 @@ describe('Source registry', () => {
+     const sent: OutboundMessage[] = []
+     const read: unknown[] = []
+     sources.register({ ...probe,
+-      channel: { send: async (_host, message) => { sent.push(message); return 'sent' },
++      channel: { send: async (_host, message) => { sent.push(message); return { outcome: 'sent' as const } },
+         link: address => ({ url: `https://probe/${address.room}`, label: { zh: '探针', en: 'Probe' } }) },
+       threadContext: { messageId: trigger => String(trigger.meta.id), read: async (_commands, trigger, part, cursor, config) => {
+         read.push([trigger.id, part, cursor, config.interval])
+@@ -54,10 +54,10 @@ describe('Source registry', () => {
+     const commands = {} as Commands
+     const message = (source: string): OutboundMessage => ({ id: 'r1', channel: { source, thread: 'probe:1', address: { room: 'r' } },
+       text: 'hi', kind: 'reply' })
+-    expect(await sources.send(message('probe'), commands)).toBe('sent')
++    expect(await sources.send(message('probe'), commands)).toEqual({ outcome: 'sent' })
+     expect(sent).toEqual([message('probe')])
+     // A kind that is not installed keeps its replies waiting; links to it have no page.
+-    expect(await sources.send(message('retired'), commands)).toBe('waiting')
++    expect(await sources.send(message('retired'), commands)).toEqual({ outcome: 'waiting' })
+     expect(sources.link(message('probe').channel, {})).toEqual({ url: 'https://probe/r', label: { zh: '探针', en: 'Probe' } })
+     expect(sources.link(message('retired').channel, {})).toEqual({ url: '', label: { zh: 'retired', en: 'retired' } })
+     const trigger = { id: 't1', source: 'probe', threads: [{ source: 'probe', id: '1' }], actor: { source: 'probe', id: 'u' }, human: true,
+@@ -71,9 +71,22 @@ describe('Source registry', () => {
+       new AbortController().signal)).rejects.toThrow('no images')
+     // A kind without a channel or a context has neither.
+     sources.register({ ...probe, kind: 'quiet' })
+-    expect(await sources.send(message('quiet'), commands)).toBe('gone')
++    expect(await sources.send(message('quiet'), commands)).toEqual({ outcome: 'gone' })
+     expect(sources.threadContext({ ...trigger, source: 'quiet' })).toBeUndefined()
+   })
++  it('passes query through and answers unsupported when a kind cannot query', async () => {
++    const sources = new SourceRegistry(() => SettingsSchema.parse({ sources: { probe: { enabled: true, config: { interval: 7 } } } }))
++    const message = (source: string): OutboundMessage => ({ id: 'r1', channel: { source, thread: 'probe:1', address: { room: 'r' } },
++      text: 'hi', kind: 'reply' })
++    sources.register({ ...probe, channel: {
++      send: async () => ({ outcome: 'sent' as const, externalId: 'x1' }),
++      query: async () => ({ outcome: 'sent' as const, externalId: 'x1' }),
++      link: () => ({ url: '', label: { zh: '', en: '' } }),
++    } })
++    expect(await sources.send(message('probe'), {} as Commands)).toEqual({ outcome: 'sent', externalId: 'x1' })
++    expect(await sources.query(message('probe'), {} as Commands)).toEqual({ outcome: 'sent', externalId: 'x1' })
++    expect(await sources.query(message('retired'), {} as Commands)).toEqual({ outcome: 'unsupported' })
++  })
+   it('refuses a kind that declares a health entry another kind or dsh-superagent itself reports, and gives up its entries at unregister', () => {
+     const board = new HealthBoard()
+     // Pre-claim built-in health entries; sync:* entries are reserved for settings sync.
+@@ -155,9 +168,9 @@ describe('Source registry', () => {
+     expect(channel.address).toEqual({ chatId: 'oc_dm', messageId: 'om_dm', direct: 'true' })
+     expect(sources.channelAllowed(channel)).toBe(true)
+     const commands = new Commands(() => testDeployment(), {}, new AbortController().signal)
+-    const run = vi.spyOn(commands, 'run').mockResolvedValue('{"ok":true,"data":{}}')
++    const run = vi.spyOn(commands, 'run').mockResolvedValue('{"ok":true,"data":{"message_id":"om_out"}}')
+     const reply: OutboundMessage = { id: 'reply-1', channel, text: 'Done', kind: 'reply' }
+-    expect(await sources.send(reply, commands)).toBe('sent')
++    expect(await sources.send(reply, commands)).toEqual({ outcome: 'sent', externalId: 'om_out' })
+     expect(run.mock.calls[0]![1]).toEqual(expect.arrayContaining(['+messages-reply', '--message-id', 'om_dm']))
+   })
+ })
+diff --git a/tests/runtime.spec.ts b/tests/runtime.spec.ts
+index d23b0a7..f6d39ff 100644
+--- a/tests/runtime.spec.ts
++++ b/tests/runtime.spec.ts
+@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'v
+ import type { UserMessage } from '@deepseek-ai/dsh-llm'
+ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+ import { Runtime } from '../src/app/runtime.ts'
++import { Unknown } from '../src/app/effects.ts'
+ import { jobRegistry } from './fixtures/host.ts'
+ import { evalsHealth } from '../src/app/views/overview.ts'
+ import { mandateInstructions } from '../src/executor/dsh.ts'
+@@ -1249,7 +1250,7 @@ describe('the order of a Ticket\'s messages to one conversation', () => {
+     vi.spyOn(runtime.sources, 'send').mockImplementation(async message => {
+       if (refused.has(message.id)) throw new Error('internal error (2200)')
+       sent.push(message.id)
+-      return 'sent'
++      return { outcome: 'sent' }
+     })
+   })
+   it('sends a Ticket\'s later result after its acknowledgement that failed once, and holds no other Ticket\'s message in the chat', async () => {
+@@ -1282,13 +1283,31 @@ describe('the order of a Ticket\'s messages to one conversation', () => {
+ 
+ it('keeps the receipt of a message withdrawn while it went out, so its id is not queued again', async () => {
+   const { trigger } = await acceptedTicket()
+-  vi.spyOn(runtime.sources, 'send').mockImplementation(async message => { runtime.outbox.withdraw(message.id); return 'sent' })
++  vi.spyOn(runtime.sources, 'send').mockImplementation(async message => {
++    runtime.outbox.withdraw(message.id); return { outcome: 'sent' }
++  })
+   runtime.outbox.send({ id: 'raced', channel: trigger.channel!, text: 'Done', kind: 'reply' })
+   await runtime.sendReplies()
+   runtime.outbox.send({ id: 'raced', channel: trigger.channel!, text: 'Again', kind: 'reply' })
+   expect([runtime.store.receipts.get('raced'), runtime.effects.pending('reply')]).toEqual([expect.objectContaining({ text: 'Done', status: 'sent' }), false])
+ })
+ 
++it('checks an unknown reply with the Source before retrying, and records the external ID on its receipt', async () => {
++  const { trigger } = await acceptedTicket()
++  await runtime.sendReplies()
++  const send = vi.spyOn(runtime.sources, 'send').mockRejectedValueOnce(new Unknown('timeout'))
++  runtime.outbox.send({ id: 'unknown-1', channel: trigger.channel!, text: 'Done', kind: 'reply' })
++  await runtime.sendReplies()
++  expect(runtime.effects.get('reply', 'unknown-1')).toMatchObject({ state: 'unknown', inFlight: false })
++  expect(runtime.store.receipts.get('unknown-1')).toMatchObject({ status: 'pending' })
++  const query = vi.spyOn(runtime.sources, 'query').mockResolvedValue({ outcome: 'sent', externalId: 'om_sent' })
++  vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 5000 })
++  try { await runtime.sendReplies() } finally { vi.useRealTimers() }
++  expect(send).toHaveBeenCalledTimes(1)
++  expect(query).toHaveBeenCalledTimes(1)
++  expect(runtime.store.receipts.get('unknown-1')).toMatchObject({ status: 'sent', externalId: 'om_sent' })
++})
++
+ it('resumes several ended tickets on one thread from one message without the launch waiting on itself', async () => {
+   const first = await acceptedTicket()
+   const other = feishu('30', '@bot 顺手把这里也改了', { root_id: undefined })
+diff --git a/tests/store.spec.ts b/tests/store.spec.ts
+index 057e20b..a3c74ee 100644
+--- a/tests/store.spec.ts
++++ b/tests/store.spec.ts
+@@ -262,3 +262,12 @@ it('reads `%` and `_` in a key prefix and a search query as written, not as patt
+   expect([store.read.search('50%').map(item => item.id), store.read.search('a_b').map(item => item.id)]).toEqual([['p'], ['r']])
+   store.close()
+ })
++
++it('stores external confirmation on a sent receipt', () => {
++  const store = new Store(join(directory, 'receipt.sqlite'))
++  const message = { id: 'm1', channel: { source: 'github', thread: 'github:1', address: { number: '1' } }, text: 'hi', kind: 'reply' as const }
++  store.receipts.add(message)
++  store.receipts.settle(message, 'sent', { externalId: 'c9', confirmedAt: '2026-01-01T00:00:01.000Z' })
++  expect(store.receipts.get('m1')).toMatchObject({ status: 'sent', externalId: 'c9', confirmedAt: '2026-01-01T00:00:01.000Z' })
++  store.close()
++})

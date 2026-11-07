@@ -1,0 +1,922 @@
+diff --git a/docs/007-architecture.md b/docs/007-architecture.md
+index 031c571..45550e8 100644
+--- a/docs/007-architecture.md
++++ b/docs/007-architecture.md
+@@ -159,7 +159,7 @@ Its interfaces are grouped by purpose:
+ - **Outbox receipts:** `replyStatus` and `receipts`, written only by Outbox. Receipt operations are `get`, `waiting`, `behind`, `add`, `settle` and `withdraw`. `behind` checks whether an earlier message for the same Ticket and conversation is waiting with fewer than three failures. A withdrawn message settles with `channelGone` or `channelIgnored`. Read queries expose failed and dropped replies through `failingReplies`, `droppedReplies` and `droppedSince`.
+ - **Typed key-value records:** `get`, `set`, `delete` and `keys`, using entries from `KV`.
+ 
+-`afterCommit` runs an action only after the transaction commits, never after rollback. Runtime reads records in their stored shape; the schema 12 migration converts older supported records at startup.
++`afterCommit` runs an action only after the transaction commits, never after rollback. Runtime reads records in their stored shape; the schema 13 migration converts older supported records at startup.
+ 
+ ### Effects
+ 
+@@ -331,9 +331,9 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/app/passes.ts` | Passes, the pass scheduler |
+ | `src/app/outbox.ts` | The Outbox: the Engine's `Outbox` port, the receipts and the `reply` effects that send them |
+ | `src/app/notices.ts` | The main Session's notices and relays: `eventNotice`, `reportRelay`, `resultRelay` and `followupRelay` |
+-| `src/app/store.ts` | The Store, and `Receipt`, a message of the outbox |
++| `src/app/store.ts` | The Store, `Receipt`, a message of the outbox, and `ContextSnapshot`, what each Assignment was pinned to, with `receipts.forTicket` |
+ | `src/app/store-read.ts` | `storeReads`: the Store's read queries for the views, the tools and the Sources' polls, which never write |
+-| `src/app/migration.ts` | The schema 12 migration: steps from schema 10 and 11 that write every stored record in its current shape and backfill the effect's correlation columns |
++| `src/app/migration.ts` | Schema 13 migrations: the schema 10→11 and 11→12 steps and the version bump that admits 12, with `context_snapshot` created on every open |
+ | `src/app/effects.ts` | Effects |
+ | `src/app/voice-effects.ts` | `VoiceEffects`: the `voice` effects a bridge sends through, with one delivery per send token and no automatic retry of an unknown outcome |
+ | `src/app/versions.ts` | `Versions`: a record kept as numbered snapshots with a pointer to the current one, for the settings and the prompts |
+@@ -343,7 +343,8 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/app/prompts.ts` | Prompts, `builtInParts`, the built-in parts a team may override, and `promptParts`, the order of a role's prompt sections |
+ | `src/app/context.ts` | The built-in prompt text, read from `prompts/`, and the transcript entries Sessions read |
+ | `src/app/skill-files.ts` | Packaged text: `promptFile`, which joins a file's one-sentence lines into paragraphs, and the bundled skills |
+-| `src/app/sessions.ts` | Sessions |
++| `src/app/sessions.ts` | Sessions, which run a worker under its pinned prompt revision |
++| `src/app/snapshots.ts` | `ContextSnapshots`: the immutable context pin of one Assignment, and the prompt revision its worker reads; capture runs before message delivery and a failed capture fails the Assignment rather than running it unpinned |
+ | `src/app/delivery.ts` | `AgentDelivery`: delivers a message to a DeepSeek Harness agent once per request id, also across a restored Session |
+ | `src/app/retry-health.ts` | `RetryHealth`: which Sessions wait on a model budget retry, for the `models` health entry |
+ | `src/app/role-models.ts` | Resolves the Eval and Executor models, and seeds a new Session with its role's model |
+@@ -396,7 +397,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/client/route.ts` | The tabs, the settings groups, the typed routes that `parseRoute` reads, and the route memory with the settings group opened last |
+ | `src/client/overview.tsx` | The overview |
+ | `src/client/source.tsx`, `trigger.tsx`, `eval.tsx`, `execution.tsx` | One file per stage: its status, and its settings where it has some |
+-| `src/client/thread.tsx`, `ticket.tsx` | The record pages: a Thread with its timeline, and a Ticket with its authorization, Inputs and Assignments |
++| `src/client/thread.tsx`, `ticket.tsx` | The record pages: a Thread with its timeline, and a Ticket with its authorization, its read-only Execution trace, Inputs and Assignments |
+ | `src/client/settings.tsx` | The Settings tab: the group navigation and the group on screen |
+ | `src/client/settings-kit.tsx` | The building blocks of settings blocks: the settings the stage groups share, `useBlockDraft`, the fields, among them a Source kind's, and the history of saves |
+ | `src/client/prompts.tsx` | The Prompts settings: the page owns the view it read and its editor the draft, and the Edit, Full prompt and History tabs render from them; a built-in part's editor shows a changed default and keeps or drops the override |
+@@ -448,8 +449,9 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `tests/settings.spec.ts` | Settings saves that race a model or account check, a Policy sync that a save outran, and the refusals of the pause, a sync and a block |
+ | `tests/views.spec.ts` | What the management views derive from the Store, such as the Thread a dropped message belongs to |
+ | `tests/timeline.spec.ts` | A Thread's pages and a Trigger's neighbours by time and then id, with every received Trigger's time in one form |
+-| `tests/migration.spec.ts` | The schema 12 migration: every stored record in its current shape, the effect correlation backfill, and the refusal of older schemas |
++| `tests/migration.spec.ts` | The schema 13 migration: every stored record in its current shape, the effect correlation backfill, and the refusal of older schemas |
+ | `tests/store.spec.ts` | Repositories and their working sets, in SQLite as in memory, the kv area, with every key of `KV` spelled only in `src/kv.ts` and the migration, settings history and queries |
++| `tests/snapshots.spec.ts` | Context snapshots: digests, owner sections, first-write-wins, prompt pinning and receipts by Ticket |
+ | `tests/prompts.spec.ts` | Prompt validation, assembly and versions |
+ | `tests/cards.spec.ts` | The rules the built-in text must state, file by file |
+ | `tests/model-surface.spec.ts` | Everything models read: tools, prompts, skills and inputs, checked against the tool schemas, the execution environment and the glossary, within a size budget per role |
+@@ -479,6 +481,7 @@ One SQLite file, `<stateDir>/orchestrator.sqlite`, which only the Store opens.
+ | `decision` | Decisions, by Thread | Engine |
+ | `effect` | The effect queue: per kind and key, the payload, its order, attempts with the last error, when it is due, and the correlation that makes an external side effect traceable — `effect_id`, `idempotency_key`, the `receipt_id` it delivers, the `external_id` its Channel reported, and the `ticket_id` it serves — plus `state` (`pending`, `sent`, `unknown`, `failed`), `confirmed_at`, `last_attempt_at` and `in_flight`; terminal rows survive only for recording kinds such as `reply` | Effects; the schema 12 migration backfills the correlation from what earlier versions stored |
+ | `outbox` | The receipt of each message for a Channel, by id, with the Ticket it is for and its `status`, `pending`, `sent` or `dropped`, kept so an id is never queued twice; for a sent message, its `external_id` and `confirmed_at`; for a dropped message, when and why, as the generated column `dropped`, its time, and a reason code. A message that waits has a `reply` effect, which holds its attempts | The Outbox |
++| `context_snapshot` | What each Assignment was pinned to at launch: prompt revision, skills/policy/environment digests, section and tool digests, owner digests; one immutable row per `assignment_id` | DshExecutor through `ContextSnapshots`, before message delivery; a failed capture fails the Assignment instead of running it unpinned |
+ | `kv` | Every other record, by key | The part that names it |
+ 
+ A generated column is computed from its row's JSON and is empty outside its set, and each has an index over its set, so a pass reads only active work. A database that predates a column gets it when the Store opens it.
+@@ -501,7 +504,7 @@ Read caches use bounded in-memory `TextCache` instances and are lost on restart.
+ 
+ Nothing deletes old records yet, so these grow without bound: the `trigger`, `disposition` and `decision` rows; ended Tickets and their Threads; the outbox's receipts; and in `kv`, every saved settings revision and prompt version, the prompt revisions each Session worked under, and the Sources' records per Thread and per Issue or pull request.
+ 
+-`SCHEMA_VERSION` only increases. A database of a newer version refuses to start; `src/app/migration.ts` upgrades a database of the pre-release schema 10 or schema 11 once, at start, and refuses an older one.
++`SCHEMA_VERSION` only increases. A database of a newer version refuses to start; `src/app/migration.ts` upgrades a database of the pre-release schema 10, 11 or 12 once, at start, and refuses an older one.
+ 
+ ## Model-facing interfaces
+ 
+diff --git a/src/app/api.ts b/src/app/api.ts
+index 8148dc1..91280a9 100644
+--- a/src/app/api.ts
++++ b/src/app/api.ts
+@@ -1,6 +1,7 @@
+ /** Type-only management API contract between the web panel and host routes, imported by the panel without bundling host code. */
+ import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
+ import type { InputReceipt, InputSubmission, SubjectBinding } from '../core/model.ts'
++import type { ContextSnapshot } from '../core/index.ts'
+ import type { EffectState } from '../core/ports.ts'
+ import type { PromptConfig, Prompts } from './prompts.ts'
+ import type { PromptsView, StateView, TicketPageView } from './http.ts'
+@@ -38,6 +39,7 @@ export interface Api {
+   'POST decisions/:id/dismiss': { response: { dismissed: true } }
+   'GET tickets': { query?: Paged & { state?: TicketFilter }; response: TicketListView }
+   'GET tickets/:id': { response: TicketPageView }
++  'GET assignments/:id/snapshot': { response: ContextSnapshot | null }
+   'GET effects': { query?: Paged & { ticket?: string; state?: EffectState; kind?: string }; response: EffectPageView }
+   'POST tickets/:id/retry': { response: { retried: true } }
+   'POST tickets/:id/stop': { response: { stopped: true } }
+diff --git a/src/app/http.ts b/src/app/http.ts
+index 7c23cec..0b99ae1 100644
+--- a/src/app/http.ts
++++ b/src/app/http.ts
+@@ -209,6 +209,7 @@ function routes(runtime: HttpHost): Routes {
+       return ticketList(views(runtime), state, offset, limit)
+     },
+     'GET tickets/:id': ({ params }) => ticketPage(runtime, params.id),
++    'GET assignments/:id/snapshot': ({ params }) => store.contextSnapshots.get(params.id),
+     'GET effects': ({ query }) => {
+       const { ticket: ticketId, state, kind, offset, limit } = EffectsQuery.parse(query)
+       return effectPage(views(runtime), { ticketId, state, kind }, offset, limit)
+diff --git a/src/app/migration.ts b/src/app/migration.ts
+index 40c9147..9d620d6 100644
+--- a/src/app/migration.ts
++++ b/src/app/migration.ts
+@@ -1,5 +1,5 @@
+ /**
+- * Migrates a schema 10 or 11 database to schema 12 in a single transaction so runtime readers never convert legacy shapes.
++ * Migrates a schema 10, 11 or 12 database to schema 13 in a single transaction so runtime readers never convert legacy shapes.
+  * Databases older than schema 10 are rejected: this version cannot migrate them.
+  */
+ import { basename } from 'node:path'
+@@ -17,7 +17,7 @@ import type { SettingsVersion, Store } from './store.ts'
+ import { Versions } from './versions.ts'
+ import { KV, type Key } from '../kv.ts'
+ 
+-export const SCHEMA_VERSION = 12
++export const SCHEMA_VERSION = 13
+ /** The oldest database schema version this build can open and migrate directly. */
+ export const OLDEST_SCHEMA = 10
+ /** Returns an error message explaining why `version` cannot be opened: older schemas need a new state directory. */
+diff --git a/src/app/runtime.ts b/src/app/runtime.ts
+index 05ef045..68f5e68 100644
+--- a/src/app/runtime.ts
++++ b/src/app/runtime.ts
+@@ -45,6 +45,7 @@ import { feishuSettings } from '../sources/feishu.ts'
+ import { localKind } from '../sources/local.ts'
+ import { health, type Health, type SourceContext, type SourceHost } from '../sources/host.ts'
+ import { Sessions } from './sessions.ts'
++import { ContextSnapshots } from './snapshots.ts'
+ import { Settings } from './settings.ts'
+ import { sourceContextOf, type SourceContextDeps } from './source-context.ts'
+ import type { ResourceHost } from './resources.ts'
+@@ -70,6 +71,7 @@ export class Runtime extends Service implements SourceHost {
+   readonly sources: SourceRegistry
+   readonly commands: Commands
+   readonly sessions: Sessions
++  readonly snapshots: ContextSnapshots
+   readonly settings: Settings
+   readonly executor: DshExecutor
+   readonly assessor: MasterAssessor
+@@ -109,6 +111,7 @@ export class Runtime extends Service implements SourceHost {
+         ? environmentOf({ deployment: setup.deployment, sources: this.sources, settings: store.settings() }) : undefined
+       const feishu = () => setup.configured() && !!setup.deployment.feishu
+       const prompts = this.prompts = new Prompts(store, () => machine.promptMaxChars.get(), deployed, feishu)
++      const snapshots = this.snapshots = new ContextSnapshots({ store, prompts })
+       const masterId = this.masterId = store.get(KV.runtime.masterId) ?? `orchestrator-${key(machine.stateDir)}`
+       store.set(KV.runtime.masterId, masterId)
+       const subject = this.subject = Subject.open(store)
+@@ -130,14 +133,14 @@ export class Runtime extends Service implements SourceHost {
+         promptVersion: id => this.sessions.promptVersion(id), mayRead: (id, revision) => this.sessions.mayRead(id, revision),
+         feishuPageSize: () => feishuSettings(sources).readPageSize, sourceLink: link }
+       const sessions = this.sessions = new Sessions({ context: ctx, store, prompts, effects, health: board.claim('models'), masterId,
+-        lifetime: this.lifetime,
++        snapshots, lifetime: this.lifetime,
+         closing: () => this.closing(), environment,
+         tools: (agent, ticket) => ticket ? executorTools(this.toolHost, ticket) : mainTools(this.toolHost, agent) })
+       const policyChanged: EngineForSettings['policyChanged'] = (from, to, effects) => { this.engine.policyChanged(from, to, effects) }
+       this.settings = new Settings({ store, sources, engine: { policyChanged }, health: board, context: ctx, lifetime: this.lifetime, sessions,
+         sourceHost: this, setup, requestPass: () => { this.passes.request() } })
+       this.executor = new DshExecutor({ context: ctx, get engine() { return runtime.engine }, store, effects, health: board.claim('worker'), machine,
+-        lifetime: this.lifetime, sessions, closing: () => this.closing(), paused: () => this.paused(), environment, sourceLink: link,
++        snapshots, lifetime: this.lifetime, sessions, closing: () => this.closing(), paused: () => this.paused(), environment, sourceLink: link,
+         repliedTo: trigger => repliedTo({ store, sources }, trigger) })
+       this.assessor = new MasterAssessor({ get engine() { return runtime.engine }, commands, get deployment() { return setup.deployment }, effects,
+         settings: () => store.settings(), paused: () => this.paused(), threadContext: trigger => sources.threadContext(trigger),
+diff --git a/src/app/sessions.ts b/src/app/sessions.ts
+index 1a22388..6f11c54 100644
+--- a/src/app/sessions.ts
++++ b/src/app/sessions.ts
+@@ -16,6 +16,7 @@ import { RetryHealth } from './retry-health.ts'
+ import { initializeRoleModel } from './role-models.ts'
+ import { bundledSkills } from './skill-files.ts'
+ import { SKILL_PREFIX, type PromptVersion, type Prompts } from './prompts.ts'
++import type { ContextSnapshots } from './snapshots.ts'
+ import type { Store } from './store.ts'
+ import { KV } from '../kv.ts'
+ import type { RegisterTool, Tool } from './tools/tool.ts'
+@@ -26,6 +27,8 @@ export interface SessionsHost {
+   readonly context: Context
+   readonly store: Pick<Store, 'tickets' | 'settings' | 'get' | 'set' | 'keys'>
+   readonly prompts: Pick<Prompts, 'current' | 'version' | 'compose' | 'skills'>
++  /** The prompt revision each worker Session was pinned to when its Assignment launched. */
++  readonly snapshots: Pick<ContextSnapshots, 'promptRevisionForSession'>
+   readonly effects: Pick<Effects, 'enqueue' | 'handle' | 'idle' | 'pending'>
+   /** The `models` health entry, which reports managed sessions waiting on a model-budget retry. */
+   readonly health: HealthEntry
+@@ -196,7 +199,14 @@ export class Sessions {
+   /** Returns the prompt version a Session runs under (the one bound on its latest model request, or the current version). */
+   promptVersion(sessionId: string): PromptVersion {
+     const revision = this.host.store.get(KV.sessions.prompts(sessionId))?.at(-1)
+-    return revision === undefined ? this.host.prompts.current() : this.host.prompts.version(revision)
++    if (revision !== undefined) return this.host.prompts.version(revision)
++    return this.pinned(sessionId) ?? this.host.prompts.current()
++  }
++  /** The prompt version a Session's Assignment pinned it to, when that revision is still readable. */
++  private pinned(sessionId: string): PromptVersion | undefined {
++    const revision = this.host.snapshots.promptRevisionForSession(sessionId)
++    if (revision === undefined) return undefined
++    try { return this.host.prompts.version(revision) } catch { return undefined }
+   }
+   /** Whether a Session is authorized to read `revision` (its active revision or any revision it previously ran under). */
+   mayRead(sessionId: string, revision: number): boolean {
+@@ -327,7 +337,7 @@ export class Sessions {
+   }
+   /** Return the current prompt version, updating the agent's skills and recording the revision in Store when bound to a model request. */
+   private promptFor(agent: Agent, bind: boolean): PromptVersion {
+-    const version = this.host.prompts.current()
++    const version = this.pinned(agent.id) ?? this.host.prompts.current()
+     if (!bind) return version
+     const binding = this.bindings.get(agent)
+     if (binding) this.bindSkills(binding, version)
+diff --git a/src/app/snapshots.ts b/src/app/snapshots.ts
+new file mode 100644
+index 0000000..4ee9144
+--- /dev/null
++++ b/src/app/snapshots.ts
+@@ -0,0 +1,78 @@
++/** Captures the immutable context one Assignment runs under, and answers prompt pins for its worker. */
++import { createHash } from 'node:crypto'
++import { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
++import type { Assignment, ContextSnapshot, Ticket } from '../core/index.ts'
++import type { Variable } from './execution-environment.ts'
++import type { Store } from './store.ts'
++
++type SnapshotPromptContext = ReturnType<typeof assembleContextFor>
++interface SnapshotAgent {
++  id: string
++  ctx: { systemPrompt?: { assemble?: (context: SnapshotPromptContext) => Promise<{ sections: readonly { name: string; text: string }[] }> } }
++}
++/** The prompt and skill texts a snapshot digests: `Prompts` narrowed to what the digests read. */
++interface SnapshotPrompts {
++  current(): { revision: number; config: { skills: Record<string, string> } }
++  skills(config: { skills: Record<string, string> }): [string, string][]
++}
++interface SnapshotHost {
++  store: Pick<Store, 'contextSnapshots' | 'settings'>
++  prompts: SnapshotPrompts
++}
++
++/** Captures what each Assignment is pinned to, and answers the prompt revision its worker Session reads. */
++export class ContextSnapshots {
++  constructor(private readonly host: SnapshotHost) {}
++
++  /** Records what `agent` was pinned to; a retry of the same Assignment reuses the first snapshot. */
++  async capture(ticket: Ticket, assignment: Assignment, agent: Agent, environment: readonly Variable[]): Promise<ContextSnapshot> {
++    const existing = this.host.store.contextSnapshots.get(assignment.id)
++    if (existing) return existing
++    const version = this.host.prompts.current()
++    const sections = await this.assemble(agent)
++    const tools = Object.fromEntries(Object.entries(sections)
++      .filter(([name]) => name.startsWith('tool:'))
++      .map(([name, value]) => [name.slice(5), value]))
++    const settings = this.host.store.settings()
++    return this.host.store.contextSnapshots.save({
++      assignmentId: assignment.id,
++      ticketId: ticket.id,
++      sessionId: agent.id,
++      capturedAt: new Date().toISOString(),
++      promptRevision: version.revision,
++      skillsDigest: digest(this.host.prompts.skills(version.config)),
++      policyDigest: digest({ policy: settings.policy, eval: settings.eval }),
++      sections,
++      tools,
++      environmentDigest: digest(environment),
++      owners: {
++        actmem: sections['actmem:policy'] ?? 'absent',
++        mempalace: sections['mempalace:policy'] ?? 'absent',
++        laputa: sections['laputa:persona'] ?? 'absent',
++      },
++    })
++  }
++
++  /** The pinned prompt revision for a worker Session, when its snapshot exists. */
++  promptRevisionForSession(sessionId: string): number | undefined {
++    return this.host.store.contextSnapshots.forSession(sessionId)?.promptRevision
++  }
++
++  private async assemble(agent: Agent): Promise<Record<string, string>> {
++    const service = (agent as unknown as SnapshotAgent).ctx.systemPrompt
++    if (typeof service?.assemble !== 'function') return {}
++    const assembly = await service.assemble(assembleContextFor(agent))
++    return Object.fromEntries(assembly.sections.map(section => [section.name, digest(section.text)]))
++  }
++}
++
++/** sha256 over a canonical form, so object key order cannot change a digest. */
++function digest(value: unknown): string {
++  return createHash('sha256').update(typeof value === 'string' ? value : canonical(value), 'utf8').digest('hex')
++}
++function canonical(value: unknown): string {
++  if (value === null || typeof value !== 'object') return JSON.stringify(value)
++  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
++  const record = value as Record<string, unknown>
++  return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${canonical(record[key])}`).join(',')}}`
++}
+diff --git a/src/app/store.ts b/src/app/store.ts
+index 32b4e41..ae36306 100644
+--- a/src/app/store.ts
++++ b/src/app/store.ts
+@@ -2,8 +2,8 @@
+ import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
+ import { chmodSync, mkdirSync } from 'node:fs'
+ import { dirname } from 'node:path'
+-import { key, threadKey, type ChannelRef, type Decision, type OutboundMessage, type ReplyStatus, type Repositories, type Thread, type ThreadFact,
+-  type ThreadFacts, type Ticket, type Trigger, type TriggerDisposition } from '../core/index.ts'
++import { key, threadKey, type ChannelRef, type ContextSnapshot, type Decision, type OutboundMessage, type ReplyStatus, type Repositories,
++  type Thread, type ThreadFact, type ThreadFacts, type Ticket, type Trigger, type TriggerDisposition } from '../core/index.ts'
+ import { KV, type Family, type Key } from '../kv.ts'
+ import { SettingsSchema, type Settings, type SettingsOrigin, type SettingsSave } from '../policy.ts'
+ import { OLDEST_SCHEMA, SCHEMA_VERSION, migrateTo11, migrateTo12, tooOld } from './migration.ts'
+@@ -56,9 +56,9 @@ export { SCHEMA_VERSION }
+ export class Store implements Repositories {
+   readonly db: DatabaseSync
+   /**
+-   * Opens or creates the SQLite database at `path`, migrating a schema 10 or 11 database to schema 12 in a single transaction.
++   * Opens or creates the SQLite database at `path`, migrating a schema 10, 11 or 12 database to schema 13 in a single transaction.
+    * @param report - Receives errors thrown by `afterCommit` callbacks without failing the committed transaction.
+-   * @throws When the database schema is older than `OLDEST_SCHEMA` (10), newer than `SCHEMA_VERSION` (12), or when migration fails; in every case the database file is left unchanged and the SQLite handle is closed so a later attempt in the same process can open it.
++   * @throws When the database schema is older than `OLDEST_SCHEMA` (10), newer than `SCHEMA_VERSION` (13), or when migration fails; in every case the database file is left unchanged and the SQLite handle is closed so a later attempt in the same process can open it.
+    */
+   constructor(path: string, private readonly report: (error: unknown) => void = () => {}) {
+     mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+@@ -90,6 +90,15 @@ export class Store implements Repositories {
+             CREATE INDEX IF NOT EXISTS trigger_at ON trigger(at);
+             CREATE INDEX IF NOT EXISTS trigger_thread_at ON trigger_thread(thread, at);
+             CREATE INDEX IF NOT EXISTS decision_thread ON decision(thread);
++            CREATE TABLE IF NOT EXISTS context_snapshot (
++              assignment_id TEXT PRIMARY KEY,
++              ticket_id TEXT NOT NULL,
++              session_id TEXT NOT NULL,
++              value TEXT NOT NULL,
++              captured_at TEXT NOT NULL
++            );
++            CREATE INDEX IF NOT EXISTS context_snapshot_ticket ON context_snapshot(ticket_id, captured_at);
++            CREATE INDEX IF NOT EXISTS context_snapshot_session ON context_snapshot(session_id, captured_at);
+           `)
+           this.addColumns()
+           if (version !== undefined && version < 11) migrateTo11(this)
+@@ -272,6 +281,8 @@ export class Store implements Repositories {
+   /** Outbox message receipts for channel delivery; only `Outbox` writes to `receipts`. */
+   readonly receipts = {
+     get: (id: string): Receipt | undefined => this.values<Receipt>('SELECT value FROM outbox WHERE id = ?', id)[0],
++    /** Receipts whose message names this Ticket, oldest first. */
++    forTicket: (ticketId: string): Receipt[] => this.values("SELECT value FROM outbox WHERE value ->> '$.ticketId' = ? ORDER BY rowid", ticketId),
+     /** Pending message receipts, oldest first. */
+     waiting: (): Receipt[] => this.values("SELECT value FROM outbox WHERE value ->> '$.status' = 'pending' ORDER BY rowid"),
+     /** True if an earlier message for the same ticket and conversation is still pending with fewer than `failures` consecutive failed `reply` effect attempts. */
+@@ -312,6 +323,19 @@ export class Store implements Repositories {
+       return Number(this.db.prepare("DELETE FROM outbox WHERE id = ? AND value ->> '$.status' = 'pending'").run(id).changes) > 0
+     },
+   }
++
++  /** Immutable per-Assignment context snapshots; the first write for an Assignment wins. */
++  readonly contextSnapshots = {
++    save: (snapshot: ContextSnapshot): ContextSnapshot => {
++      this.db.prepare('INSERT OR IGNORE INTO context_snapshot (assignment_id, ticket_id, session_id, value, captured_at) VALUES (?, ?, ?, ?, ?)')
++        .run(snapshot.assignmentId, snapshot.ticketId, snapshot.sessionId, JSON.stringify(snapshot), snapshot.capturedAt)
++      return this.contextSnapshots.get(snapshot.assignmentId) ?? snapshot
++    },
++    get: (assignmentId: string): ContextSnapshot | null =>
++      this.values<ContextSnapshot>('SELECT value FROM context_snapshot WHERE assignment_id = ?', assignmentId)[0] ?? null,
++    forSession: (sessionId: string): ContextSnapshot | null =>
++      this.values<ContextSnapshot>('SELECT value FROM context_snapshot WHERE session_id = ? ORDER BY captured_at DESC, rowid DESC LIMIT 1', sessionId)[0] ?? null,
++  }
+ }
+ export { key, threadKey }
+ export type { ChannelRef }
+diff --git a/src/app/views/tickets.ts b/src/app/views/tickets.ts
+index b9c4c22..9bcb324 100644
+--- a/src/app/views/tickets.ts
++++ b/src/app/views/tickets.ts
+@@ -84,6 +84,9 @@ export function ticketDetail(host: ViewHost, id: string) {
+     inputs: ticket.inputs.slice().reverse().map(input),
+     // Threads followed for context only (e.g., related issues) grant no authority and are marked with `context: true`.
+     threads: view.threadsOf(id).map(thread => ({ ...threadSummary(view, thread),
+-      ...thread.context?.includes(id) ? { context: true as const } : {} })) }
++      ...thread.context?.includes(id) ? { context: true as const } : {} })),
++    receipts: store.receipts.forTicket(id),
++    contextSnapshot: ticket.assignments.at(-1) ? store.contextSnapshots.get(ticket.assignments.at(-1)!.id) : null,
++  }
+ }
+ export type TicketDetailView = NonNullable<ReturnType<typeof ticketDetail>>
+diff --git a/src/client/locales.ts b/src/client/locales.ts
+index ea88b50..880abac 100644
+--- a/src/client/locales.ts
++++ b/src/client/locales.ts
+@@ -342,6 +342,31 @@ const TEXT = {
+   assignmentSpan: ['{from} → {to}', '{from} → {to}'],
+   inputUndelivered: ['未送达', 'Undelivered'],
+   mandateDetails: ['授权详情', 'Mandate details'],
++  traceTitle: ['执行追踪', 'Execution trace'],
++  traceMissing: ['这次派工还没有上下文快照。', 'This Assignment has no context snapshot yet.'],
++  tracePromptRevision: ['提示词版本', 'Prompt revision'],
++  traceCapturedAt: ['捕获时间', 'Captured'],
++  traceSkills: ['技能摘要', 'Skills digest'],
++  tracePolicy: ['策略摘要', 'Policy digest'],
++  traceOwners: ['所有者版本', 'Owner revisions'],
++  traceAbsent: ['未提供', 'absent'],
++  traceReceipts: ['回执', 'Receipts'],
++  traceNoReceipts: ['这张工单还没有回执。', 'This Ticket has no receipts yet.'],
++  traceEvolution: ['进化记录', 'Evolution records'],
++  traceEvolutionEmpty: ['没有关联的进化记录。', 'No Evolution records are linked.'],
++  traceEvolutionLoading: ['正在读取进化记录…', 'Loading Evolution records…'],
++  traceEvolutionError: ['无法读取进化记录；片段仍只读。', 'Evolution records are unavailable; this trace stays read-only.'],
++  traceEvolutionUnavailable: ['进化记录服务未启用。', 'The Evolution service is not enabled.'],
++  'replyStatus.pending': ['待发送', 'Pending'],
++  'replyStatus.sent': ['已发送', 'Sent'],
++  'replyStatus.dropped': ['已丢弃', 'Dropped'],
++  'messageKind.acknowledgement': ['确认', 'Acknowledgement'],
++  'messageKind.reply': ['回复', 'Reply'],
++  'messageKind.notice': ['通知', 'Notice'],
++  'evolutionKind.evidence': ['证据', 'Evidence'],
++  'evolutionKind.proposals': ['候选', 'Proposal'],
++  'evolutionKind.validations': ['验证', 'Validation'],
++  'evolutionKind.publications': ['发布', 'Publication'],
+   effectsTitle: ['外部副作用', 'External effects'],
+   'effect.pending': ['未执行', 'Not sent'],
+   'effect.sent': ['成功', 'Sent'],
+diff --git a/src/client/ticket.tsx b/src/client/ticket.tsx
+index 455c1b4..5b12995 100644
+--- a/src/client/ticket.tsx
++++ b/src/client/ticket.tsx
+@@ -1,5 +1,5 @@
+ /** Ticket detail page: stage and actions, Mandate details, undelivered/delivered Inputs, subscribed Threads, and Assignments. */
+-import { useState, type ReactNode } from 'react'
++import { useEffect, useState, type ReactNode } from 'react'
+ import { ApiError, usePoll, type TicketPageView } from './api.ts'
+ import { DisclosureRow, Dot, Icon, Tag, type IconName } from './controls.tsx'
+ import { decisionMark, effectMark, reportDot, ticketMark } from './marks.ts'
+@@ -104,6 +104,62 @@ function MandateDetails({ ticket, actor }: { ticket: TicketPageView; actor: stri
+       ...legacy ? [] : [[t('policyVersion'), version] as [string, ReactNode]]]} />
+   </Section>
+ }
++type TraceRecord = { id: string; state?: string; verdict?: string; summary?: string; assetScope?: string; purpose?: string }
++type TraceRecords = { evidence: TraceRecord[]; proposals: TraceRecord[]; validations: TraceRecord[]; publications: TraceRecord[] }
++const short = (value: string) => value.slice(0, 12)
++
++type TraceState = TraceRecords | 'unavailable' | 'error'
++const traceFailed = (records: TraceState | undefined) => records === 'unavailable' || records === 'error'
++
++function Trace({ ticket }: { ticket: TicketPageView }) {
++  const { t } = usePanel()
++  const [records, setRecords] = useState<TraceState | undefined>(undefined)
++  useEffect(() => {
++    const controller = new AbortController()
++    fetch(`/dsh-evolution/api/records?ticket_id=${encodeURIComponent(ticket.id)}`, {
++      credentials: 'same-origin', signal: controller.signal,
++    }).then(async response => {
++      // A missing Evolution service is an expected state, not a failure of this panel.
++      if (response.status === 503) { await response.text(); setRecords('unavailable'); return }
++      const body = JSON.parse(await response.text()) as { ok?: boolean } & Partial<TraceRecords>
++      if (!response.ok || !body.ok) throw new Error(String(response.status))
++      setRecords({ evidence: body.evidence ?? [], proposals: body.proposals ?? [],
++        validations: body.validations ?? [], publications: body.publications ?? [] })
++    }).catch(() => { if (!controller.signal.aborted) setRecords('error') })
++    return () => controller.abort()
++  }, [ticket.id])
++  const snapshot = ticket.contextSnapshot
++  const listed = records === undefined || traceFailed(records) ? [] : (['evidence', 'proposals', 'validations', 'publications'] as const)
++    .flatMap(kind => (records as TraceRecords)[kind].map(item => ({ kind, item })))
++  const owner = (value: string) => value === 'absent' ? t('traceAbsent') : short(value)
++  return <Section title={t('traceTitle')} icon="history">
++    {!snapshot ? <Hint>{t('traceMissing')}</Hint> : <>
++      <KeyValues rows={[
++        [t('tracePromptRevision'), `r${snapshot.promptRevision}`],
++        [t('traceCapturedAt'), when(snapshot.capturedAt, t('lang'))],
++        [t('traceSkills'), short(snapshot.skillsDigest)],
++        [t('tracePolicy'), short(snapshot.policyDigest)],
++        [t('traceOwners'), `${owner(snapshot.owners.actmem)} / ${owner(snapshot.owners.mempalace)} / ${owner(snapshot.owners.laputa)}`],
++      ]} />
++      <h4>{t('traceReceipts')}</h4>
++      {ticket.receipts.length === 0 ? <Hint>{t('traceNoReceipts')}</Hint> : <ul className="dt-plain-list">
++        {ticket.receipts.map(receipt => <li key={receipt.id}>
++          <span className="dt-mono">{receipt.id}</span> · {t(`messageKind.${receipt.kind}`)} · {t(`replyStatus.${receipt.status}`)}
++          {receipt.dropped ? ` · ${receipt.dropped.reason}` : ''}
++        </li>)}
++      </ul>}
++    </>}
++    <h4>{t('traceEvolution')}</h4>
++    {records === undefined ? <Hint>{t('traceEvolutionLoading')}</Hint>
++      : records === 'unavailable' ? <Hint>{t('traceEvolutionUnavailable')}</Hint>
++        : records === 'error' ? <Hint>{t('traceEvolutionError')}</Hint>
++          : listed.length === 0 ? <Hint>{t('traceEvolutionEmpty')}</Hint>
++            : <ul className="dt-plain-list">{listed.map(({ kind, item }) => <li key={`${kind}-${item.id}`}>
++              <span className="dt-mono">{item.id}</span> · {t(`evolutionKind.${kind}`)} · {item.state ?? item.verdict ?? ''}
++              {(item.summary ?? item.assetScope ?? item.purpose) ? ` · ${item.summary ?? item.assetScope ?? item.purpose}` : ''}
++            </li>)}</ul>}
++  </Section>
++}
+ 
+ export function TicketPage({ id }: { id: string }) {
+   const { t, call } = usePanel()
+@@ -154,6 +210,7 @@ export function TicketPage({ id }: { id: string }) {
+       <span className="dt-banner-label">{t('deliveryFailedPrefix')}</span>{data.deliveryError}
+     </p>}
+     <MandateDetails ticket={data} actor={actor} />
++    <Trace ticket={data} />
+     {data.effects.items.length > 0 && <Section title={t('effectsTitle')} count={data.effects.items.length}>
+       <ul className="dt-list">{data.effects.items.map(effect => {
+         const mark = effectMark(t, effect.state, effect.inFlight)
+diff --git a/src/core/model.ts b/src/core/model.ts
+index 9f2cb6a..a208c7d 100644
+--- a/src/core/model.ts
++++ b/src/core/model.ts
+@@ -288,6 +288,24 @@ export interface Assignment {
+   idleAt?: string
+ }
+ 
++/** What one Assignment was pinned to at launch; asset bodies stay with their owners, only digests are recorded. */
++export interface ContextSnapshot {
++  assignmentId: string
++  ticketId: string
++  sessionId: string
++  capturedAt: string
++  promptRevision: number
++  skillsDigest: string
++  policyDigest: string
++  /** Digest of each system prompt section by name, when the host can assemble them. */
++  sections: Record<string, string>
++  /** Digest of each tool section, keyed without the `tool:` prefix. */
++  tools: Record<string, string>
++  environmentDigest: string
++  /** Digest of the owner section each domain contributed, or `absent` when it contributed none. */
++  owners: { actmem: string; mempalace: string; laputa: string }
++}
++
+ export type TicketInput =
+   /** A Trigger on one of its Threads, or attached to it; `human` when a person wrote it. */
+   | { id: string; kind: 'trigger'; triggerId: string; at: string; note?: string; human?: true
+diff --git a/src/executor/dsh.ts b/src/executor/dsh.ts
+index 26234f3..a113671 100644
+--- a/src/executor/dsh.ts
++++ b/src/executor/dsh.ts
+@@ -14,6 +14,7 @@ import type { Store } from '../app/store.ts'
+ import { Later, type Effects } from '../app/effects.ts'
+ import { executionRoot, type Variable } from '../app/execution-environment.ts'
+ import type { Sessions } from '../app/sessions.ts'
++import type { ContextSnapshots } from '../app/snapshots.ts'
+ import { WorktreeNameSchema } from '../app/assessment.ts'
+ import { resultRelay } from '../app/notices.ts'
+ import type { HealthEntry } from '../infra/health.ts'
+@@ -71,6 +72,8 @@ export interface ExecutorHost {
+   readonly lifetime: AbortSignal
+   /** Session manager for worker sessions and for relaying worker reports to the main Session. */
+   readonly sessions: Pick<Sessions, 'ensure' | 'prompt' | 'promptedId' | 'relay' | 'holds'>
++  /** Records what each launched Assignment is pinned to before its worker runs. */
++  readonly snapshots: Pick<ContextSnapshots, 'capture'>
+   closing(): boolean
+   /** Whether processing is paused, which holds launches and input deliveries. */
+   paused(): boolean
+@@ -443,6 +446,10 @@ export class DshExecutor implements Executor {
+     // The background work of the Assignment this one replaces stops first, so its end does not clear this one's message.
+     await this.stopped(ticket.id)
+     if (!current()) return
++    // Pin what this Assignment starts under before its worker reads any prompt: its first write wins.
++    // Fail closed: an Assignment that cannot pin its context fails instead of running unpinned.
++    await this.host.snapshots.capture(ticket, assignment, agent, this.host.environment(ticket))
++    if (!current()) return
+     // A message put back for this Assignment may still wait in the Session, kept by a restart's cancel or persisted across a
+     // crash, where this launch's message would take it into a step beside the copy delivered next: that copy is the only one.
+     for (const id of this.host.store.tickets.get(ticket.id)?.undelivered ?? []) agent.inbox.remove(this.host.sessions.promptedId(id))
+diff --git a/tests/fixtures/panel-server.ts b/tests/fixtures/panel-server.ts
+index 4c327a1..be2ac7a 100644
+--- a/tests/fixtures/panel-server.ts
++++ b/tests/fixtures/panel-server.ts
+@@ -110,6 +110,9 @@ export interface PanelServer {
+   dropped: DroppedReply[]
+   failing: Extract<Problem, { kind: 'outgoing' }>['outgoing'][]
+   effects: EffectRow[]
++  /** The Evolution records `GET /dsh-evolution/api/records` answers with; absent when the service is not enabled. */
++  evolution?: { evidence: Record<string, unknown>[]; proposals: Record<string, unknown>[]
++    validations: Record<string, unknown>[]; publications: Record<string, unknown>[] }
+ }
+ export let server: PanelServer
+ 
+@@ -225,6 +228,18 @@ const ticketDetail = (): TicketPageView => ({
+     trigger: { id: 'e2', actor: actor('feishu', MEMBER), human: true, preview: '顺便改标题', thread: 'feishu:oc_1:om_root' } },
+   { id: 'i2', kind: 'policy-changed', at: '2026-09-22T00:04:00Z', delivered: true, from: 'aaaaaaaaaaaaaaaa', to: 'bbbbbbbbbbbbbbbb' }],
+   effects: { items: [], total: 0, next_offset: null },
++  receipts: [
++    { id: 'm1', channel: { source: 'feishu', thread: 'feishu:oc_1:om_root', address: { chatId: 'oc_1' } }, text: '',
++      kind: 'acknowledgement', ticketId: 't1', status: 'sent' },
++    { id: 'm2', channel: { source: 'feishu', thread: 'feishu:oc_1:om_root', address: { chatId: 'oc_1' } }, text: '',
++      kind: 'reply', ticketId: 't1', status: 'pending' },
++  ],
++  contextSnapshot: {
++    assignmentId: 'a1', ticketId: 't1', sessionId: 'worker-t1', capturedAt: '2026-09-22T00:01:00Z',
++    promptRevision: 7, skillsDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64),
++    sections: {}, tools: {}, environmentDigest: 'c'.repeat(64),
++    owners: { actmem: 'absent', mempalace: 'd'.repeat(64), laputa: 'e'.repeat(64) },
++  },
+ })
+ function threadPage(key: string, { before, around }: { before?: string; around?: string }): ThreadPageView | undefined {
+   if (key !== threadSummary().key) return undefined
+@@ -348,6 +363,8 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
+   'GET tickets': { query: ['state', 'offset', 'limit'], answer: ({ query }) => page(server.tickets[query.state === 'ended' ? 'ended'
+     : 'open']) },
+   'GET tickets/:id': { answer: ({ params }) => server.ticketDetails[params.id] ?? refuse(404, 'Ticket not found') },
++  'GET assignments/:id/snapshot': { answer: ({ params }) => Object.values(server.ticketDetails)
++    .map(detail => detail.contextSnapshot).find(snapshot => snapshot?.assignmentId === params.id) ?? null },
+   'POST tickets/:id/retry': { answer: ({ params }) => {
+     const ticket = ticketOf(params.id)
+     if (!ticket) return refuse(404, 'Ticket not found')
+@@ -461,6 +478,14 @@ export function usePanelServer(cleanup: () => void) {
+       const method = init?.method ?? 'GET'
+       const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined
+       server.requests.push({ path: decodeURIComponent(`${path}${address.search}`), method, ...body === undefined ? {} : { body } })
++      // The Evolution service answers outside `/orchestrator/api`, as its own plugin's route.
++      if (address.pathname === '/dsh-evolution/api/records') {
++        const ticketId = address.searchParams.get('ticket_id') ?? ''
++        const body = server.evolution
++          ? { ok: true, ticketId, ...server.evolution }
++          : { ok: false, error: 'evolution unavailable' }
++        return new Reply(body, server.evolution ? 200 : 503)
++      }
+       const route = match(method, path.split('/'))
+       if (!route) return new Reply({ error: 'Unknown operation' }, 404)
+       const answer = await run(route.key, route.params, address.searchParams, body)
+diff --git a/tests/migration.spec.ts b/tests/migration.spec.ts
+index 684409a..5c95cc3 100644
+--- a/tests/migration.spec.ts
++++ b/tests/migration.spec.ts
+@@ -55,6 +55,20 @@ it('migrates schema 11 effects to correlated state columns', () => {
+   next.close()
+ })
+ 
++it('opens a schema 12 database and creates the context snapshot table on every open', () => {
++  const path = join(directory, 'schema-12.sqlite')
++  new Store(path).close()
++  const db = new DatabaseSync(path)
++  db.exec('DROP TABLE context_snapshot')
++  db.prepare('UPDATE kv SET value = ? WHERE key = ?').run(JSON.stringify(12), KV.store.schema)
++  db.close()
++  const next = new Store(path)
++  expect(next.get(KV.store.schema)).toBe(SCHEMA_VERSION)
++  expect(next.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'context_snapshot'").get())
++    .toEqual({ name: 'context_snapshot' })
++  next.close()
++})
++
+ it('refuses a database older than schema 10 and asks for a new state directory', () => {
+   const path = join(directory, 'db.sqlite')
+   new Store(path).close()
+@@ -220,7 +234,7 @@ it('changes nothing when one step fails: the database stays at schema 10 as it w
+     updatedAt: '2', mandate: mandate({ via: 'listed' }), meta: { sourceTriggerId: 'trig-1', workspace: '/w/fix-1' } }
+   // The current settings must validate; an invalid value aborts the migration transaction.
+   schema10(path, { settings: { executor: { maxWorkers: 'many' } } }, { ticket: [ticket] })
+-  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 12 failed: the settings: /)
++  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 13 failed: the settings: /)
+   const db = new DatabaseSync(path)
+   expect(db.prepare("SELECT value FROM kv WHERE key='schema'").get()).toEqual({ value: '10' })
+   expect(JSON.parse(String(db.prepare("SELECT value FROM ticket WHERE id='t1'").get()!.value))).toMatchObject({ meta: { workspace: '/w/fix-1' } })
+@@ -493,7 +507,7 @@ it('names the ticket it stopped at when a ticket does not read, and leaves the d
+   const path = join(directory, 'db.sqlite')
+   const { inputs: _inputs, ...broken } = ticket10('t9')
+   schema10(path, {}, { ticket: [broken] })
+-  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 12 failed: ticket t9: /)
++  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 13 failed: ticket t9: /)
+   const db = new DatabaseSync(path)
+   expect(db.prepare("SELECT value FROM kv WHERE key='schema'").get()).toEqual({ value: '10' })
+   expect(JSON.parse(String(db.prepare("SELECT value FROM ticket WHERE id='t9'").get()!.value))).toEqual(broken)
+diff --git a/tests/panel-execution.spec.tsx b/tests/panel-execution.spec.tsx
+index 4d91535..378a866 100644
+--- a/tests/panel-execution.spec.tsx
++++ b/tests/panel-execution.spec.tsx
+@@ -55,7 +55,8 @@ it('shows a Ticket with its stage, its Mandate details with the Trigger and Deci
+   await click(all('.dt-open').find(button => button.textContent === '修复回归')!)
+   expect(document.querySelector('.dt-page-title h2')?.textContent).toBe('修复回归')
+   // Progress is in the Channels and the Session, so the page has no report section.
+-  expect(all('.dt-section-title').map(title => title.querySelector('.dt-section-name')?.textContent)).toEqual(['授权详情', '未送达的输入', '订阅的线程'])
++  expect(all('.dt-section-title').map(title => title.querySelector('.dt-section-name')?.textContent))
++    .toEqual(['授权详情', '执行追踪', '未送达的输入', '订阅的线程'])
+   expect(document.querySelector('.dt-status-line .dt-stage')?.textContent).toBe(zh.executingLabel)
+   expect(document.querySelector('.dt-status-line .dt-stage .dt-spinner')).not.toBeNull()
+   // A Thread this Ticket follows reads as subscribed on its page, though no other Ticket follows it.
+@@ -82,7 +83,7 @@ it('lists a Ticket\'s external effects between the Mandate and its undelivered I
+   await mount()
+   await click(all('.dt-open').find(button => button.textContent === '修复回归')!)
+   expect(all('.dt-section-title').map(title => title.querySelector('.dt-section-name')?.textContent))
+-    .toEqual(['授权详情', '外部副作用', '未送达的输入', '订阅的线程'])
++    .toEqual(['授权详情', '执行追踪', '外部副作用', '未送达的输入', '订阅的线程'])
+   expect(text()).toContain('消息发送')
+   expect(text()).toContain('未知')
+   expect(text()).toContain('结果未知，已先查询远程状态，不会重复发送。')
+@@ -235,3 +236,29 @@ it('sends one stop for a double click on Confirm', async () => {
+   await act(async () => { confirm.click(); confirm.click() })
+   expect(server.requests.filter(request => request.path === 'tickets/t1/stop')).toHaveLength(1)
+ })
++
++it('says when the Evolution service is unavailable without claiming a read failure', async () => {
++  await mount()
++  await click(all('.dt-open').find(button => button.textContent === '修复回归')!)
++  expect(text()).toContain(zh.traceEvolutionUnavailable)
++  expect(text()).not.toContain(zh.traceEvolutionError)
++})
++
++it('shows a read-only trace of the snapshot, receipts and Evolution records', async () => {
++  server.evolution = {
++    evidence: [{ id: 'ev1', source: 'dsh_session', summary: '交接记录' }],
++    proposals: [{ id: 'prop1', state: 'validated', summary: '收紧冲突处理' }],
++    validations: [{ id: 'val1', verdict: 'passed' }],
++    publications: [{ id: 'pub1', purpose: 'publish', state: 'live', assetScope: 'knowledge:conflict:vivy' }],
++  }
++  await mount()
++  await click(all('.dt-open').find(button => button.textContent === '修复回归')!)
++  expect(text()).toContain(zh.traceTitle)
++  expect(text()).toContain('r7')
++  expect(text()).toContain('m1')
++  expect(text()).toContain(zh['replyStatus.sent'])
++  expect(text()).toContain('prop1')
++  expect(text()).toContain('val1')
++  expect(text()).toContain('pub1')
++  expect(server.requests.some(request => request.path.startsWith('/dsh-evolution/api/records?ticket_id=t1'))).toBe(true)
++})
+diff --git a/tests/runtime.spec.ts b/tests/runtime.spec.ts
+index f6d39ff..bb46db5 100644
+--- a/tests/runtime.spec.ts
++++ b/tests/runtime.spec.ts
+@@ -1101,26 +1101,28 @@ it('tells both roles the execution environment through a generated prompt sectio
+   expect(Object.keys(next.prompts.preview(next.prompts.current().config).skills)).not.toContain('feishu')
+ })
+ 
+-it('lets a worker read the prompt version it works under and the ones it worked under before, also after a restart, and no other', async () => {
++it('lets a worker read the prompt version it launched under, also after a restart, and no other', async () => {
++  // The Assignment pins the prompt revision its worker reads; later saves do not move it off that one.
++  const launch = runtime.prompts.current().revision
+   const { sessionId } = await acceptedTicket()
+   const save = () => { const { config, revision } = runtime.prompts.current(); return runtime.prompts.save({ ...config, delivery: `${config.delivery}.` }, revision, 'panel').revision }
+-  // A model request reads the system prompt, which binds the Session to the version current then.
++  // A model request reads the system prompt, which binds the Session to the revision its Assignment pinned.
+   const request = () => sections.get(sessionId)!.text({ signal: new AbortController().signal })
+   const read = (resource: string) => runTool(sessionId, 'orchestrator_read', { resource })
+   const first = save(), second = save()
+   request()
+   await expect(read(`prompts/${first}`)).rejects.toThrow('inaccessible prompt version')
+-  const third = save()
+-  // Until its next request it works under the version it read; after it, it may still read that one.
+-  expect(await read('prompts/current')).toMatchObject({ resource: `prompts/${second}` })
++  save()
++  // The worker keeps the revision it launched under, and may still read that one after a request.
++  expect(await read('prompts/current')).toMatchObject({ resource: `prompts/${launch}` })
+   request()
+-  expect(await read('prompts/current')).toMatchObject({ resource: `prompts/${third}` })
+-  expect(await read(`prompts/${second}`)).toMatchObject({ resource: `prompts/${second}` })
+-  expect(runtime.sessions.status().sessions).toContainEqual({ sessionId, revision: third })
++  expect(await read('prompts/current')).toMatchObject({ resource: `prompts/${launch}` })
++  expect(await read(`prompts/${launch}`)).toMatchObject({ resource: `prompts/${launch}` })
++  expect(runtime.sessions.status().sessions).toContainEqual({ sessionId, revision: launch })
+   const next = await restart()
+   await next.ready
+-  expect([next.sessions.promptVersion(sessionId).revision, next.sessions.mayRead(sessionId, second), next.sessions.mayRead(sessionId, first)])
+-    .toEqual([third, true, false])
++  expect([next.sessions.promptVersion(sessionId).revision, next.sessions.mayRead(sessionId, launch), next.sessions.mayRead(sessionId, second), next.sessions.mayRead(sessionId, first)])
++    .toEqual([launch, true, false, false])
+ })
+ 
+ it('passes team text with template braces to every Session literally, without reading them as prompt variables', async () => {
+diff --git a/tests/snapshots.spec.ts b/tests/snapshots.spec.ts
+new file mode 100644
+index 0000000..13eb2de
+--- /dev/null
++++ b/tests/snapshots.spec.ts
+@@ -0,0 +1,155 @@
++/** Context snapshots: what a worker was pinned to when its Assignment launched. */
++import { mkdtempSync, rmSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import type { Agent } from '@deepseek-ai/dsh-agent'
++import { afterEach, expect, it } from 'vitest'
++import { Sessions, type SessionsHost } from '../src/app/sessions.ts'
++import { ContextSnapshots } from '../src/app/snapshots.ts'
++import { Store } from '../src/app/store.ts'
++
++let directory: string
++let store: Store
++afterEach(() => { store?.close(); rmSync(directory, { recursive: true, force: true }) })
++function open() { directory = mkdtempSync(join(tmpdir(), 'snapshots-')); store = new Store(join(directory, 'db.sqlite')) }
++
++type Prompt = { revision: number; config: { skills: Record<string, string> } }
++function promptSet(revisions: number[]) {
++  const versions = new Map(revisions.map(revision => [revision, { revision, config: { skills: {} } } as Prompt]))
++  return {
++    current: () => versions.get(Math.max(...revisions))!,
++    version: (revision: number) => {
++      const version = versions.get(revision)
++      if (!version) throw new Error(`unknown revision ${revision}`)
++      return version
++    },
++    skills: () => [['github', 'skill body']] as [string, string][],
++  }
++}
++
++const agent = (sections?: { name: string; text: string }[], seen?: string[]) => ({
++  id: 'worker-t1',
++  ctx: sections === undefined ? {} : { systemPrompt: { assemble: async (context: { agent?: { id: string } }) => {
++    seen?.push(context.agent?.id ?? 'missing')
++    return { sections: context.agent === undefined ? sections.map(section => ({ ...section, text: '' })) : sections }
++  } } },
++}) as unknown as Agent
++const ticket = { id: 't1' } as never
++const assignment = { id: 'a1' } as never
++const environment = [{ key: 'DSH_X', value: '1', description: { zh: 'x', en: 'x' }, owner: 'executor' }]
++const EMPTY_DIGEST = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
++
++it('captures the prompt revision, digests and owner sections', async () => {
++  open()
++  const snapshots = new ContextSnapshots({ store, prompts: promptSet([7]) })
++  const snapshot = await snapshots.capture(ticket, assignment, agent([
++    { name: 'persona', text: 'persona body' },
++    { name: 'mempalace:policy', text: 'mem rules' },
++    { name: 'laputa:persona', text: 'soul v3' },
++    { name: 'tool:shell', text: 'shell tool' },
++  ]), environment)
++  expect(snapshot.promptRevision).toBe(7)
++  expect(snapshot.skillsDigest).toMatch(/^[0-9a-f]{64}$/)
++  expect(snapshot.policyDigest).toMatch(/^[0-9a-f]{64}$/)
++  expect(snapshot.environmentDigest).toMatch(/^[0-9a-f]{64}$/)
++  expect(snapshot.sections.persona).toMatch(/^[0-9a-f]{64}$/)
++  expect(snapshot.tools).toEqual({ shell: expect.stringMatching(/^[0-9a-f]{64}$/) })
++  expect(snapshot.owners).toEqual({ actmem: 'absent', mempalace: snapshot.sections['mempalace:policy'],
++    laputa: snapshot.sections['laputa:persona'] })
++  expect(store.contextSnapshots.get('a1')).toEqual(snapshot)
++})
++
++it('passes the agent to prompt section providers', async () => {
++  open()
++  const seen: string[] = []
++  const snapshot = await new ContextSnapshots({ store, prompts: promptSet([7]) })
++    .capture(ticket, assignment, agent([{ name: 'mempalace:policy', text: 'mem rules' }], seen), environment)
++  expect(seen).toEqual(['worker-t1'])
++  expect(snapshot.sections['mempalace:policy']).not.toBe(EMPTY_DIGEST)
++  expect(snapshot.owners.mempalace).toBe(snapshot.sections['mempalace:policy'])
++})
++
++it('tolerates an agent without a system prompt service', async () => {
++  open()
++  const snapshot = await new ContextSnapshots({ store, prompts: promptSet([7]) })
++    .capture(ticket, assignment, agent(undefined), environment)
++  expect(snapshot.sections).toEqual({})
++  expect(snapshot.tools).toEqual({})
++  expect(snapshot.owners).toEqual({ actmem: 'absent', mempalace: 'absent', laputa: 'absent' })
++})
++
++it('keeps the first snapshot for an Assignment', async () => {
++  open()
++  const snapshots = new ContextSnapshots({ store, prompts: promptSet([7]) })
++  const first = await snapshots.capture(ticket, assignment, agent([{ name: 'persona', text: 'one' }]), environment)
++  const second = await snapshots.capture(ticket, assignment, agent([{ name: 'persona', text: 'two' }]), environment)
++  expect(second).toEqual(first)
++})
++
++it('answers the pinned revision for a session', async () => {
++  open()
++  const snapshots = new ContextSnapshots({ store, prompts: promptSet([7]) })
++  await snapshots.capture(ticket, assignment, agent([]), environment)
++  expect(snapshots.promptRevisionForSession('worker-t1')).toBe(7)
++  expect(snapshots.promptRevisionForSession('master')).toBeUndefined()
++})
++
++it('answers the latest snapshot for a session', () => {
++  open()
++  const base = { ticketId: 't1', sessionId: 'worker-t1', skillsDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64),
++    sections: {}, tools: {}, environmentDigest: 'c'.repeat(64), owners: { actmem: 'absent', mempalace: 'absent', laputa: 'absent' } }
++  store.contextSnapshots.save({ ...base, assignmentId: 'a1', capturedAt: '2026-01-01T00:00:00.000Z', promptRevision: 7 })
++  store.contextSnapshots.save({ ...base, assignmentId: 'a2', capturedAt: '2026-01-02T00:00:00.000Z', promptRevision: 9 })
++  expect(store.contextSnapshots.forSession('worker-t1')?.assignmentId).toBe('a2')
++})
++
++it('runs a worker under a readable snapshot pin', () => {
++  open()
++  const host = {
++    context: { on: () => () => {} },
++    store: { get: () => undefined },
++    prompts: promptSet([7, 9]),
++    effects: { handle: () => {} },
++    snapshots: { promptRevisionForSession: (sessionId: string) => sessionId === 'worker-t1' ? 7 : undefined },
++    masterId: 'master',
++  } as unknown as SessionsHost
++  const sessions = new Sessions(host)
++  expect(sessions.promptVersion('worker-t1').revision).toBe(7)
++  expect(sessions.promptVersion('master').revision).toBe(9)
++})
++
++it('runs a worker under its snapshot revision and falls back when it is unreadable', () => {
++  open()
++  const host = {
++    context: { on: () => () => {} },
++    store: { get: () => undefined },
++    prompts: promptSet([9]),
++    effects: { handle: () => {} },
++    snapshots: { promptRevisionForSession: (sessionId: string) => sessionId === 'worker-t1' ? 7 : undefined },
++    masterId: 'master',
++  } as unknown as SessionsHost
++  const sessions = new Sessions(host)
++  expect(sessions.promptVersion('worker-t1').revision).toBe(9)
++  expect(sessions.promptVersion('master').revision).toBe(9)
++})
++
++it('keeps an explicit bound revision ahead of the snapshot pin', () => {
++  open()
++  const host = {
++    context: { on: () => () => {} },
++    store: { get: () => [3] },
++    prompts: promptSet([3, 7, 9]),
++    effects: { handle: () => {} },
++    snapshots: { promptRevisionForSession: () => 7 },
++    masterId: 'master',
++  } as unknown as SessionsHost
++  expect(new Sessions(host).promptVersion('worker-t1').revision).toBe(3)
++})
++
++it('lists receipts for one ticket only', () => {
++  open()
++  const channel = { source: 'feishu', thread: 'feishu:oc_1:om_1', address: { chatId: 'oc_1' } }
++  store.receipts.add({ id: 'm1', channel, text: 'one', kind: 'result' as never, ticketId: 't1' })
++  store.receipts.add({ id: 'm2', channel, text: 'two', kind: 'result' as never, ticketId: 't2' })
++  expect(store.receipts.forTicket('t1').map(receipt => receipt.id)).toEqual(['m1'])
++})

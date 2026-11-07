@@ -1,24 +1,19 @@
 #!/usr/bin/env node
-// One-time setup for vivy-dsh: check the toolchain, build the bundle, create the
-// DSH profile that loads it, and write the profile's machine configuration.
-//
-// Safe to re-run: every step reports what it found and skips work already done.
-
-import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+// Prepare the two source checkouts and an isolated, project-local DSH profile.
+import { spawnSync } from 'node:child_process'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
-
-import semver from 'semver'
-
 import {
-  BUNDLE_DIR, DSH_JS, PROFILE, ROOT, SERVICE_URL, home, profileDir,
+  ARTIFACTS, BUNDLE_DIR, DSH_DIR, DSH_JS, PROFILE, ROOT, SERVICE_URL, home, profileDir, state,
 } from './lib/vivy.mjs'
+import { ensureMachineConfig, initializePinnedSubmodule, localEnvironment, prepareLocalDirectories, superagentPatches, withTemporaryPatch } from './lib/source.mjs'
+import { relocateProfileDependencies } from './lib/component-setup.mjs'
 
-const PORT = Number(process.env.VIVY_DSH_PORT || new URL(SERVICE_URL).port || 3082)
-const STATE_DIR = process.env.VIVY_DSH_STATE_DIR || join(home(), 'state', PROFILE)
+const PNPM_VERSION = '11.28.5'
+const PNPM_JS = join(ARTIFACTS, 'tools', 'node_modules', 'pnpm', 'bin', 'pnpm.cjs')
 
 function step(message) {
-  console.log('\n== ' + message)
+  console.log(`\n== ${message}`)
 }
 
 function read(path) {
@@ -27,118 +22,106 @@ function read(path) {
 
 function run(command, args, options = {}) {
   console.log(`$ ${command} ${args.join(' ')}`)
-  const result = spawnSync(command, args, { stdio: 'inherit', cwd: ROOT, ...options })
-  if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`)
+  const result = spawnSync(command, args, {
+    stdio: 'inherit',
+    cwd: ROOT,
+    env: { ...localEnvironment(ROOT), CI: 'true' },
+    shell: process.platform === 'win32' && command.endsWith('.cmd'),
+    ...options,
+  })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`${command} exited with ${result.status ?? result.signal}`)
 }
 
-/** pnpm ships as a .cmd shim on Windows, which only runs through a shell. */
-function runPnpm(args, cwd) {
-  console.log(`$ pnpm ${args.join(' ')}`)
-  const result = spawnSync(['pnpm', ...args].join(' '), { stdio: 'inherit', shell: true, cwd })
-  if (result.status !== 0) throw new Error(`pnpm ${args.join(' ')} exited with ${result.status}`)
+function pnpm(args, cwd) {
+  run(process.execPath, [PNPM_JS, ...args], { cwd })
+}
+
+function dsh(args, options = {}) {
+  run(process.execPath, ['--import', 'tsx/esm', DSH_JS, ...args], { cwd: DSH_DIR, ...options })
 }
 
 step('Check the toolchain')
-const nodeVersion = process.versions.node
-if (!semver.satisfies(nodeVersion, '^22.19.0 || >=24.0.0')) {
-  throw new Error(`Node.js ${nodeVersion} is outside the supported range (^22.19.0 || >=24.0.0).`)
+const [major, minor] = process.versions.node.split('.').map(Number)
+if (!(major >= 24 || (major === 22 && minor >= 19))) {
+  throw new Error(`Node.js ${process.versions.node} is unsupported; use Node.js 22.19+ or 24+.`)
 }
-console.log(`node        ${nodeVersion}`)
+console.log(`node        ${process.versions.node}`)
+prepareLocalDirectories(ROOT)
+if ((await state()) !== undefined) throw new Error('The local panel is running. Run "npm run stop" before setup.')
 
-const pnpmVersion = (() => {
-  try {
-    return execFileSync(process.platform === 'win32' ? 'pnpm --version' : 'pnpm', process.platform === 'win32' ? [] : ['--version'], { encoding: 'utf8', shell: process.platform === 'win32' }).trim()
-  } catch {
-    return undefined
-  }
-})()
-if (pnpmVersion === undefined) throw new Error('pnpm is not on PATH; the DSH profile installs its plugins with pnpm.')
-console.log(`pnpm        ${pnpmVersion}`)
+step('Install project-local runtime dependencies')
+run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'])
 
-if (!existsSync(DSH_JS)) throw new Error(`dsh is not installed at ${DSH_JS}; run "npm install" in ${ROOT}.`)
-const dshVersion = read(join(ROOT, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')).version
-console.log(`dsh         ${dshVersion} (local, not your global dsh)`)
-
-const bundle = read(join(BUNDLE_DIR, 'package.json'))
-const wanted = bundle.engines?.dsh
-if (wanted && !semver.satisfies(dshVersion, wanted, { includePrerelease: true })) {
-  throw new Error(`dsh ${dshVersion} does not satisfy the bundle's engines.dsh (${wanted}). ` +
-    'Set the @deepseek-ai/dsh version in package.json to a release inside that range and run "npm install" again.')
+step('Prepare the pinned source submodules')
+for (const name of ['deepseek-harness', 'superagent', 'plugins/surfcore']) {
+  console.log(`${name}  ${initializePinnedSubmodule(ROOT, name)}`)
 }
-console.log(`bundle      ${bundle.name} ${bundle.version} (needs dsh ${wanted})`)
+if (!existsSync(DSH_JS) || !existsSync(join(DSH_DIR, 'pnpm-lock.yaml'))) {
+  throw new Error(`${DSH_DIR} is not a complete DeepSeek Harness source checkout.`)
+}
+const dshVersion = read(join(DSH_DIR, 'package.json')).version
+if (dshVersion !== '0.2.1-rc.5') {
+  throw new Error(`The source checkout is DSH ${dshVersion}; this template expects 0.2.1-rc.5. It was left unchanged.`)
+}
+console.log(`dsh         ${dshVersion} (source: ${DSH_DIR})`)
 
-step('Build the bundle')
-if (existsSync(join(BUNDLE_DIR, 'lib', 'index.js'))) {
-  console.log('superagent/lib/index.js already exists; run "npm run build:bundle" to rebuild it.')
-} else {
-  runPnpm(['install', '--reporter=append-only'], BUNDLE_DIR)
-  runPnpm(['run', 'build'], BUNDLE_DIR)
+step('Prepare the project-local package manager')
+if (!existsSync(PNPM_JS)) {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+  run(npm, ['install', '--prefix', join(ARTIFACTS, 'tools'), '--ignore-scripts', '--no-audit', '--no-fund', `pnpm@${PNPM_VERSION}`])
 }
 
-step(`Create the DSH profile "${PROFILE}"`)
+step('Install and build DSH from source')
+pnpm(['install', '--frozen-lockfile', '--reporter=append-only'], DSH_DIR)
+pnpm(['run', 'build:artifacts'], DSH_DIR)
+
+step('Install and build Superagent from source')
+pnpm(['install', '--frozen-lockfile', '--reporter=append-only'], BUNDLE_DIR)
+withTemporaryPatch(BUNDLE_DIR, superagentPatches(ROOT), () => pnpm(['run', 'build'], BUNDLE_DIR))
+
+step(`Prepare the DSH profile "${PROFILE}"`)
 const manifest = join(profileDir(), 'package.json')
-if (existsSync(manifest)) {
-  console.log(`${manifest} already exists; keeping it as is.`)
+if (!existsSync(manifest)) {
+  dsh([PROFILE, '--from-default-profile', 'web', '--dump-config'], { stdio: 'ignore' })
 } else {
-  // Upstream creates the profile from the Web template first, because a profile
-  // that starts from nothing has no app to serve the panel.
-  run(process.execPath, [DSH_JS, PROFILE, '--from-default-profile', 'web', '--dump-config'], { stdio: 'ignore' })
+  console.log(`Preserving ${manifest}`)
 }
+const configured = ensureMachineConfig(ROOT, PROFILE, 3082)
+console.log(configured ? `Wrote ${join(profileDir(), 'cordis.patch.yml')}` : 'Preserved the existing profile configuration.')
+if (relocateProfileDependencies(ROOT, PROFILE)) console.log('Relocated project-owned profile dependencies; originals were backed up.')
+const profilePlugin = join(profileDir(), 'node_modules', 'dsh-superagent')
+let linkedToSource = false
+try {
+  linkedToSource = realpathSync(profilePlugin) === realpathSync(BUNDLE_DIR)
+} catch {
+  // The profile has not linked the bundle yet.
+}
+if (!linkedToSource) dsh(['plugin', '--profile', PROFILE, 'add', `link:${BUNDLE_DIR}`])
+else console.log(`Superagent is already linked to ${BUNDLE_DIR}`)
 
-step('Install the bundle into the profile')
-const installed = existsSync(manifest)
-  ? Object.keys(read(manifest).dependencies ?? {})
-  : []
-if (installed.includes(bundle.name)) {
-  console.log(`${bundle.name} is already installed in the profile.`)
-} else {
-  run(process.execPath, [DSH_JS, 'plugin', '--profile', PROFILE, 'add', `link:${BUNDLE_DIR}`])
-}
+step('Install and register SurfCore from its pinned source')
+run(process.execPath, [join(ROOT, 'scripts', 'setup-surfcore.mjs')])
 
-step('Write the profile machine configuration')
-const patch = join(profileDir(), 'cordis.patch.yml')
-const existingPatch = existsSync(patch) ? readFileSync(patch, 'utf8') : undefined
-// A fresh profile ships an empty patch layer (`[]`); upstream replaces that file
-// with the machine configuration, so an unconfigured layer counts as missing.
-const configured = existingPatch !== undefined && /stateDir\s*:/.test(existingPatch)
-if (configured) {
-  console.log(`${patch} already sets stateDir; keeping it as is. Delete it to regenerate from the template.`)
-} else {
-  if (existingPatch !== undefined) {
-    const nonEmpty = existingPatch.split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line !== '' && !line.startsWith('#'))
-    if (nonEmpty.length > 0 && nonEmpty.join('') !== '[]') {
-      writeFileSync(patch + '.bak', existingPatch)
-      console.log(`kept a copy of the previous patch layer at ${patch}.bak`)
-    }
-  }
-  mkdirSync(STATE_DIR, { recursive: true })
-  writeFileSync(patch, [
-    '# Written by vivy-dsh setup. Machine configuration for this profile; see docs/006-deployment.md',
-    '# in the upstream bundle for the meaning of each key.',
-    '- id: webserver',
-    '  config:',
-    '    host: 127.0.0.1',
-    `    port: ${PORT}`,
-    '- id: dsh-superagent',
-    '  config:',
-    `    stateDir: ${STATE_DIR.replaceAll('\\', '/')}`,
-    '# Feishu is optional: uncomment to enable its Source, then set the bot lark-cli on the Feishu Source.',
-    '# - id: dsh-superagent-feishu',
-    '#   disabled: false',
-    '',
-  ].join('\n'))
-  console.log(`wrote ${patch}`)
-}
+step('Install and verify the dsh-mempalace native dependencies')
+run(process.execPath, [join(ROOT, 'scripts', 'setup-mempalace.mjs')])
+
+step('Build the dsh-continual-harness source checkout')
+run(process.execPath, [join(ROOT, 'scripts', 'setup-continual-harness.mjs')])
+
+step('Build the dsh-laputa persona plugin')
+run(process.execPath, [join(ROOT, 'scripts', 'setup-laputa.mjs')])
+
+step('Install the dsh-surfcore-adapter dependencies')
+run(process.execPath, [join(ROOT, 'scripts', 'setup-surfcore-adapter.mjs')])
+
+step('Register dsh-vivy-tone (Superagent prompts in Chinese, on one switch)')
+run(process.execPath, [join(ROOT, 'scripts', 'setup-vivy-tone.mjs')])
+
+step('Migrate and register the local voice, memory, mempalace, continual-harness and laputa components')
+run(process.execPath, [join(ROOT, 'scripts', 'setup-components.mjs')])
 
 step('Done')
-console.log(`Panel:  ${SERVICE_URL}  (Superagent entry in the sidebar)`)
-console.log(`Logs:   ${join(ROOT, '.artifacts')}`)
-console.log(`State:  ${STATE_DIR}`)
-console.log('\nNext: "npm start". The first start reports what the panel still needs:')
-console.log('  - a Source pointing at a GitHub repository,')
-console.log('  - a Policy listing the people who may ask the agent for work,')
-console.log('  - an Executor checkout and prepare command.')
-console.log('The agent account itself is created by the operator and signed in through a gh wrapper;')
-console.log('see the handbook (README.md) before your first real request.')
+console.log(`Panel: ${SERVICE_URL}`)
+console.log(`Data:  ${home()}`)
+console.log('Run "npm start" to start the source runtime.')

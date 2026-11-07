@@ -1,0 +1,607 @@
+diff --git a/docs/007-architecture.md b/docs/007-architecture.md
+index 83a3eba..6cde69b 100644
+--- a/docs/007-architecture.md
++++ b/docs/007-architecture.md
+@@ -38,7 +38,7 @@ Shutdown cancels turns, waits for passes, effects and agents, restores the proce
+ | --- | --- | --- |
+ | Setup | `src/app/setup.ts` | Resolves the repository and the accounts by probing their CLIs the way worker shells run them, writes and applies the workers' environment and command shims, and keeps the setup problems; Settings checks a changed account through it, and restarts through it, which runs setup again |
+ | Passes | `src/app/passes.ts` | One pass at a time, every two seconds and whenever a command asks: the due effects, the due Schedule rules, then `Engine.evaluateDue`; a Source's Trigger reaches the Engine through it |
+-| Schedule | `src/app/schedule.ts` | `Schedules`: enabled rules submit one local trusted input per due slot, baselining first sight, an interval change and a clock that moved back |
++| Schedule | `src/app/schedule.ts` | `Schedules`: enabled rules submit one local trusted input per due slot, baselining first sight, an interval change and a clock that moved back; `run` submits the current slot on explicit request and consumes it |
+ | Outbox | `src/app/outbox.ts` | The Engine's `Outbox` port, and the only writer of the receipts: `send` keeps a message's receipt and queues its `reply` effect in one transaction, and the effect's handler sends it through `SourceRegistry.send`; an effect whose outcome is unknown is checked through `SourceRegistry.query` before any retry, so a send is never repeated blindly; a message waits while its Source is off, and is dropped when the conversation is gone or not listened to |
+ | Notices | `src/app/notices.ts` | Converts domain events and worker activity into main-Session messages. `eventNotice` handles domain notices; `reportRelay` forwards questions immediately, keeps ordinary progress on its Ticket, and relays other reports; `followupRelay` names the Tickets that own a human follow-up. Relays arriving during a turn are delivered together at its next step through the DeepSeek Harness inbox |
+ 
+@@ -330,7 +330,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/app/input.ts` | `Inputs`: validates an InputEnvelope, dedupes it by its persisted receipt, turns it into a Trigger, and requests a pass after commit; `InputError` carries the refusal code |
+ | `src/app/setup.ts` | Setup, and `setupChanged`, whether a save changes a field setup reads |
+ | `src/app/passes.ts` | Passes, the pass scheduler |
+-| `src/app/schedule.ts` | `Schedules`: enabled rules submit one local trusted input per due slot, baselining first sight, an interval change and a clock that moved back |
++| `src/app/schedule.ts` | `Schedules`: enabled rules submit one local trusted input per due slot, baselining first sight, an interval change and a clock that moved back; `run` submits the current slot on explicit request and consumes it |
+ | `src/app/outbox.ts` | The Outbox: the Engine's `Outbox` port, the receipts and the `reply` effects that send them |
+ | `src/app/notices.ts` | The main Session's notices and relays: `eventNotice`, `reportRelay`, `resultRelay` and `followupRelay` |
+ | `src/app/store.ts` | The Store, `Receipt`, a message of the outbox, and `ContextSnapshot`, what each Assignment was pinned to, with `receipts.forTicket` |
+@@ -401,6 +401,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/client/source.tsx`, `trigger.tsx`, `eval.tsx`, `execution.tsx` | One file per stage: its status, and its settings where it has some |
+ | `src/client/thread.tsx`, `ticket.tsx` | The record pages: a Thread with its timeline, and a Ticket with its authorization, its read-only Execution trace, Inputs and Assignments |
+ | `src/client/settings.tsx` | The Settings tab: the group navigation and the group on screen |
++| `src/client/schedule.tsx` | The Schedule settings group: each rule's ID, interval and text, and a manual run for saved rules |
+ | `src/client/settings-kit.tsx` | The building blocks of settings blocks: the settings the stage groups share, `useBlockDraft`, the fields, among them a Source kind's, and the history of saves |
+ | `src/client/prompts.tsx` | The Prompts settings: the page owns the view it read and its editor the draft, and the Edit, Full prompt and History tabs render from them; a built-in part's editor shows a changed default and keeps or drops the override |
+ | `src/client/prompt-config.ts` | The prompt configuration by section, by the team sections, skill names, built-in parts (`part/<key>`, with `withOverride`) and part headings the prompt views give, and the line diff of the full prompt, as pure functions |
+@@ -435,7 +436,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `tests/effects.spec.ts` | The effect queue: coalescing, limits, retries with backoff, health and shutdown |
+ | `tests/voice-effects.spec.ts` | `VoiceEffects`: one delivery per send token, external receipts, and no retry of an unknown send |
+ | `tests/passes.spec.ts` | Passes: one at a time, the ones asked for during a pass run as one after it, and the runtime health a failed pass reports |
+-| `tests/schedule.spec.ts` | Schedule rules: slot baseline, one input per slot, duplicate receipts, refusal retry, pause/closing, interval and clock changes |
++| `tests/schedule.spec.ts` | Schedule rules: slot baseline, one input per slot, duplicate receipts, refusal retry, pause/closing, interval and clock changes, manual run, unknown rule, slot consumption |
+ | `tests/outbox.spec.ts` | The Outbox on a running Runtime: messages wait while processing is paused or their Source is not installed |
+ | `tests/cache.spec.ts` | `TextCache` |
+ | `tests/queue.spec.ts` | The Runtime's work through the effect queue, and what earlier versions stored |
+@@ -527,7 +528,7 @@ The main Session has 14 application tools:
+ 
+ `orchestrator_route` accepts 1–20 decisions in order. Each accept, attach, stop or ignore runs as a separate Engine command. It also permits ignoring an inferred candidate directly from its card. `orchestrator_ticket_note` sends a fact as context, not authority.
+ 
+-Settings saves select `policy`, `eval`, `executor`, `pause`, or `source`; the last also names its Source id. A prompt save with `preview: true` composes text without saving.
++Settings saves select `policy`, `eval`, `executor`, `schedule`, `pause`, or `source`; the last also names its Source id. A prompt save with `preview: true` composes text without saving.
+ 
+ The main Session also has DeepSeek Harness's `skill`, `bash`, `read`, `read_image`, `job_output`, `job_list` and `job_kill`. Avoiding code reads is a prompt rule, not a tool restriction.
+ 
+diff --git a/src/app/api.ts b/src/app/api.ts
+index 91280a9..25f76ac 100644
+--- a/src/app/api.ts
++++ b/src/app/api.ts
+@@ -4,6 +4,7 @@ import type { InputReceipt, InputSubmission, SubjectBinding } from '../core/mode
+ import type { ContextSnapshot } from '../core/index.ts'
+ import type { EffectState } from '../core/ports.ts'
+ import type { PromptConfig, Prompts } from './prompts.ts'
++import type { ScheduleReceipt } from './schedule.ts'
+ import type { PromptsView, StateView, TicketPageView } from './http.ts'
+ import type { HistoryView } from './settings-history.ts'
+ import type { OverviewView } from './views/overview.ts'
+@@ -44,6 +45,7 @@ export interface Api {
+   'POST tickets/:id/retry': { response: { retried: true } }
+   'POST tickets/:id/stop': { response: { stopped: true } }
+   'POST executor/pause': { body: { paused: boolean }; response: { paused: boolean } }
++  'POST schedule/:id/run': { response: ScheduleReceipt }
+   'PUT settings/:block': { body: { value: unknown; revision: number }; response: { revision: number; restarting: boolean } }
+   'GET policy/history': { response: HistoryView }
+   'POST policy-sync/:id': { response: { policy: unknown } }
+diff --git a/src/app/http.ts b/src/app/http.ts
+index f1d2443..6ed42d0 100644
+--- a/src/app/http.ts
++++ b/src/app/http.ts
+@@ -18,6 +18,7 @@ import type { DshExecutor } from '../executor/dsh.ts'
+ import type { Health } from '../sources/host.ts'
+ import type { SourceRegistry } from '../sources/registry.ts'
+ import type { Sessions } from './sessions.ts'
++import type { Schedules } from './schedule.ts'
+ import type { Store } from './store.ts'
+ import type { Subject } from './subject.ts'
+ import type { TextCache } from './cache.ts'
+@@ -46,6 +47,7 @@ export interface HttpHost {
+   readonly masterId: string
+   readonly subject: Pick<Subject, 'binding' | 'rename'>
+   readonly inputs: Pick<Inputs, 'submit'>
++  readonly schedule: Pick<Schedules, 'run'>
+   /** Resolves once startup finishes or setup determines what is still missing. */
+   readonly ready: Promise<void>
+   /** Resolved deployment; throws if read while waiting for setup (`!configured()`). */
+@@ -217,6 +219,7 @@ function routes(runtime: HttpHost): Routes {
+     'POST tickets/:id/retry': ({ params }) => { const id = ticket(params.id); runtime.engine.retryTicket(id); return { retried: true } },
+     'POST tickets/:id/stop': ({ params }) => { const id = ticket(params.id); runtime.engine.stopTicket(id); return { stopped: true } },
+     'POST executor/pause': async ({ body }) => runtime.settings.pause(z.object({ paused: z.boolean() }).parse(await body()).paused, 'panel'),
++    'POST schedule/:id/run': ({ params }) => runtime.schedule.run(params.id),
+     'PUT settings/:block': async ({ params, body }) => {
+       const block = SettingsBlockSchema.parse(params.block)
+       const known = !block.startsWith('source:') || runtime.sources.instances().some(instance => `source:${instance.id}` === block)
+diff --git a/src/app/runtime.ts b/src/app/runtime.ts
+index f310d02..5219b1c 100644
+--- a/src/app/runtime.ts
++++ b/src/app/runtime.ts
+@@ -85,6 +85,7 @@ export class Runtime extends Service implements SourceHost {
+   readonly masterId: string
+   readonly subject: Subject
+   readonly inputs: Inputs
++  readonly schedules: Schedules
+   private readonly sourceLinks = new TextCache(200_000)
+   private readonly stopped = new AbortController()
+   private readonly disposers: (() => void)[] = []
+@@ -172,7 +173,7 @@ export class Runtime extends Service implements SourceHost {
+       const evaluateDue = () => { engine.evaluateDue(); evals.set(evalsHealth(store)) }
+       const inputs = this.inputs = new Inputs({ store, subject: this.subject, trusted: source => sources.trusted(source),
+         receive: trigger => engine.receive(trigger), request: () => this.passes.request(), closing: () => this.closing() })
+-      const schedules = new Schedules({ store, inputs, subject: this.subject, settings: () => store.settings(),
++      const schedules = this.schedules = new Schedules({ store, inputs, subject: this.subject, settings: () => store.settings(),
+         closing: () => this.closing() })
+       const passes = this.passes = new Passes({ engine: { receive: trigger => engine.receive(trigger), evaluateDue }, effects,
+         schedule: schedules, health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(),
+@@ -240,8 +241,9 @@ export class Runtime extends Service implements SourceHost {
+   }
+   private httpHost(): HttpHost {
+     const runtime = this
+-    const { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, setup, passes, subject, inputs } = this
++    const { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, setup, passes, subject, inputs, schedules } = this
+     return { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, subject, inputs,
++      schedule: schedules,
+       get deployment() { return setup.deployment },
+       get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem },
+       configured: () => setup.configured(), links: () => runtime.links(), ticketEnvironment: ticket => runtime.ticketEnvironment(ticket),
+diff --git a/src/app/schedule.ts b/src/app/schedule.ts
+index 4633f10..4825858 100644
+--- a/src/app/schedule.ts
++++ b/src/app/schedule.ts
+@@ -1,5 +1,6 @@
+-/** Runs enabled Schedule rules: each due slot becomes one local trusted Input, at most once. */
++/** Runs Schedule rules: each due slot becomes one local trusted Input, at most once; a manual run consumes its slot. */
+ import { KV } from '../kv.ts'
++import { UserError, type InputReceipt } from '../core/index.ts'
+ import type { Settings } from '../policy.ts'
+ import type { Inputs } from './input.ts'
+ import type { Store } from './store.ts'
+@@ -7,6 +8,14 @@ import type { Store } from './store.ts'
+ /** What one Schedule rule remembers: the interval it was scheduled with, and the last slot it fired. */
+ export interface ScheduleState { everyMinutes: number; slot: number }
+ 
++/** What one manual run reports back to the panel. */
++export interface ScheduleReceipt {
++  ruleId: string
++  slot: number
++  triggerId: string
++  outcome: InputReceipt['outcome']
++}
++
+ export interface SchedulesHost {
+   readonly store: Pick<Store, 'get' | 'set'>
+   readonly inputs: Pick<Inputs, 'submit'>
+@@ -32,10 +41,24 @@ export class Schedules {
+         continue
+       }
+       if (slot === state.slot) continue
+-      this.host.inputs.submit({ subjectId: this.host.subject.binding.subjectId, sourceId: 'local',
+-        externalEventId: `schedule:${rule.id}:${slot}`, dedupeKey: `schedule:${rule.id}:${slot}`, layer: 'schedule', human: true,
+-        payload: { text: rule.text }, provenance: { actor: 'orchestrator', note: 'Schedule' } })
++      this.submit(rule, slot)
+       this.host.store.set(KV.schedule.rule(rule.id), { everyMinutes: rule.everyMinutes, slot })
+     }
+   }
++
++  /** Submit one rule's current slot on explicit human request, ignoring pause, enablement and shutdown. */
++  run(ruleId: string, now = Date.now()): ScheduleReceipt {
++    const rule = this.host.settings().schedule.rules.find(item => item.id === ruleId)
++    if (!rule) throw new UserError('unknownScheduleRule', { rule: ruleId })
++    const slot = Math.floor(now / (rule.everyMinutes * 60_000))
++    const receipt = this.submit(rule, slot)
++    this.host.store.set(KV.schedule.rule(rule.id), { everyMinutes: rule.everyMinutes, slot })
++    return { ruleId: rule.id, slot, triggerId: receipt.triggerId, outcome: receipt.outcome }
++  }
++
++  private submit(rule: Settings['schedule']['rules'][number], slot: number): InputReceipt {
++    return this.host.inputs.submit({ subjectId: this.host.subject.binding.subjectId, sourceId: 'local',
++      externalEventId: `schedule:${rule.id}:${slot}`, dedupeKey: `schedule:${rule.id}:${slot}`, layer: 'schedule', human: true,
++      payload: { text: rule.text }, provenance: { actor: 'orchestrator', note: 'Schedule' } })
++  }
+ }
+diff --git a/src/app/settings-history.ts b/src/app/settings-history.ts
+index 6a4af25..4dbf9cc 100644
+--- a/src/app/settings-history.ts
++++ b/src/app/settings-history.ts
+@@ -9,7 +9,7 @@ type SourceSettings = SettingsVersion['settings']['sources'][string]
+ export type SettingsChangeCode = 'ruleAdded' | 'ruleRenamed' | 'ruleInstruction' | 'ruleEnabled' | 'ruleDisabled' | 'ruleRemoved'
+   | 'sourceEnabled' | 'sourceDisabled' | 'sourceField' | 'sourceRowsAdded' | 'sourceRowsRemoved' | 'sourceRowsChanged' | 'sourceAdmission'
+   | 'mode' | 'timeout' | 'evalModel' | 'executorModel' | 'maxWorkers' | 'paused' | 'resumed' | 'executionDirectory' | 'prepareCommand'
+-  | 'blockedCommands'
++  | 'blockedCommands' | 'scheduleRules'
+ /** A single settings diff entry rendered by the panel using `change.<code>` and field labels from the Source listing. */
+ export interface SettingsChange {
+   code: SettingsChangeCode; items?: string[]; from?: string | number | boolean; to?: string | number | boolean; name?: string; source?: string
+@@ -71,6 +71,10 @@ function settingsChanges(before: SettingsVersion['settings'], after: SettingsVer
+   if (before.executor.directory !== after.executor.directory) changes.push({ code: 'executionDirectory', from: before.executor.directory, to: after.executor.directory })
+   if (before.executor.prepare !== after.executor.prepare) changes.push({ code: 'prepareCommand' })
+   if (!same(before.executor.blockedCommands, after.executor.blockedCommands)) changes.push({ code: 'blockedCommands', from: before.executor.blockedCommands.join(' '), to: after.executor.blockedCommands.join(' ') })
++  const scheduleIds = new Set([...before.schedule.rules, ...after.schedule.rules].map(rule => rule.id))
++  const changedRules = [...scheduleIds].filter(id => !same(before.schedule.rules.find(rule => rule.id === id),
++    after.schedule.rules.find(rule => rule.id === id)))
++  if (changedRules.length) changes.push({ code: 'scheduleRules', items: changedRules })
+   for (const id of new Set([...Object.keys(before.sources), ...Object.keys(after.sources)])) changes.push(...sourceChanges(id, before.sources[id], after.sources[id], sources))
+   return changes
+ }
+diff --git a/src/client/locales.ts b/src/client/locales.ts
+index 880abac..b551ac5 100644
+--- a/src/client/locales.ts
++++ b/src/client/locales.ts
+@@ -63,6 +63,23 @@ const TEXT = {
+   imageMarker: ['[图片]', '[image]'],
+   rules: ['接单规则', 'Accept rules'],
+   remove: ['删除', 'Delete'],
++  scheduleRules: ['定时规则', 'Schedule rules'],
++  scheduleRulesHint: ['每条启用的规则在每个时间槽最多提交一次；修改 ID 等于新建一条规则，会重新基线化。暂停时不提交，手动运行不受暂停影响。',
++    'Each enabled rule submits at most once per slot. Changing an ID starts a new rule with a fresh baseline. Paused means no automatic submission; a manual run ignores it.'],
++  scheduleAddRule: ['添加规则', 'Add rule'],
++  scheduleEmpty: ['还没有定时规则。', 'No Schedule rules yet.'],
++  scheduleRuleId: ['规则 ID', 'Rule ID'],
++  scheduleRuleIdHint: ['1–80 个字母、数字、下划线或短横线；作为去重键的一部分。', '1–80 letters, digits, underscores or dashes; part of the dedupe key.'],
++  scheduleRuleEnabled: ['启用规则 {name}', 'Enable rule {name}'],
++  scheduleEveryMinutes: ['间隔（分钟）', 'Every (minutes)'],
++  scheduleEveryMinutesHint: ['1 到 10080（7 天）。', '1 to 10080 (7 days).'],
++  scheduleText: ['提交的文本', 'Text to submit'],
++  scheduleTextHint: ['到时作为一条本地受信输入提交，仍走 Policy 与评估。', 'Submitted as one local trusted input when due; Policy and evaluations still apply.'],
++  scheduleRun: ['立即运行', 'Run now'],
++  scheduleRunHint: ['按当前槽立即提交一次；同槽重复点击只返回重复。', 'Submits the current slot once; another click in the same slot is a duplicate.'],
++  'scheduleRun.stored': ['已提交一条定时输入', 'A schedule input was submitted'],
++  'scheduleRun.duplicate': ['该时间槽已经提交过', 'That slot was already submitted'],
++  'scheduleRun.filtered': ['已提交，但被来源过滤', 'Submitted but filtered by the source'],
+   'historySource.panel': ['管理页', 'Management page'],
+   'historySource.defaults': ['插件默认值', 'Plugin defaults'],
+   'historySource.tool': ['主 Session 工具', 'Main Session tool'],
+@@ -466,6 +483,7 @@ const TEXT = {
+   'change.executionDirectory': ['执行目录的根目录：{from} → {to}', 'Ticket directory root: {from} → {to}'],
+   'change.prepareCommand': ['准备命令', 'Prepare command'],
+   'change.blockedCommands': ['禁止调用的命令：{from} → {to}', 'Blocked commands: {from} → {to}'],
++  'change.scheduleRules': ['定时规则：{items}', 'Schedule rules: {items}'],
+   configHistory: ['配置历史', 'Configuration history'],
+   'change.evalModel': ['研判模型', 'Assessor model'],
+   'change.executorModel': ['执行器模型', 'Executor model'],
+@@ -488,6 +506,7 @@ const TEXT = {
+   'settingsGroup.source': ['来源', 'Sources'],
+   'settingsGroup.eval': ['评估', 'Eval'],
+   'settingsGroup.execution': ['执行', 'Execution'],
++  'settingsGroup.schedule': ['定时', 'Schedule'],
+   'settingsGroup.prompts': ['提示词', 'Prompts'],
+   'settingsGroup.deployment': ['部署', 'Deployment'],
+   unsetValue: ['未设置', 'not set'],
+@@ -735,6 +754,7 @@ const TEXT = {
+   'userError.unknownTrigger': ['找不到这个触发。', USER_ERRORS.unknownTrigger[1]],
+   'userError.unknownAssignment': ['找不到这个派工。', USER_ERRORS.unknownAssignment[1]],
+   'userError.unknownBlock': ['没有这个设置块：{block}', USER_ERRORS.unknownBlock[1]],
++  'userError.unknownScheduleRule': ['没有这条定时规则：{rule}', USER_ERRORS.unknownScheduleRule[1]],
+   'userError.unknownPromptRevision': ['没有提示词版本 {revision}。', USER_ERRORS.unknownPromptRevision[1]],
+   'userError.unknownPromptPart': ['没有内置提示词段落 {part}。', USER_ERRORS.unknownPromptPart[1]],
+   'userError.ticketEnded': ['工单已结束。', USER_ERRORS.ticketEnded[1]],
+diff --git a/src/client/route.ts b/src/client/route.ts
+index 61413b6..eb3ba67 100644
+--- a/src/client/route.ts
++++ b/src/client/route.ts
+@@ -6,7 +6,7 @@ import type { T } from './text.ts'
+ 
+ export const TABS = ['overview', 'source', 'trigger', 'eval', 'execution', 'settings'] as const
+ export type Tab = typeof TABS[number]
+-export const SETTINGS_GROUPS = ['source', 'eval', 'execution', 'prompts', 'deployment'] as const
++export const SETTINGS_GROUPS = ['source', 'eval', 'execution', 'schedule', 'prompts', 'deployment'] as const
+ export type SettingsGroup = typeof SETTINGS_GROUPS[number]
+ export type Route = { page: 'overview' | 'source'; id?: undefined; query?: undefined }
+   | { page: 'trigger'; id?: undefined; query?: { filter?: ThreadFilter } }
+diff --git a/after/src/client/schedule.tsx b/src/client/schedule.tsx
+new file mode 100644
+index 0000000..1b97c89
+--- /dev/null
++++ b/src/client/schedule.tsx
+@@ -0,0 +1,69 @@
++/** Schedule settings group: interval and text for each local rule, plus a manual run for saved rules. */
++import type { Settings } from './api.ts'
++import { Button, Icon, Input, Switch } from './controls.tsx'
++import { SaveBar } from './draft.tsx'
++import { useAction, usePanel } from './provider.tsx'
++import { ConfigHistory, Field, Fields, numberOf, useBlockDraft, useSettings } from './settings-kit.tsx'
++import { Hint, Section } from './widgets.tsx'
++
++type Rule = Settings['schedule']['rules'][number]
++type DraftRule = Omit<Rule, 'everyMinutes'> & { everyMinutes: string }
++
++function RuleCard({ rule, saved, dirty, onChange, onRemove }: {
++  rule: DraftRule; saved: boolean; dirty: boolean; onChange: (rule: DraftRule) => void; onRemove: () => void
++}) {
++  const { t, call, notify } = usePanel()
++  const run = useAction(async () => {
++    const receipt = await call('POST schedule/:id/run', { id: rule.id })
++    notify(t(`scheduleRun.${receipt.outcome}`))
++  })
++  return <li className="dt-rule">
++    <div className="dt-rule-body">
++      <Field label={t('scheduleRuleId')} hint={t('scheduleRuleIdHint')}>
++        <Input value={rule.id} required maxLength={80} onChange={event => onChange({ ...rule, id: event.target.value })} />
++      </Field>
++      <Field label={t('scheduleEveryMinutes')} hint={t('scheduleEveryMinutesHint')}>
++        <Input type="number" min={1} max={10080} required value={rule.everyMinutes}
++          onChange={event => onChange({ ...rule, everyMinutes: event.target.value })} />
++      </Field>
++      <Field label={t('scheduleText')} hint={t('scheduleTextHint')}>
++        <textarea className="dt-textarea" rows={3} required maxLength={2000} value={rule.text}
++          onChange={event => onChange({ ...rule, text: event.target.value })} />
++      </Field>
++      <div className="dt-actions">
++        <Button variant="ghost" size="sm" icon={<Icon name="play" />} disabled={!saved || dirty || run.busy}
++          onClick={() => { void run.run() }}>{t('scheduleRun')}</Button>
++        <Button variant="ghost" size="sm" icon={<Icon name="trash" />} onClick={onRemove}>{t('remove')}</Button>
++      </div>
++    </div>
++    <Switch className="dt-rule-switch" checked={rule.enabled} onChange={enabled => onChange({ ...rule, enabled })}
++      label={t('scheduleRuleEnabled', { name: rule.id })} />
++  </li>
++}
++
++export function ScheduleSettings() {
++  const { t } = usePanel()
++  const block = useSettings().settings.blocks.schedule
++  const saved = { rules: block.value.rules.map(rule => ({ ...rule, everyMinutes: String(rule.everyMinutes) })) }
++  const draft = useBlockDraft('schedule', saved, block.revision,
++    value => ({ rules: value.rules.map(rule => ({ ...rule, everyMinutes: numberOf(rule.everyMinutes) })) }))
++  const rules = draft.value.rules
++  const savedIds = new Set(saved.rules.map(rule => rule.id))
++  const edit = (index: number, next: DraftRule) => draft.edit({ rules: rules.map((rule, at) => at === index ? next : rule) })
++  const add = () => draft.edit({ rules: [...rules, { id: crypto.randomUUID(), enabled: true, everyMinutes: '60', text: '' }] })
++  return <form className="dt-form dt-block" onSubmit={event => { void draft.submit(event) }}>
++    <Fields disabled={draft.busy}>
++      <h2 className="dt-block-title">{t('settingsGroup.schedule')}</h2>
++      <Section title={t('scheduleRules')} hint={t('scheduleRulesHint')} action={<Button variant="ghost" size="sm"
++        icon={<Icon name="plus" />} onClick={add}>{t('scheduleAddRule')}</Button>}>
++        {rules.length ? <ul className="dt-rules">{rules.map((rule, index) => <RuleCard key={index} rule={rule}
++          saved={savedIds.has(rule.id)} dirty={draft.dirty}
++          onChange={next => edit(index, next)}
++          onRemove={() => draft.edit({ rules: rules.filter((_, at) => at !== index) })} />)}</ul>
++          : <Hint>{t('scheduleEmpty')}</Hint>}
++      </Section>
++    </Fields>
++    <SaveBar {...draft} onDiscard={draft.discard} />
++    <ConfigHistory blocks={['schedule']} />
++  </form>
++}
+diff --git a/src/client/settings.tsx b/src/client/settings.tsx
+index 7bdfef5..b820306 100644
+--- a/src/client/settings.tsx
++++ b/src/client/settings.tsx
+@@ -6,10 +6,11 @@ import { ExecutionSettings } from './execution.tsx'
+ import { PromptsPage } from './prompts.tsx'
+ import { usePanel } from './provider.tsx'
+ import { SETTINGS_GROUPS, settingsRoute, type SettingsGroup } from './route.ts'
++import { ScheduleSettings } from './schedule.tsx'
+ import { SettingsProvider } from './settings-kit.tsx'
+ import { SourceSettings } from './source.tsx'
+ 
+-const STAGE_GROUPS: readonly SettingsGroup[] = ['source', 'eval', 'execution']
++const STAGE_GROUPS: readonly SettingsGroup[] = ['source', 'eval', 'execution', 'schedule']
+ export function SettingsPage({ group, query, state, deploymentForm }: {
+   group: SettingsGroup; query: { source?: string; version?: string }; state: StateView; deploymentForm: DeploymentForm
+ }) {
+@@ -19,6 +20,7 @@ export function SettingsPage({ group, query, state, deploymentForm }: {
+       case 'source': return <SettingsProvider><SourceSettings {...query.source ? { focus: query.source } : {}} /></SettingsProvider>
+       case 'eval': return <SettingsProvider><EvalSettings version={query.version} /></SettingsProvider>
+       case 'execution': return <SettingsProvider><ExecutionSettings /></SettingsProvider>
++      case 'schedule': return <SettingsProvider><ScheduleSettings /></SettingsProvider>
+       case 'prompts': return <PromptsPage />
+       case 'deployment': return <DeploymentPage setup={state.setup} subject={state.subject} form={deploymentForm} />
+     }
+diff --git a/src/core/errors.ts b/src/core/errors.ts
+index 9c7096a..366ee03 100644
+--- a/src/core/errors.ts
++++ b/src/core/errors.ts
+@@ -5,6 +5,7 @@ export const USER_ERRORS = {
+   unknownTrigger: ['missing', 'Unknown trigger'],
+   unknownAssignment: ['missing', 'Unknown assignment'],
+   unknownBlock: ['missing', 'Unknown settings block: {block}'],
++  unknownScheduleRule: ['missing', 'Unknown schedule rule {rule}'],
+   unknownPromptRevision: ['missing', 'Unknown prompt revision {revision}'],
+   unknownPromptPart: ['refused', 'Unknown built-in prompt part {part}'],
+   ticketEnded: ['refused', 'Ticket has ended'],
+diff --git a/tests/fixtures/panel-server.ts b/tests/fixtures/panel-server.ts
+index 71773fe..9132035 100644
+--- a/tests/fixtures/panel-server.ts
++++ b/tests/fixtures/panel-server.ts
+@@ -13,7 +13,7 @@ import type { DroppedReply, EffectRow, HistoryView, Problem, PromptsView, SetupV
+   TicketRow, TicketStage,
+   TriggerRow } from '../../src/client/api.ts'
+ import { SETUP_FIELDS } from '../../src/deployment.ts'
+-import { EvalConfigSchema, ExecutorConfigSchema, PolicyConfigSchema, SettingsSchema } from '../../src/policy.ts'
++import { EvalConfigSchema, ExecutorConfigSchema, PolicyConfigSchema, ScheduleConfigSchema, SettingsSchema } from '../../src/policy.ts'
+ import { SetupError, type SetupCode } from '../../src/setup.ts'
+ import { feishuChannel } from '../../src/sources/feishu-trigger.ts'
+ import { githubChannel } from '../../src/sources/github-trigger.ts'
+@@ -382,15 +382,22 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
+     server.revisions.pause = (server.revisions.pause ?? 0) + 1
+     return { paused: body.paused }
+   } },
++  'POST schedule/:id/run': { answer: ({ params }) => {
++    const rule = server.settings.schedule.rules.find(item => item.id === params.id)
++    if (!rule) return refuse(404, `Unknown schedule rule ${params.id}`, { code: 'unknownScheduleRule', values: { rule: params.id } })
++    const slot = Math.floor(Date.now() / (rule.everyMinutes * 60_000))
++    return { ruleId: rule.id, slot, triggerId: `input:local:schedule:${rule.id}:${slot}`, outcome: 'stored' as const }
++  } },
+   'PUT settings/:block': { body: true, answer: ({ params: { block }, body }) => {
+     const source = block.startsWith('source:') ? KINDS.find(kind => `source:${kind.kind}` === block) : undefined
+-    if (!['policy', 'eval', 'executor'].includes(block) && !source) return block.startsWith('source:') ? refuse(404, 'Source not found')
++    if (!['policy', 'eval', 'executor', 'schedule'].includes(block) && !source) return block.startsWith('source:') ? refuse(404, 'Source not found')
+       : refuse(400, 'Invalid settings: block')
+     if (body.revision !== (server.revisions[block] ?? 0)) return refuse(409, 'Settings changed. Reload before saving.')
+     let restarting = false
+     if (block === 'policy') server.settings = { ...server.settings, policy: PolicyConfigSchema.parse(body.value) }
+     else if (block === 'executor') server.settings = { ...server.settings, executor: ExecutorConfigSchema.parse(body.value) }
+     else if (block === 'eval') server.settings = { ...server.settings, eval: EvalConfigSchema.parse(body.value) }
++    else if (block === 'schedule') server.settings = { ...server.settings, schedule: ScheduleConfigSchema.parse(body.value) }
+     else if (source) {
+       const { enabled, config: value } = SourceSave.parse(body.value)
+       const config = source.schema.parse(value)
+diff --git a/tests/http.spec.ts b/tests/http.spec.ts
+index c47a9b1..f5318ce 100644
+--- a/tests/http.spec.ts
++++ b/tests/http.spec.ts
+@@ -1,4 +1,4 @@
+-import { expect, it } from 'vitest'
++import { expect, it, vi } from 'vitest'
+ import { z } from 'zod'
+ import { registerHttp } from '../src/app/http.ts'
+ import { PromptConflict } from '../src/app/prompts.ts'
+@@ -7,6 +7,7 @@ import type { HttpHost } from '../src/app/http.ts'
+ import { SettingsSchema } from '../src/policy.ts'
+ import { SetupError } from '../src/setup.ts'
+ import { InputError } from '../src/app/input.ts'
++import { UserError } from '../src/core/index.ts'
+ 
+ type Handler = (req: unknown, res: unknown) => Promise<void>
+ type Headers = Record<string, string | undefined>
+@@ -148,3 +149,14 @@ it('accepts an InputEnvelope, maps its refusals, and keeps the route same-origin
+     .toEqual({ status: 403, body: { error: 'Same-origin management request required' } })
+   expect(calls).toHaveLength(3)
+ })
++
++it('runs a Schedule rule on demand and reports an unknown rule as missing', async () => {
++  const run = vi.fn((id: string) => ({ ruleId: id, slot: 42, triggerId: `input:local:schedule:${id}:42`, outcome: 'stored' as const }))
++  const call = serve({ schedule: { run } })
++  expect(await call('POST', 'schedule/daily/run')).toEqual({ status: 200, body: { ruleId: 'daily', slot: 42,
++    triggerId: 'input:local:schedule:daily:42', outcome: 'stored' } })
++  expect(run).toHaveBeenCalledWith('daily')
++  const missing = serve({ schedule: { run: () => { throw new UserError('unknownScheduleRule', { rule: 'daily' }) } } })
++  expect(await missing('POST', 'schedule/daily/run')).toEqual({ status: 404, body: { error: 'Unknown schedule rule daily',
++    code: 'unknownScheduleRule', values: { rule: 'daily' } } })
++})
+diff --git a/tests/panel-settings.spec.tsx b/tests/panel-settings.spec.tsx
+index 0208e06..8018f8d 100644
+--- a/tests/panel-settings.spec.tsx
++++ b/tests/panel-settings.spec.tsx
+@@ -128,7 +128,7 @@ it('lists the settings groups stages first, opens each stage\'s group from its s
+   async () => {
+   await mount()
+   await click(tab(zh['tab.settings']))
+-  expect(all('.dt-settings-link').map(link => link.textContent)).toEqual(['来源', '评估', '执行', '提示词', '部署'])
++  expect(all('.dt-settings-link').map(link => link.textContent)).toEqual(['来源', '评估', '执行', '定时', '提示词', '部署'])
+   expect(document.querySelector('.dt-settings-link[aria-current="page"]')?.textContent).toBe(zh['term.source'])
+   for (const [tab, group] of [['来源', '来源'], ['评估', '评估'], ['执行', '执行']] as const) {
+     await click(find(tab, '[role="tab"]'))
+@@ -145,3 +145,43 @@ it('lists the settings groups stages first, opens each stage\'s group from its s
+   await click(tab(zh['tab.settings']))
+   expect(document.querySelector('.dt-settings-link[aria-current="page"]')?.textContent).toBe(zh['promptPart.runtime/work'])
+ })
++
++it('adds a Schedule rule, saves it without touching the Policy revision, and runs it on demand', async () => {
++  await mount()
++  await click(tab(zh['tab.settings']))
++  await click(find(zh['settingsGroup.schedule'], '.dt-settings-link'))
++  expect(all('.dt-rule')).toHaveLength(0)
++  expect(text()).toContain(zh['scheduleEmpty'])
++  await click(zh['scheduleAddRule'])
++  await type(field<HTMLInputElement>(zh['scheduleRuleId']), 'daily')
++  await type(field<HTMLInputElement>(zh['scheduleEveryMinutes']), '60')
++  await type(field<HTMLTextAreaElement>(zh['scheduleText']), '整理今天的记忆')
++  await click(find(zh['save'], '.dt-savebar button[type="submit"]'))
++  await settle()
++  expect(server.settings.schedule).toEqual({ rules: [{ id: 'daily', enabled: true, everyMinutes: 60, text: '整理今天的记忆' }] })
++  expect(server.revisions.schedule).toBe(1)
++  expect(server.revisions.policy).toBe(3)
++  const run = () => all('button').find(button => button.textContent === zh['scheduleRun']) as HTMLButtonElement
++  expect(run().disabled).toBe(false)
++  await click(run())
++  await settle()
++  expect(server.requests.at(-1)).toMatchObject({ path: 'schedule/daily/run', method: 'POST' })
++  expect(document.body.textContent).toContain(zh['scheduleRun.stored'])
++})
++
++it('runs only saved rules and keeps Run disabled while the draft is dirty', async () => {
++  await mount()
++  await click(tab(zh['tab.settings']))
++  await click(find(zh['settingsGroup.schedule'], '.dt-settings-link'))
++  await click(zh['scheduleAddRule'])
++  const run = () => all('button').find(button => button.textContent === zh['scheduleRun']) as HTMLButtonElement
++  expect(run().disabled).toBe(true)
++  await type(field<HTMLInputElement>(zh['scheduleRuleId']), 'daily')
++  await type(field<HTMLInputElement>(zh['scheduleEveryMinutes']), '60')
++  await type(field<HTMLTextAreaElement>(zh['scheduleText']), '整理今天的记忆')
++  await click(find(zh['save'], '.dt-savebar button[type="submit"]'))
++  await settle()
++  expect(run().disabled).toBe(false)
++  await type(field<HTMLInputElement>(zh['scheduleEveryMinutes']), '61')
++  expect(run().disabled).toBe(true)
++})
+diff --git a/tests/schedule.spec.ts b/tests/schedule.spec.ts
+index 8243455..eaee651 100644
+--- a/tests/schedule.spec.ts
++++ b/tests/schedule.spec.ts
+@@ -1,5 +1,6 @@
+-/** Schedule rules: each due slot becomes one local trusted Input, at most once. */
++/** Schedule rules: each due slot becomes one local trusted Input, at most once; manual runs consume the slot too. */
+ import { expect, it, vi } from 'vitest'
++import { UserError } from '../src/core/index.ts'
+ import { Schedules, type ScheduleState } from '../src/app/schedule.ts'
+ 
+ const rule = { id: 'daily', enabled: true, everyMinutes: 60, text: '整理今天的记忆' }
+@@ -107,3 +108,54 @@ it('keeps several rules independent', () => {
+   expect(h.submitted.map(input => input.dedupeKey)).toEqual(['schedule:daily:11', 'schedule:hourly:22'])
+   expect(h.state.size).toBe(2)
+ })
++
++it('runs one rule on demand even while paused, disabled or closing', () => {
++  for (const options of [{ paused: true }, { closing: true }]) {
++    const h = world([{ ...rule, enabled: false }], options)
++    const receipt = h.schedules.run('daily', 10 * HOUR)
++    expect(receipt).toEqual({ ruleId: 'daily', slot: 10, triggerId: 'input:local:schedule:daily:10', outcome: 'stored' })
++    expect(h.submitted.map(input => input.dedupeKey)).toEqual(['schedule:daily:10'])
++  }
++})
++
++it('refuses an unknown rule with a missing UserError, storing nothing', () => {
++  const h = world()
++  let error: unknown
++  try { h.schedules.run('nope', 10 * HOUR) } catch (failure) { error = failure }
++  expect(error).toBeInstanceOf(UserError)
++  expect((error as UserError).code).toBe('unknownScheduleRule')
++  expect((error as UserError).missing).toBe(true)
++  expect((error as UserError).values).toEqual({ rule: 'nope' })
++  expect(h.submitted).toEqual([])
++  expect(h.state.size).toBe(0)
++})
++
++it('consumes the current slot, so the next pass does not submit it again', () => {
++  const h = world()
++  h.schedules.run('daily', 11 * HOUR)
++  h.schedules.due(11 * HOUR)
++  expect(h.submitted).toHaveLength(1)
++  h.schedules.due(12 * HOUR)
++  expect(h.submitted.map(input => input.dedupeKey)).toEqual(['schedule:daily:11', 'schedule:daily:12'])
++})
++
++it('reports a duplicate manual run without submitting twice and still consumes the slot', () => {
++  const h = world([rule], { outcome: 'duplicate' })
++  const receipt = h.schedules.run('daily', 11 * HOUR)
++  expect(receipt.outcome).toBe('duplicate')
++  expect(h.submitted).toHaveLength(1)
++  expect(first(h.state)).toEqual({ everyMinutes: 60, slot: 11 })
++  h.schedules.due(11 * HOUR + 1_000)
++  expect(h.submitted).toHaveLength(1)
++})
++
++it('leaves the slot unwritten when a manual run throws, so the next pass retries it', () => {
++  const state = new Map<string, ScheduleState>()
++  const failing = world([rule], { outcome: 'throw', state })
++  failing.schedules.due(10 * HOUR)
++  expect(() => failing.schedules.run('daily', 11 * HOUR)).toThrow('unavailable')
++  expect(first(state)).toEqual({ everyMinutes: 60, slot: 10 })
++  const recovered = world([rule], { state })
++  recovered.schedules.due(11 * HOUR)
++  expect(recovered.submitted.map(input => input.dedupeKey)).toEqual(['schedule:daily:11'])
++})
+diff --git a/tests/views.spec.ts b/tests/views.spec.ts
+index 83f7413..c3e32cb 100644
+--- a/tests/views.spec.ts
++++ b/tests/views.spec.ts
+@@ -240,6 +240,24 @@ it('words each settings save by what it changed from the one before, and nothing
+   expect(changes(revision + 1)).toBeNull()
+ })
+ 
++it('words a Schedule rule save as its own change without touching the policy history', () => {
++  const host = views()
++  const first = store.settings()
++  store.saveSettings({ ...first, schedule: { rules: [
++    { id: 'daily', enabled: true, everyMinutes: 60, text: '整理今天的记忆' },
++    { id: 'hourly', enabled: true, everyMinutes: 30, text: '看看有没有新消息' },
++  ] } })
++  const second = store.settings()
++  store.saveSettings({ ...second, schedule: { rules: [
++    { id: 'daily', enabled: false, everyMinutes: 60, text: '整理今天的记忆' },
++    { id: 'weekly', enabled: true, everyMinutes: 10080, text: '回顾这一周' },
++  ] } })
++  const revision = store.get(KV.settings.revision)!
++  const changes = (value: number) => policyHistory(store, host.sources, 'v').items.find(item => item.revision === value)!.changes
++  expect(changes(revision - 1)).toEqual([{ code: 'scheduleRules', items: ['daily', 'hourly'] }])
++  expect(changes(revision)).toEqual([{ code: 'scheduleRules', items: ['daily', 'hourly', 'weekly'] }])
++})
++
+ it('names a listed bot as the Policy lists it, and gives a bot\'s Mandate a basis fact of its own', () => {
+   store.saveSettings(SettingsSchema.parse({ policy: { sources: { feishu: { allowed: [], bots: [{ id: 'cli_review', name: '评审机器人' }] } } } }))
+   const sources = new SourceRegistry(() => store.settings())

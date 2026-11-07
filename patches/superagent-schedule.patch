@@ -1,0 +1,601 @@
+diff --git a/docs/007-architecture.md b/docs/007-architecture.md
+index 45550e8..83a3eba 100644
+--- a/docs/007-architecture.md
++++ b/docs/007-architecture.md
+@@ -37,7 +37,8 @@ Shutdown cancels turns, waits for passes, effects and agents, restores the proce
+ | Part | Module | Does |
+ | --- | --- | --- |
+ | Setup | `src/app/setup.ts` | Resolves the repository and the accounts by probing their CLIs the way worker shells run them, writes and applies the workers' environment and command shims, and keeps the setup problems; Settings checks a changed account through it, and restarts through it, which runs setup again |
+-| Passes | `src/app/passes.ts` | One pass at a time, every two seconds and whenever a command asks: the due effects, then `Engine.evaluateDue`; a Source's Trigger reaches the Engine through it |
++| Passes | `src/app/passes.ts` | One pass at a time, every two seconds and whenever a command asks: the due effects, the due Schedule rules, then `Engine.evaluateDue`; a Source's Trigger reaches the Engine through it |
++| Schedule | `src/app/schedule.ts` | `Schedules`: enabled rules submit one local trusted input per due slot, baselining first sight, an interval change and a clock that moved back |
+ | Outbox | `src/app/outbox.ts` | The Engine's `Outbox` port, and the only writer of the receipts: `send` keeps a message's receipt and queues its `reply` effect in one transaction, and the effect's handler sends it through `SourceRegistry.send`; an effect whose outcome is unknown is checked through `SourceRegistry.query` before any retry, so a send is never repeated blindly; a message waits while its Source is off, and is dropped when the conversation is gone or not listened to |
+ | Notices | `src/app/notices.ts` | Converts domain events and worker activity into main-Session messages. `eventNotice` handles domain notices; `reportRelay` forwards questions immediately, keeps ordinary progress on its Ticket, and relays other reports; `followupRelay` names the Tickets that own a human follow-up. Relays arriving during a turn are delivered together at its next step through the DeepSeek Harness inbox |
+ 
+@@ -329,6 +330,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/app/input.ts` | `Inputs`: validates an InputEnvelope, dedupes it by its persisted receipt, turns it into a Trigger, and requests a pass after commit; `InputError` carries the refusal code |
+ | `src/app/setup.ts` | Setup, and `setupChanged`, whether a save changes a field setup reads |
+ | `src/app/passes.ts` | Passes, the pass scheduler |
++| `src/app/schedule.ts` | `Schedules`: enabled rules submit one local trusted input per due slot, baselining first sight, an interval change and a clock that moved back |
+ | `src/app/outbox.ts` | The Outbox: the Engine's `Outbox` port, the receipts and the `reply` effects that send them |
+ | `src/app/notices.ts` | The main Session's notices and relays: `eventNotice`, `reportRelay`, `resultRelay` and `followupRelay` |
+ | `src/app/store.ts` | The Store, `Receipt`, a message of the outbox, and `ContextSnapshot`, what each Assignment was pinned to, with `receipts.forTicket` |
+@@ -433,6 +435,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `tests/effects.spec.ts` | The effect queue: coalescing, limits, retries with backoff, health and shutdown |
+ | `tests/voice-effects.spec.ts` | `VoiceEffects`: one delivery per send token, external receipts, and no retry of an unknown send |
+ | `tests/passes.spec.ts` | Passes: one at a time, the ones asked for during a pass run as one after it, and the runtime health a failed pass reports |
++| `tests/schedule.spec.ts` | Schedule rules: slot baseline, one input per slot, duplicate receipts, refusal retry, pause/closing, interval and clock changes |
+ | `tests/outbox.spec.ts` | The Outbox on a running Runtime: messages wait while processing is paused or their Source is not installed |
+ | `tests/cache.spec.ts` | `TextCache` |
+ | `tests/queue.spec.ts` | The Runtime's work through the effect queue, and what earlier versions stored |
+@@ -494,6 +497,7 @@ A generated column is computed from its row's JSON and is empty outside its set,
+ | Settings versions | `settings-revision`, `settings-version:<n>`, `settings-block-revision:<block>`; snapshots include origin, Policy version and affected Tickets |
+ | Prompt versions | `prompt-revision`, `prompt-version:<n>` |
+ | Main Session | `master-id` |
++| Schedule state | `schedule-rule:<rule id>`: `{ everyMinutes, slot }` for one Schedule rule: the interval it was scheduled with and the last slot it fired |
+ | Session prompt history | `session-prompts:<session id>` |
+ | Source state | Read positions such as `github-cursor:<number>`, PR CI fingerprints and seen Feishu-topic messages; keys begin with the kind or `thread-` plus a Thread key |
+ | Display names | `source-labels:<source id>` |
+diff --git a/src/app/http.ts b/src/app/http.ts
+index 0b99ae1..f1d2443 100644
+--- a/src/app/http.ts
++++ b/src/app/http.ts
+@@ -157,7 +157,7 @@ const count = z.coerce.number().int().nonnegative()
+ const PromptsQuery = z.object({ revision: count.optional(), offset: count.default(0) })
+ const SubjectRename = z.object({ displayName: z.string().trim().min(1).max(80) }).strict()
+ const SourceBlock = z.templateLiteral(['source:', z.string().regex(/^[a-z][a-z0-9-]*$/)])
+-const SettingsBlockSchema = z.union([z.enum(['policy', 'eval', 'executor']), SourceBlock])
++const SettingsBlockSchema = z.union([z.enum(['policy', 'eval', 'executor', 'schedule']), SourceBlock])
+ const SaveRequest = z.object({ value: z.unknown(), revision: z.number().int().nonnegative() })
+ 
+ function routes(runtime: HttpHost): Routes {
+diff --git a/src/app/passes.ts b/src/app/passes.ts
+index d0c5a1e..963f86b 100644
+--- a/src/app/passes.ts
++++ b/src/app/passes.ts
+@@ -2,10 +2,12 @@
+ import type { Engine, ReceiveResult, Trigger } from '../core/index.ts'
+ import type { HealthEntry } from '../infra/health.ts'
+ import type { Effects } from './effects.ts'
++import type { Schedules } from './schedule.ts'
+ 
+ export interface PassesHost {
+   readonly engine: Pick<Engine, 'receive' | 'evaluateDue'>
+   readonly effects: Pick<Effects, 'kick' | 'idle'>
++  readonly schedule: Pick<Schedules, 'due'>
+   readonly health: HealthEntry
+   readonly lifetime: AbortSignal
+   configured(): boolean
+@@ -63,6 +65,7 @@ export class Passes {
+   private async pumpOnce(): Promise<void> {
+     this.host.effects.kick()
+     if (this.host.closing()) return
++    this.host.schedule.due()
+     // While processing is paused, the Engine only records the pause on active Evals so they do not expire.
+     this.host.engine.evaluateDue()
+   }
+diff --git a/src/app/resources.ts b/src/app/resources.ts
+index f19f742..b5f4d44 100644
+--- a/src/app/resources.ts
++++ b/src/app/resources.ts
+@@ -42,7 +42,7 @@ export const RESOURCES: readonly { name: string; holds: string; executor?: true
+     executor: true },
+   { name: 'settings', holds: 'settings by block, each with the revision a save names: the small blocks whole, the Policy and the Source '
+     + 'instances summarized' },
+-  { name: 'settings/<block>', holds: 'one settings block whole, as orchestrator_settings_save takes it: policy, eval, executor, pause or '
++  { name: 'settings/<block>', holds: 'one settings block whole, as orchestrator_settings_save takes it: policy, eval, executor, schedule, pause or '
+     + 'source:<id>' },
+   { name: 'prompts', holds: 'the prompt revision each Session reads, the skills, and the saved versions' },
+   { name: 'prompts/<revision>', holds: 'one prompt version by number, or current, the one the Session works under', executor: true },
+diff --git a/src/app/runtime.ts b/src/app/runtime.ts
+index 68f5e68..f310d02 100644
+--- a/src/app/runtime.ts
++++ b/src/app/runtime.ts
+@@ -40,6 +40,7 @@ import { pullEndNotices } from '../sources/github-pull.ts'
+ import { HealthBoard } from '../infra/health.ts'
+ import { Outbox } from './outbox.ts'
+ import { Passes } from './passes.ts'
++import { Schedules } from './schedule.ts'
+ import { Setup } from './setup.ts'
+ import { feishuSettings } from '../sources/feishu.ts'
+ import { localKind } from '../sources/local.ts'
+@@ -169,14 +170,18 @@ export class Runtime extends Service implements SourceHost {
+       // Update the `evals` health entry on every pass if an evaluation failed as unavailable within the last hour.
+       const evals = board.claim('evals', { state: 'ready', detail: 'No unavailable Eval in the last hour' })
+       const evaluateDue = () => { engine.evaluateDue(); evals.set(evalsHealth(store)) }
++      const inputs = this.inputs = new Inputs({ store, subject: this.subject, trusted: source => sources.trusted(source),
++        receive: trigger => engine.receive(trigger), request: () => this.passes.request(), closing: () => this.closing() })
++      const schedules = new Schedules({ store, inputs, subject: this.subject, settings: () => store.settings(),
++        closing: () => this.closing() })
+       const passes = this.passes = new Passes({ engine: { receive: trigger => engine.receive(trigger), evaluateDue }, effects,
+-        health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(), closing: () => this.closing() })
+-      this.inputs = new Inputs({ store, subject: this.subject, trusted: source => sources.trusted(source),
+-        receive: trigger => engine.receive(trigger), request: () => passes.request(), closing: () => this.closing() })
++        schedule: schedules, health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(),
++        closing: () => this.closing() })
+       this.sourceDeps = { store, engine, outbox, commands, sources, get ready() { return runtime.ready },
+         get deployment() { return setup.deployment }, configured: () => setup.configured(),
+         get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => passes.receive(trigger) }
+       this.toolHost = { context: ctx, engine, store, prompts, sessions, settings: this.settings, assessor, resources,
++        inputs: this.inputs, subject: this.subject,
+         get github() { return runtime.context({ kind: 'github', health: ['github'] }) },
+         requestPass: () => { passes.request() }, sendReplies: () => outbox.sent(),
+         quietly: run => { this.quiet++; try { return run() } finally { this.quiet-- } } }
+diff --git a/after/src/app/schedule.ts b/src/app/schedule.ts
+new file mode 100644
+index 0000000..4633f10
+--- /dev/null
++++ b/src/app/schedule.ts
+@@ -0,0 +1,41 @@
++/** Runs enabled Schedule rules: each due slot becomes one local trusted Input, at most once. */
++import { KV } from '../kv.ts'
++import type { Settings } from '../policy.ts'
++import type { Inputs } from './input.ts'
++import type { Store } from './store.ts'
++
++/** What one Schedule rule remembers: the interval it was scheduled with, and the last slot it fired. */
++export interface ScheduleState { everyMinutes: number; slot: number }
++
++export interface SchedulesHost {
++  readonly store: Pick<Store, 'get' | 'set'>
++  readonly inputs: Pick<Inputs, 'submit'>
++  readonly subject: { binding: { subjectId: string } }
++  settings(): Pick<Settings, 'schedule' | 'paused'>
++  closing(): boolean
++}
++
++export class Schedules {
++  constructor(private readonly host: SchedulesHost) {}
++  /** Submit every rule whose current slot has not fired; called from each pass, never from a timer of its own. */
++  due(now = Date.now()): void {
++    if (this.host.closing()) return
++    const settings = this.host.settings()
++    if (settings.paused) return
++    for (const rule of settings.schedule.rules) {
++      if (!rule.enabled) continue
++      const slot = Math.floor(now / (rule.everyMinutes * 60_000))
++      const state = this.host.store.get(KV.schedule.rule(rule.id))
++      // First sight, a changed interval, and a clock that moved back all rebaseline instead of firing.
++      if (!state || state.everyMinutes !== rule.everyMinutes || slot < state.slot) {
++        this.host.store.set(KV.schedule.rule(rule.id), { everyMinutes: rule.everyMinutes, slot })
++        continue
++      }
++      if (slot === state.slot) continue
++      this.host.inputs.submit({ subjectId: this.host.subject.binding.subjectId, sourceId: 'local',
++        externalEventId: `schedule:${rule.id}:${slot}`, dedupeKey: `schedule:${rule.id}:${slot}`, layer: 'schedule', human: true,
++        payload: { text: rule.text }, provenance: { actor: 'orchestrator', note: 'Schedule' } })
++      this.host.store.set(KV.schedule.rule(rule.id), { everyMinutes: rule.everyMinutes, slot })
++    }
++  }
++}
+diff --git a/src/app/settings.ts b/src/app/settings.ts
+index 3cf84e7..5b15d15 100644
+--- a/src/app/settings.ts
++++ b/src/app/settings.ts
+@@ -2,7 +2,7 @@
+ import type { Context } from '@deepseek-ai/cordis'
+ import { z } from 'zod'
+ import { UserError, type EngineForSettings } from '../core/index.ts'
+-import { EvalConfigSchema, ExecutorConfigSchema, PolicyConfigSchema, SettingsSchema, policyEffects, policyVersion } from '../policy.ts'
++import { EvalConfigSchema, ExecutorConfigSchema, PolicyConfigSchema, ScheduleConfigSchema, SettingsSchema, policyEffects, policyVersion } from '../policy.ts'
+ import type { Settings as SettingsValue, SettingsBlock, SettingsOrigin, SettingsSave } from '../policy.ts'
+ import type { SourceHost } from '../sources/host.ts'
+ import type { HealthBoard, HealthEntry } from '../infra/health.ts'
+@@ -29,7 +29,7 @@ interface Block {
+   merge(settings: SettingsValue, value: unknown, id: string): SettingsValue
+   guard?(current: SettingsValue, candidate: SettingsValue, origin: SettingsOrigin): void
+ }
+-const BLOCKS: Record<'policy' | 'eval' | 'executor' | 'source', Block> = {
++const BLOCKS: Record<'policy' | 'eval' | 'executor' | 'source' | 'schedule', Block> = {
+   policy: {
+     parse: (value, sources) => {
+       const policy = PolicyConfigSchema.parse(value)
+@@ -38,6 +38,10 @@ const BLOCKS: Record<'policy' | 'eval' | 'executor' | 'source', Block> = {
+     merge: (settings, value) => ({ ...settings, policy: value as SettingsValue['policy'] }),
+   },
+   eval: { parse: value => EvalConfigSchema.parse(value), merge: (settings, value) => ({ ...settings, eval: value as SettingsValue['eval'] }) },
++  schedule: {
++    parse: value => ScheduleConfigSchema.parse(value),
++    merge: (settings, value) => ({ ...settings, schedule: value as SettingsValue['schedule'] }),
++  },
+   executor: {
+     parse: value => ExecutorConfigSchema.parse(value),
+     merge: (settings, value) => ({ ...settings, executor: value as SettingsValue['executor'] }),
+@@ -117,6 +121,7 @@ export class Settings {
+       pause: { revision: revision('pause'), value: { paused: settings.paused } },
+       eval: { revision: revision('eval'), value: settings.eval },
+       executor: { revision: revision('executor'), value: settings.executor },
++      schedule: { revision: revision('schedule'), value: settings.schedule },
+       policy: { revision: revision('policy'), rules: rules.map(rule => ({ id: rule.id, name: rule.name, enabled: rule.enabled })),
+         allowed: Object.fromEntries(Object.entries(parts).map(([id, part]) => [id, part.allowed.length])), read: 'settings/policy' },
+       sources: sources.instances(settings).map(({ id, kind, enabled, installed }) =>
+@@ -131,8 +136,8 @@ export class Settings {
+     const { store, sources } = this.host
+     const settings = store.settings(), id = block.startsWith('source:') ? block.slice('source:'.length) : undefined
+     const instance = id === undefined ? undefined : sources.instances(settings).find(item => item.id === id)
+-    const value = block === 'pause' ? { paused: settings.paused } : block === 'policy' || block === 'eval' || block === 'executor' ? settings[block]
+-      : instance ? { enabled: instance.enabled, config: instance.config } : undefined
++    const value = block === 'pause' ? { paused: settings.paused } : block === 'policy' || block === 'eval' || block === 'executor'
++      || block === 'schedule' ? settings[block] : instance ? { enabled: instance.enabled, config: instance.config } : undefined
+     if (value === undefined) throw new UserError('unknownBlock', { block })
+     return { block, revision: store.blockRevision(block as SettingsSave), value }
+   }
+diff --git a/src/app/tools/main.ts b/src/app/tools/main.ts
+index d499004..1090cb8 100644
+--- a/src/app/tools/main.ts
++++ b/src/app/tools/main.ts
+@@ -1,4 +1,5 @@
+ /** Main Session tools for routing triggers, assessing candidates, sending replies, and updating settings and prompts. */
++import { createHash } from 'node:crypto'
+ import type { Context } from '@deepseek-ai/cordis'
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+ import { z } from 'zod'
+@@ -9,9 +10,11 @@ import { AssessmentSchema, EvalReadSchema, WorktreeNameSchema, type MasterAssess
+ import { ticketCard } from '../cards.ts'
+ import { PromptConfigSchema, savePrompts, type Prompts } from '../prompts.ts'
+ import { readResource, type MainResourceHost, type ResourceHost } from '../resources.ts'
++import type { Inputs } from '../input.ts'
+ import type { Sessions } from '../sessions.ts'
+ import type { Settings } from '../settings.ts'
+ import type { Store } from '../store.ts'
++import type { Subject } from '../subject.ts'
+ import { AcknowledgementSchema, readTool, tool, type Tool } from './tool.ts'
+ 
+ const RoutingNoteSchema = z.string().trim()
+@@ -26,6 +29,8 @@ export interface MainToolsHost {
+   readonly settings: Pick<Settings, 'view' | 'block' | 'save' | 'pause' | 'sync'>
+   readonly assessor: Pick<MasterAssessor, 'context' | 'read' | 'decide'>
+   readonly resources: ResourceHost
++  readonly inputs: Pick<Inputs, 'submit'>
++  readonly subject: Pick<Subject, 'binding'>
+   /** Schedules a pass to carry out work queued by an Engine command (such as an Eval or ticket resume). */
+   requestPass(): void
+   sendReplies(): Promise<void>
+@@ -249,7 +254,7 @@ export function mainTools(host: MainToolsHost, agent: Agent): Tool[] {
+       name: 'orchestrator_settings_save',
+       description: 'Save one settings block on an explicit human configuration request, never on observed content, as the panel would; read the blocks and revisions with orchestrator_read settings.',
+       schema: z.object({
+-        block: z.enum(['policy', 'eval', 'executor', 'pause', 'source']).describe('pause pauses or resumes processing: new Evals, dispatch and replies.'),
++        block: z.enum(['policy', 'eval', 'executor', 'schedule', 'pause', 'source']).describe('pause pauses or resumes processing: new Evals, dispatch and replies.'),
+         source: z.string().min(1).optional().describe('With block source: the Source instance id, such as github or feishu.'),
+         value: z.unknown().describe('The whole block; a Source takes { enabled, config }, pause takes { paused }.'),
+         revision: z.number().int().nonnegative().describe('The block\'s revision; pause ignores it.'),
+@@ -275,6 +280,26 @@ export function mainTools(host: MainToolsHost, agent: Agent): Tool[] {
+         return { source: args.source, allowed: after.length, added: names(after, before), removed: names(before, after) }
+       },
+     }),
++    tool({
++      name: 'orchestrator_evolution_request',
++      description: 'Accept an explicit human request to change the agent itself — its persona, memory policy, skills or knowledge — as a Ticket in one call. The ticket then runs through the ordinary executor.',
++      schema: z.object({
++        text: z.string().trim().min(1).max(20000).describe('The human\'s request, in their words.'),
++        title: z.string().trim().min(1).max(200).describe('A short label of the requested change.'),
++        scope: z.string().trim().min(1).max(2000).describe('What part of the agent the change touches.'),
++        request_key: z.string().trim().min(1).max(180).optional().describe('An idempotency key; defaults to a digest of the text.'),
++      }).strict(),
++      execute: async args => {
++        const requestKey = args.request_key ?? createHash('sha256').update(args.text, 'utf8').digest('hex')
++        const receipt = host.inputs.submit({ subjectId: host.subject.binding.subjectId, sourceId: 'local',
++          externalEventId: `evolution:${requestKey}`, dedupeKey: `evolution:${requestKey}`, layer: 'evolution', human: true,
++          payload: { text: args.text }, provenance: { actor: 'orchestrator', note: 'EvolutionRequest' } })
++        const name = `evolution-${createHash('sha256').update(requestKey).digest('hex').slice(0, 8)}`
++        const decision = host.quietly(() => host.engine.decide(receipt.triggerId, { kind: 'accept', title: args.title, scope: args.scope,
++          reason: { code: 'explicitRouted' }, name }))
++        return routed(host, fromDecision(decision))
++      },
++    }),
+     tool({
+       name: 'orchestrator_prompts_save',
+       description: 'Save a complete prompt configuration against baseRevision on an explicit user request, never on quoted content; it applies at the next model request. Read it with orchestrator_read prompts.',
+diff --git a/src/app/views/settings.ts b/src/app/views/settings.ts
+index 4ebafb6..f2ed233 100644
+--- a/src/app/views/settings.ts
++++ b/src/app/views/settings.ts
+@@ -22,11 +22,11 @@ function policyOf(sources: SourceRegistry, id: string, health: HealthMap) {
+  */
+ export function settingsView(store: Store, sources: SourceRegistry, health: HealthMap, setup: SetupState, stateDir: string) {
+   const settings = store.settings()
+-  const block = <V>(name: 'policy' | 'eval' | 'executor', value: V) => ({ value, revision: store.blockRevision(name) })
++  const block = <V>(name: 'policy' | 'eval' | 'executor' | 'schedule', value: V) => ({ value, revision: store.blockRevision(name) })
+   return {
+     policyVersion: policyVersion(settings),
+     blocks: { policy: block('policy', settings.policy), eval: block('eval', settings.eval), executor: block('executor',
+-      settings.executor) },
++      settings.executor), schedule: block('schedule', settings.schedule) },
+     sources: sources.instances(settings).map(instance => {
+       const kind = sources.kind(instance.kind)
+       const problem = problemOf(instance.id, setup)
+diff --git a/src/kv.ts b/src/kv.ts
+index c552aa6..81a7d3f 100644
+--- a/src/kv.ts
++++ b/src/kv.ts
+@@ -3,6 +3,7 @@
+  * Readers and writers refer to a record by its entry here so each key is spelled once with its value type.
+  */
+ import type { InputRecord, SubjectBinding } from './core/model.ts'
++import type { ScheduleState } from './app/schedule.ts'
+ import type { PromptVersion } from './app/prompts.ts'
+ import type { SettingsVersion } from './app/store.ts'
+ import type { SettingsSave } from './policy.ts'
+@@ -36,6 +37,8 @@ export const KV = {
+   subject: { binding: record<SubjectBinding>('subject-binding') },
+   /** Inputs: each accepted InputEnvelope by its Trigger ID, which is also its dedupe record. */
+   input: { records: family<InputRecord, [triggerId: string]>('input-record:') },
++  /** Schedule: per-rule interval and last fired slot. */
++  schedule: { rule: family<ScheduleState, [ruleId: string]>('schedule-rule:') },
+   /** Sessions: prompt revisions each Session has worked under, ordered oldest first; the last entry (`.at(-1)`) is its active revision. */
+   sessions: { prompts: family<number[], [session: string]>('session-prompts:') },
+   /** Schema 11 migration: legacy main-Session queues imported into the effect table. */
+diff --git a/src/limits.ts b/src/limits.ts
+index 75bb2b5..f3d0237 100644
+--- a/src/limits.ts
++++ b/src/limits.ts
+@@ -8,4 +8,7 @@ export const LIMITS = {
+   promptMaxChars: { min: 1000, max: 1_000_000 },
+   admissionContextMaxPages: { min: 1, max: 100 },
+   admissionContextTimeoutMs: { min: 1, max: 90_000 },
++  scheduleEveryMinutes: { min: 1, max: 10_080 },
++  scheduleText: 2000,
++  scheduleRules: 20,
+ } as const
+diff --git a/src/policy.ts b/src/policy.ts
+index 2456a71..8ee4f3e 100644
+--- a/src/policy.ts
++++ b/src/policy.ts
+@@ -97,15 +97,28 @@ export const ExecutorConfigSchema = z.object({
+   blockedCommands: z.array(CommandNameSchema).default([]),
+ }).strict()
+ export const SourceInstanceSchema = z.object({ enabled: z.boolean().default(true), config: z.record(z.string(), z.unknown()).default({}) }).strict()
++/** Schedule rules: each enabled rule submits its text as one local trusted input per due slot. */
++export const ScheduleRuleSchema = z.object({
++  id: RuleIdSchema,
++  enabled: z.boolean().default(true),
++  everyMinutes: z.number().int().min(LIMITS.scheduleEveryMinutes.min).max(LIMITS.scheduleEveryMinutes.max),
++  text: z.string().trim().min(1).max(LIMITS.scheduleText),
++}).strict()
++export const ScheduleConfigSchema = z.object({
++  rules: z.array(ScheduleRuleSchema)
++    .refine(rules => new Set(rules.map(rule => rule.id)).size === rules.length, 'Duplicate rule IDs')
++    .default([]),
++}).strict().refine(config => config.rules.length <= LIMITS.scheduleRules, `At most ${LIMITS.scheduleRules} schedule rules`)
+ export const SettingsSchema = z.object({
+   paused: z.boolean().default(false),
+   sources: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), SourceInstanceSchema).default({}),
+   policy: PolicyConfigSchema.default(() => PolicyConfigSchema.parse({})),
+   eval: EvalConfigSchema.default(() => EvalConfigSchema.parse({})),
+   executor: ExecutorConfigSchema.default(() => ExecutorConfigSchema.parse({})),
++  schedule: ScheduleConfigSchema.default(() => ScheduleConfigSchema.parse({})),
+ }).strict()
+ export type Settings = z.infer<typeof SettingsSchema>
+-export type SettingsBlock = 'policy' | 'eval' | 'executor' | `source:${string}`
++export type SettingsBlock = 'policy' | 'eval' | 'executor' | 'schedule' | `source:${string}`
+ export type SettingsSave = SettingsBlock | 'pause'
+ export type SettingsOrigin = 'panel' | 'tool' | 'sync'
+ 
+diff --git a/tests/fixtures/panel-server.ts b/tests/fixtures/panel-server.ts
+index be2ac7a..71773fe 100644
+--- a/tests/fixtures/panel-server.ts
++++ b/tests/fixtures/panel-server.ts
+@@ -174,7 +174,8 @@ const settingsView = (): ApiResponse<'GET settings'> => ({
+   policyVersion: 'abcdef1234567890',
+   blocks: { policy: { value: server.settings.policy, revision: server.revisions.policy ?? 0 },
+     eval: { value: server.settings.eval, revision: server.revisions.eval ?? 0 },
+-    executor: { value: server.settings.executor, revision: server.revisions.executor ?? 0 } },
++    executor: { value: server.settings.executor, revision: server.revisions.executor ?? 0 },
++    schedule: { value: server.settings.schedule, revision: server.revisions.schedule ?? 0 } },
+   sources: sourceSettings(),
+   environment: { root: '/srv/dsh-superagent/work', variables: [
+     { owner: 'executor', enabled: true, variables: [{ key: 'DSH_SUPERAGENT_DIR', description: { zh: '工单的执行目录',
+@@ -273,7 +274,7 @@ function initial(): PanelServer {
+         name: 'Widgets Bot' } } },
+     subject: { subjectId: 'subject_11111111-1111-4111-8111-111111111111', displayName: 'Vivy',
+       createdAt: '2026-11-03T00:00:00.000Z', schemaVersion: 1 },
+-    settings, revisions: { policy: 3, eval: 1, executor: 0 },
++    settings, revisions: { policy: 3, eval: 1, executor: 0, schedule: 0 },
+     prompts: { masterId: 'master', sections: TEAM_SECTIONS, skillName: SKILL_NAME.source, builtin: ['feishu', 'github'],
+       skillPrefix: SKILL_PREFIX, revision: 0, current: { ...defaults, config: defaultPrompts() },
+       defaults: defaultPrompts(), parts: Object.entries(builtInParts()).map(([key, part]) => ({ key, ...part, base: builtInBase(part.text) })),
+diff --git a/tests/passes.spec.ts b/tests/passes.spec.ts
+index 9f921d1..1581986 100644
+--- a/tests/passes.spec.ts
++++ b/tests/passes.spec.ts
+@@ -8,8 +8,9 @@ function passes(closing = () => false) {
+   const health = new HealthBoard().claim('runtime', { state: 'starting', detail: '' })
+   const engine = { receive: vi.fn(() => 'stored' as const), evaluateDue: vi.fn() }
+   const effects = { kick: vi.fn(), idle: vi.fn(async () => {}) }
+-  const value = new Passes({ engine, effects, health, lifetime: new AbortController().signal, configured: () => true, closing })
+-  return { passes: value, engine, effects, health }
++  const schedule = { due: vi.fn() }
++  const value = new Passes({ engine, effects, schedule, health, lifetime: new AbortController().signal, configured: () => true, closing })
++  return { passes: value, engine, effects, schedule, health }
+ }
+ const trigger = { id: 't1', source: 'feishu', threads: [{ source: 'feishu', id: 'oc_1:om_1' }], actor: { source: 'feishu', id: 'ou_a' }, human: true,
+   at: '2026-10-01T00:00:00.000Z', text: 'hi', meta: {} } as Trigger
+@@ -54,3 +55,16 @@ it('starts no timer once stopped, as a start-up that ends after a stop asks', as
+     expect(h.engine.evaluateDue).not.toHaveBeenCalled()
+   } finally { vi.useRealTimers() }
+ })
++
++it('runs the Schedule rules on each pass, after kicking effects and before due evaluations, and not while closing', async () => {
++  let closing = false
++  const h = passes(() => closing)
++  await h.passes.pump()
++  expect(h.schedule.due).toHaveBeenCalledOnce()
++  expect(h.schedule.due.mock.invocationCallOrder[0]).toBeGreaterThan(h.effects.kick.mock.invocationCallOrder[0]!)
++  expect(h.schedule.due.mock.invocationCallOrder[0]).toBeLessThan(h.engine.evaluateDue.mock.invocationCallOrder[0]!)
++  closing = true
++  h.passes.request()
++  await h.passes.idle()
++  expect(h.schedule.due).toHaveBeenCalledOnce()
++})
+diff --git a/after/tests/schedule.spec.ts b/tests/schedule.spec.ts
+new file mode 100644
+index 0000000..8243455
+--- /dev/null
++++ b/tests/schedule.spec.ts
+@@ -0,0 +1,109 @@
++/** Schedule rules: each due slot becomes one local trusted Input, at most once. */
++import { expect, it, vi } from 'vitest'
++import { Schedules, type ScheduleState } from '../src/app/schedule.ts'
++
++const rule = { id: 'daily', enabled: true, everyMinutes: 60, text: '整理今天的记忆' }
++const HOUR = 3_600_000
++const first = (state: Map<string, ScheduleState>) => [...state.values()][0]
++
++function world(rules = [rule], options: { paused?: boolean; closing?: boolean; outcome?: string; state?: Map<string, ScheduleState> } = {}) {
++  const submitted: Record<string, unknown>[] = []
++  const state = options.state ?? new Map<string, ScheduleState>()
++  const host = {
++    store: { get: (key: string) => state.get(key), set: (key: string, value: ScheduleState) => { state.set(key, value) } },
++    inputs: { submit: vi.fn((input: Record<string, unknown>) => {
++      if (options.outcome === 'throw') throw Object.assign(new Error('unavailable'), { code: 'unavailable' })
++      submitted.push(input)
++      return { triggerId: `input:local:${String(input.dedupeKey)}`, outcome: options.outcome ?? 'stored' }
++    }) },
++    subject: { binding: { subjectId: 'subject_a' } },
++    settings: () => ({ schedule: { rules }, paused: options.paused ?? false }),
++    closing: () => options.closing ?? false,
++  }
++  return { schedules: new Schedules(host as never), submitted, state }
++}
++
++it('baselines the first sight of a rule without submitting anything', () => {
++  const h = world()
++  h.schedules.due(10 * HOUR)
++  expect(h.submitted).toEqual([])
++  expect(first(h.state)).toEqual({ everyMinutes: 60, slot: 10 })
++})
++
++it('submits one local trusted input on slot turnover, with the exact envelope', () => {
++  const h = world()
++  h.schedules.due(10 * HOUR)
++  h.schedules.due(11 * HOUR)
++  expect(h.submitted).toEqual([{ subjectId: 'subject_a', sourceId: 'local', externalEventId: 'schedule:daily:11',
++    dedupeKey: 'schedule:daily:11', layer: 'schedule', human: true, payload: { text: '整理今天的记忆' },
++    provenance: { actor: 'orchestrator', note: 'Schedule' } }])
++  expect(first(h.state)).toEqual({ everyMinutes: 60, slot: 11 })
++})
++
++it('fires once per slot and never twice', () => {
++  const h = world()
++  h.schedules.due(10 * HOUR)
++  h.schedules.due(11 * HOUR)
++  h.schedules.due(11 * HOUR + 59 * 60_000)
++  expect(h.submitted).toHaveLength(1)
++  h.schedules.due(12 * HOUR)
++  expect(h.submitted.map(input => input.dedupeKey)).toEqual(['schedule:daily:11', 'schedule:daily:12'])
++})
++
++it('advances on a duplicate receipt so a replay cannot submit the same slot every pass', () => {
++  const h = world([rule], { outcome: 'duplicate' })
++  h.schedules.due(10 * HOUR)
++  h.schedules.due(11 * HOUR)
++  h.schedules.due(11 * HOUR + 1_000)
++  expect(h.submitted).toHaveLength(1)
++  expect(first(h.state)).toEqual({ everyMinutes: 60, slot: 11 })
++})
++
++it('leaves the slot unwritten when the input is refused, so a later pass retries it', () => {
++  const state = new Map<string, ScheduleState>()
++  const failing = world([rule], { outcome: 'throw', state })
++  failing.schedules.due(10 * HOUR)
++  expect(() => failing.schedules.due(11 * HOUR)).toThrow('unavailable')
++  expect(first(state)).toEqual({ everyMinutes: 60, slot: 10 })
++  const recovered = world([rule], { state })
++  recovered.schedules.due(11 * HOUR)
++  expect(recovered.submitted.map(input => input.dedupeKey)).toEqual(['schedule:daily:11'])
++})
++
++it('runs no rule while paused, disabled or closing', () => {
++  const paused = world([rule], { paused: true })
++  paused.schedules.due(10 * HOUR); paused.schedules.due(11 * HOUR)
++  expect(paused.submitted).toEqual([])
++  expect(paused.state.size).toBe(0)
++  const disabled = world([{ ...rule, enabled: false }])
++  disabled.schedules.due(10 * HOUR); disabled.schedules.due(11 * HOUR)
++  expect(disabled.submitted).toEqual([])
++  const closing = world([rule], { closing: true })
++  closing.schedules.due(10 * HOUR); closing.schedules.due(11 * HOUR)
++  expect(closing.submitted).toEqual([])
++})
++
++it('rebaselines when the interval changes or the clock moves backwards, instead of firing at once', () => {
++  const changed = world()
++  changed.schedules.due(10 * HOUR)
++  const shorter = world([{ ...rule, everyMinutes: 30 }], { state: changed.state })
++  shorter.schedules.due(10 * HOUR + 30 * 60_000)
++  expect(shorter.submitted).toEqual([])
++  expect(first(changed.state)).toEqual({ everyMinutes: 30, slot: 21 })
++  shorter.schedules.due(10 * HOUR + 60 * 60_000)
++  expect(shorter.submitted).toHaveLength(1)
++
++  const backwards = world()
++  backwards.schedules.due(11 * HOUR)
++  backwards.schedules.due(10 * HOUR)
++  expect(backwards.submitted).toEqual([])
++  expect(first(backwards.state)).toEqual({ everyMinutes: 60, slot: 10 })
++})
++
++it('keeps several rules independent', () => {
++  const h = world([rule, { id: 'hourly', enabled: true, everyMinutes: 30, text: '看看有没有新消息' }])
++  h.schedules.due(10 * HOUR)
++  h.schedules.due(11 * HOUR)
++  expect(h.submitted.map(input => input.dedupeKey)).toEqual(['schedule:daily:11', 'schedule:hourly:22'])
++  expect(h.state.size).toBe(2)
++})
+diff --git a/tests/settings.spec.ts b/tests/settings.spec.ts
+index 5e5e1b3..a661d61 100644
+--- a/tests/settings.spec.ts
++++ b/tests/settings.spec.ts
+@@ -2,6 +2,7 @@
+ import { afterEach, expect, it, vi } from 'vitest'
+ import { UserError } from '../src/core/index.ts'
+ import { Commands } from '../src/infra/commands.ts'
++import { policyVersion } from '../src/policy.ts'
+ import { Setup } from '../src/app/setup.ts'
+ import { SettingsConflict } from '../src/app/settings.ts'
+ import { startRuntime, type Host } from './fixtures/host.ts'
+@@ -99,3 +100,16 @@ it('records nothing for a pause that changes nothing, refuses a sync while setup
+   vi.mocked(Setup.prototype.configured).mockRestore()
+   expect(() => settings.block('source:x')).toThrow(new UserError('unknownBlock', { block: 'source:x' }))
+ })
++
++it('saves Schedule rules as their own block without changing the policy revision', async () => {
++  h = await startRuntime()
++  const { settings, store } = h.runtime
++  const rules = [{ id: 'daily', enabled: true, everyMinutes: 60, text: '整理今天的记忆' }]
++  const before = policyVersion(store.settings())
++  const saved = await settings.save('schedule', { rules }, store.blockRevision('schedule'), 'panel')
++  expect(saved).toMatchObject({ saved: true, policy_changed: false })
++  expect(store.settings().schedule).toEqual({ rules })
++  expect(policyVersion(store.settings())).toBe(before)
++  expect(settings.block('schedule')).toEqual({ block: 'schedule', revision: store.blockRevision('schedule'), value: { rules } })
++  await expect(settings.save('schedule', { rules }, store.blockRevision('schedule') - 1, 'panel')).rejects.toThrow(SettingsConflict)
++})
+diff --git a/tests/tools.spec.ts b/tests/tools.spec.ts
+index f3dde91..b84fb81 100644
+--- a/tests/tools.spec.ts
++++ b/tests/tools.spec.ts
+@@ -36,7 +36,7 @@ it('reads the lists, a ticket, a decision, the settings, the prompts and the mod
+   expect(settings).toMatchObject({ eval: { value: { mode: 'auto' } }, policy: { revision: expect.any(Number), allowed: { feishu: 1, github: 1 }, read: 'settings/policy' },
+     pause: { value: { paused: false } }, sources: expect.arrayContaining([expect.objectContaining({ id: 'github', read: 'settings/source:github' })]) })
+   expect(JSON.stringify(settings)).not.toContain('ou_alice')
+-  for (const block of ['policy', 'eval', 'executor', 'pause', 'source:github']) {
++  for (const block of ['policy', 'eval', 'executor', 'pause', 'schedule', 'source:github']) {
+     const page = await read(`settings/${block}`) as { text: string }
+     expect(JSON.parse(page.text)).toEqual({ block, revision: h.runtime.store.blockRevision(block as 'policy'), value: h.runtime.settings.block(block).value })
+   }
+@@ -489,3 +489,13 @@ it('gives a worker the other messages of the request its ticket was accepted fro
+   expect(page).toMatchObject({ batch: [{ trigger_id: other, read: `trigger/${other}` }] })
+   expect(await h.runTool(`worker-${ticket.id}`, 'orchestrator_read', { resource: `trigger/${other}` })).toMatchObject({ trigger_id: other })
+ })
++
++it('accepts an EvolutionRequest as a local explicit ticket in one tool call', async () => {
++  const args = { text: '把回复语气改得更克制', title: '调整回复语气', scope: 'persona' }
++  const first = await h.runTool(h.runtime.masterId, 'orchestrator_evolution_request', args) as {
++    decision: string; reason: string; ticket: { ticket_id: string; title: string } }
++  expect(first.decision).toBe('accept')
++  expect(first.ticket.title).toBe('调整回复语气')
++  const again = await h.runTool(h.runtime.masterId, 'orchestrator_evolution_request', args) as typeof first
++  expect(again.ticket.ticket_id).toBe(first.ticket.ticket_id)
++})

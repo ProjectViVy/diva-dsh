@@ -10,16 +10,18 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdir
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { rmSync } from 'node:fs'
+import { configuredStateDirectory, validateStateDirectory } from './source.mjs'
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url))
 export const ARTIFACTS = join(ROOT, '.artifacts')
 export const CONTROL = join(ARTIFACTS, 'control')
 export const BUNDLE_DIR = join(ROOT, 'superagent')
-export const DSH_JS = join(ROOT, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+export const DSH_DIR = join(ROOT, 'deepseek-harness')
+export const DSH_JS = join(DSH_DIR, 'apps', 'cli', 'src', 'bin.ts')
 export const STATE_SHARE = 20
 
-export const PROFILE = process.env.VIVY_DSH_PROFILE || process.env.DSH_SUPERAGENT_PROFILE || 'superagent-template'
-export const SERVICE_URL = process.env.VIVY_DSH_URL || process.env.DSH_SUPERAGENT_URL || 'http://127.0.0.1:3082'
+export const PROFILE = 'superagent-local'
+export const SERVICE_URL = 'http://127.0.0.1:3082'
 
 // The exit codes of `status`, `start` and `restart`, identical to the upstream script.
 export const OK = 0
@@ -28,7 +30,7 @@ export const PART_ERROR = 2
 export const SETUP_WAITS = 3
 
 export function home() {
-  return process.env.DSH_HOME || join(process.env.USERPROFILE || process.env.HOME || '.', '.dsh')
+  return join(ARTIFACTS, 'dsh-home')
 }
 
 export function profileDir() {
@@ -184,14 +186,16 @@ export function sleep(ms) {
  * release that lock — so the launcher has to clear it, never while a service is live.
  */
 export function stateDir() {
+  let patch
   try {
-    const patch = readFileSync(join(profileDir(), 'cordis.patch.yml'), 'utf8')
-    const match = /^\s*stateDir\s*:\s*(.+?)\s*$/m.exec(patch)
-    if (match) return match[1].replace(/^['"]|['"]$/g, '')
-  } catch {
-    /* fall through to the default */
+    patch = readFileSync(join(profileDir(), 'cordis.patch.yml'), 'utf8')
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
   }
-  return join(home(), 'state', PROFILE)
+  const configured = patch === undefined ? undefined : configuredStateDirectory(patch)
+  const path = configured ?? join(home(), 'state', PROFILE)
+  if (!validateStateDirectory(ROOT, path)) throw new Error(`The profile stateDir is outside the project: ${path}`)
+  return path
 }
 
 export function lockPath() {

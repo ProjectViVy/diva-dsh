@@ -22,14 +22,7 @@ import {
   savePersistedConfig,
   validateConfig,
 } from '../plugins/dsh-mempalace/src/config.mjs'
-import {
-  SessionCapture,
-  buildExchange,
-  extractMessageText,
-  isHumanUserMessage,
-  projectFromCwd,
-  resolveProject,
-} from '../plugins/dsh-mempalace/src/capture.mjs'
+import { projectFromCwd, resolveProject } from '../plugins/dsh-mempalace/src/project.mjs'
 import { MemoryStore } from '../plugins/dsh-mempalace/src/store/memory_store.mjs'
 import { EmbeddingService } from '../plugins/dsh-mempalace/src/store/embeddings.mjs'
 import { createTools } from '../plugins/dsh-mempalace/src/tools.mjs'
@@ -39,6 +32,12 @@ const pluginDir = fileURLToPath(new URL('../plugins/dsh-mempalace/', import.meta
 const nativeReady = existsSync(join(pluginDir, 'node_modules/better-sqlite3'))
   && existsSync(join(pluginDir, 'node_modules/sqlite-vec'))
 const silent = { warn() {}, info() {}, error() {} }
+const toolsSource = readFileSync(join(pluginDir, 'src/tools.mjs'), 'utf8')
+const httpSource = readFileSync(join(pluginDir, 'src/http.mjs'), 'utf8')
+const commandsSource = readFileSync(join(pluginDir, 'src/commands.mjs'), 'utf8')
+const clientSource = readFileSync(join(pluginDir, 'src/client.js'), 'utf8')
+const serviceSource = readFileSync(join(pluginDir, 'src/service.mjs'), 'utf8')
+const storeSource = readFileSync(join(pluginDir, 'src/store/memory_store.mjs'), 'utf8')
 
 function tempDir(t, prefix) {
   const base = resolve('.artifacts/test-tmp')
@@ -109,11 +108,21 @@ test('chunk helpers keep boundaries, hashes and similarity stable', () => {
   assert.equal(EMBEDDING_DIM, 384)
 })
 
-test('config resolves defaults, persisted values and strict validation', t => {
-  const resolved = resolveConfig({}, { wakeUpMaxTokens: 500, defaultProject: 'demo' })
+test('config resolves defaults and drops retired capture settings', t => {
+  const resolved = resolveConfig({}, {
+    wakeUpMaxTokens: 500,
+    defaultProject: 'demo',
+    autoCapture: true,
+    captureMinChars: 5,
+    userMinChars: 2,
+    captureMaxChars: 120,
+    maxPendingCaptures: 3,
+  })
   assert.equal(resolved.wakeUpMaxTokens, 500)
   assert.equal(resolved.defaultProject, 'demo')
-  assert.equal(resolved.autoCapture, DEFAULTS.autoCapture)
+  for (const key of ['autoCapture', 'wakeUpEnabled', 'captureMinChars', 'userMinChars', 'captureMaxChars', 'maxPendingCaptures']) {
+    assert.equal(Object.hasOwn(resolved, key), false)
+  }
 
   assert.throws(() => validateConfig({ ...DEFAULTS, wakeUpMaxTokens: 'many' }), /^Error: dsh-mempalace: wakeUpMaxTokens/)
   assert.throws(() => validateConfig({ ...DEFAULTS, chunkOverlap: DEFAULTS.chunkSize }), /chunkOverlap/)
@@ -133,61 +142,103 @@ test('bundle patch does not pin settings that config.json should persist', () =>
   assert.doesNotMatch(patch, /wakeUpMaxTokens|autoCapture|config:/)
 })
 
-test('capture accepts only direct human prompts and merges completed exchanges', () => {
-  assert.equal(extractMessageText('plain'), 'plain')
-  assert.equal(extractMessageText([{ type: 'text', text: 'a' }, { type: 'tool_use' }, { type: 'text', text: 'b' }]), 'a\nb')
-  assert.equal(extractMessageText({ text: 'not-an-array' }), '')
-
-  assert.equal(isHumanUserMessage({ role: 'user', source: { kind: 'user' } }), true)
-  assert.equal(isHumanUserMessage({ role: 'user', source: { kind: 'working-directory' } }), false)
-  assert.equal(isHumanUserMessage({ role: 'assistant', source: { kind: 'user' } }), false)
-  assert.equal(isHumanUserMessage({ role: 'user' }), false)
-
+test('project labels derive from default, session and cwd', () => {
   assert.equal(projectFromCwd('/work/MyRepo/'), 'MyRepo')
   assert.equal(projectFromCwd(''), 'general')
   assert.equal(resolveProject({ defaultProject: 'fixed', sessionProject: 'session', cwd: '/work/cwd' }), 'fixed')
   assert.equal(resolveProject({ sessionProject: 'session', cwd: '/work/cwd' }), 'session')
   assert.equal(resolveProject({ cwd: '/work/cwd' }), 'cwd')
+})
 
-  const exchange = buildExchange('question', 'answer', 100)
-  assert.equal(exchange, '> question\n\nanswer')
-  const truncated = buildExchange('q'.repeat(100), 'a'.repeat(100), 40)
-  assert.equal(truncated.length, 40)
-  assert.match(truncated, /\[truncated\]$/)
+test('startup retires legacy state before reading config', () => {
+  const source = readFileSync(join(pluginDir, 'src/index.mjs'), 'utf8')
+  const retire = source.indexOf('retireLegacyState(stateDir')
+  assert.ok(retire >= 0)
+  assert.ok(retire < source.indexOf('loadPersistedConfig(stateDir)'))
+})
 
-  const capture = new SessionCapture({ userMinChars: 5, captureMinChars: 5, captureMaxChars: 200 })
-  assert.equal(capture.pushUser('hi'), false)
-  assert.equal(capture.takeAssistant('nothing pending'), null)
-  assert.equal(capture.pushUser('first question'), true)
-  assert.equal(capture.pushUser('second question'), true)
-  assert.equal(capture.takeAssistant('tiny'), null)
-  assert.equal(capture.pending.length, 0)
-  assert.equal(capture.pushUser('third question'), true)
-  assert.equal(capture.takeAssistant('answer', { interrupted: true }), null)
-  assert.equal(capture.pending.length, 0)
-  assert.equal(capture.pushUser('fourth question'), true)
-  const merged = capture.takeAssistant('a complete answer')
-  assert.equal(merged.content, '> fourth question\n\na complete answer')
-  capture.pushUser('leftover')
-  capture.clear()
-  assert.equal(capture.takeAssistant('answer'), null)
+test('plugin no longer captures conversations', () => {
+  const index = readFileSync(join(pluginDir, 'src/index.mjs'), 'utf8')
+  assert.doesNotMatch(index, /user\/message|assistant\/message|extractMessageText|isHumanUserMessage|observeUser|observeAssistant/)
+  assert.match(index, /working-directory\/change/)
+
+  const service = readFileSync(join(pluginDir, 'src/service.mjs'), 'utf8')
+  assert.doesNotMatch(service, /SessionCapture|observeUser|observeAssistant|captureQueue|pendingCaptures|captureConfigVersion|#createCapture|#enqueueCapture/)
+
+  const config = readFileSync(join(pluginDir, 'src/config.mjs'), 'utf8')
+  assert.doesNotMatch(config, /autoCapture|captureMinChars|userMinChars|captureMaxChars|maxPendingCaptures/)
+
+  const commands = readFileSync(join(pluginDir, 'src/commands.mjs'), 'utf8')
+  assert.doesNotMatch(commands, /case 'on'|case 'off'|setSessionCaptureEnabled|autoCapture/)
+
+  const client = readFileSync(join(pluginDir, 'src/client.js'), 'utf8')
+  assert.doesNotMatch(client, /autoCapture|captureMinChars|userMinChars|captureMaxChars|maxPendingCaptures|自动捕获/)
+
+  assert.equal(existsSync(join(pluginDir, 'src/capture.mjs')), false)
+
+  assert.doesNotMatch(index, /mempalace:wakeup|wakeupFor/)
+  assert.match(index, /owned by ActMem/)
+
+  const storeSource = readFileSync(join(pluginDir, 'src/store/memory_store.mjs'), 'utf8')
+  assert.doesNotMatch(storeSource, /identityPath|identity_exists|## Identity/)
+  assert.doesNotMatch(service, /wakeupFor|identityPath|identity\.txt/)
+  assert.doesNotMatch(client, /\/wakeup|wakeUpEnabled|identityPath|唤醒注入|可注入/)
+  assert.match(client, /recent-memory/)
+  assert.match(client, /近期记忆预览/)
+  assert.match(client, /只读归档/)
+  assert.doesNotMatch(client, /新增记忆|确认删除|\/memories\/delete/)
+})
+
+test('manual memory and diary write surfaces are retired', () => {
+  for (const name of ['memory_save', 'memory_delete', 'memory_diary_write']) {
+    assert.doesNotMatch(toolsSource, new RegExp(`name: '${name}'`), `${name} is retired`)
+  }
+  for (const route of ["'/memories' && req.method === 'POST'", "'/memories/delete'", "'/diary' && req.method === 'POST'"]) {
+    assert.ok(!httpSource.includes(route), `${route} is retired`)
+  }
+  assert.doesNotMatch(commandsSource, /case 'save':/)
+  assert.doesNotMatch(commandsSource, /\/mempalace save/)
+  assert.doesNotMatch(clientSource, /diary\.write|diaryWrite|写一条日记|writeDiary/)
+  assert.doesNotMatch(serviceSource, /saveMemory|deleteMemory|diaryWrite/)
+  assert.match(httpSource, /'\/diary' && req.method === 'GET'/)
+  assert.match(toolsSource, /name: 'memory_diary_read'/)
+  assert.match(storeSource, /async store\(/)
+  assert.match(storeSource, /async diaryWrite\(/)
+  assert.match(storeSource, /\n  delete\(id\) \{/)
+})
+
+test('the ledger endpoint is read-only', () => {
+  assert.match(httpSource, /'\/knowledge\/commits' && req\.method === 'GET'/)
+  assert.doesNotMatch(httpSource, /'\/knowledge\/commits'[\s\S]{0,200}POST/)
+  assert.match(clientSource, /knowledge\/commits/)
 })
 
 test('tools expose complete schemas and validate missing arguments', async () => {
   const service = {
     getSessionProject: () => 'demo',
     search: async () => ({ query: 'q', mode: 'semantic', results: [] }),
-    saveMemory: async () => ({ status: 'stored', id: 'mem_x' }),
   }
   const definitions = createTools(service)
-  const names = definitions.map(tool => tool.name)
-  assert.equal(definitions.length, 17)
-  assert.equal(new Set(names).size, 17)
+  assert.deepEqual(definitions.map(definition => definition.name), [
+    'memory_search', 'memory_recall', 'memory_status', 'memory_graph', 'memory_tunnel',
+    'knowledge_add', 'knowledge_query', 'knowledge_status', 'memory_list_rooms', 'memory_taxonomy',
+    'memory_check_duplicate', 'knowledge_invalidate', 'knowledge_timeline', 'memory_diary_read',
+  ])
   for (const tool of definitions) {
     assert.equal(tool.parameters.type, 'object')
     assert.equal(tool.output.schema.type, 'object')
     assert.equal(typeof tool.output.render, 'function')
     assert.equal(typeof tool.execute, 'function')
+  }
+  // 回归测试：DSH 调用 output.render(exec.arguments, value)——参数在前、值在后。
+  // 若 render 只声明一个形参，它绑定的就是调用参数，值被丢掉，工具静默渲染成空串
+  // （isError 仍是 false，schema 校验看的是 value，所以全绿也发现不了）。
+  for (const tool of definitions) {
+    assert.deepEqual(
+      tool.output.render({ anyArgument: true }, { text: `rendered:${tool.name}` }),
+      [{ type: 'text', text: `rendered:${tool.name}` }],
+      `${tool.name} 的 render 没有按 (args, value) 取值`,
+    )
   }
   const search = definitions.find(tool => tool.name === 'memory_search')
   await assert.rejects(search.execute({}, {}), /INVALID_ARGS/)
@@ -197,7 +248,7 @@ test('tools expose complete schemas and validate missing arguments', async () =>
 })
 
 test('memory store round trip covers search, pagination, duplicates and wake-up', { skip: !nativeReady && 'native mempalace dependencies are not installed' }, async t => {
-  const { store } = await openStore(t)
+  const { dir, store } = await openStore(t)
   const first = await store.store({
     content: 'deployment pipeline uses node twenty and sqlite',
     project: 'project-a',
@@ -233,8 +284,12 @@ test('memory store round trip covers search, pagination, duplicates and wake-up'
   assert.equal(duplicateCheck.isDuplicate, true)
   assert.equal(duplicateCheck.hashMatch, true)
 
+  writeFileSync(join(dir, 'identity.txt'), '# persona\nsecret\n')
   const wakeA = store.wakeup({ project: 'project-a', max_tokens: 800 })
   const wakeB = store.wakeup({ project: 'project-b', max_tokens: 800 })
+  assert.doesNotMatch(wakeA.text, /Identity|persona|secret/)
+  assert.equal('identity_exists' in store.status(), false)
+  assert.equal(store.identityPath, undefined)
   assert.match(wakeA.text, /deployment pipeline/)
   assert.doesNotMatch(wakeA.text, /cooking notes/)
   assert.match(wakeB.text, /cooking notes/)
@@ -249,6 +304,10 @@ test('memory store round trip covers search, pagination, duplicates and wake-up'
   assert.deepEqual(store.delete(first.id), { status: 'deleted', id: first.id })
   assert.throws(() => store.delete(first.id), /Memory not found/)
   assert.equal(store.size, 1)
+
+  const manual = await store.store({ content: 'manual note about release', project: 'project-c', topic: 'notes' })
+  const manualRow = store.listMemories({ project: 'project-c', limit: 20 }).items.find(item => item.id === manual.id)
+  assert.equal(manualRow.source, 'manual')
 })
 
 test('long content is chunked with parent links and remains searchable', { skip: !nativeReady && 'native mempalace dependencies are not installed' }, async t => {
@@ -413,10 +472,10 @@ function fakeHttpService(overrides = {}) {
   return {
     calls: [],
     async statusSnapshot() { return { state: 'ready', config: {}, models: {}, paths: {}, store: {}, stats: {} } },
-    async wakeupPreview() { return { text: '', tokens: 0, project: null } },
+    async recentMemoryPreview() { return { text: '', tokens: 0, project: null } },
     async listMemories(options) { this.calls.push(['listMemories', options]); return { items: [], total: 0, limit: options.limit, offset: options.offset } },
-    async saveMemory(input) { this.calls.push(['saveMemory', input]); return { status: 'stored', id: 'mem_1' } },
-    async deleteMemory(id) { return { status: 'deleted', id } },
+    async diaryRead() { return [] },
+    async listKnowledgeCommits(input) { this.calls.push(['listKnowledgeCommits', input]); return { commits: [] } },
     async search(query) { return { query, mode: 'semantic', results: [] } },
     async exportAll() { return { version: 1, memories: [] } },
     async updateConfig(patch) { return patch },
@@ -428,6 +487,73 @@ function fakeHttpService(overrides = {}) {
     ...overrides,
   }
 }
+
+function mountHttp(service) {
+  let handler
+  registerMempalaceHttp({
+    webServer: { register(route) { handler = route.handler; return () => {} } },
+    get: () => ({ requestRejection: () => null }),
+  }, service)
+  return async request => {
+    const req = Readable.from([])
+    Object.assign(req, {
+      url: `/dsh-mempalace/api${request}`,
+      method: 'GET',
+      headers: { host: '127.0.0.1:3082', cookie: 'session=ok' },
+    })
+    let status, text
+    await handler(req, { writeHead(code) { status = code }, end(value) { text = value } })
+    return { status, data: text ? JSON.parse(text) : null }
+  }
+}
+
+test('serves the read-only knowledge ledger', async () => {
+  const service = fakeHttpService()
+  const request = mountHttp(service)
+  const response = await request('/knowledge/commits?assetScope=knowledge%3Aconflict%3Avivy&limit=7')
+  assert.equal(response.status, 200)
+  assert.equal(response.data.ok, true)
+  assert.deepEqual(service.calls, [['listKnowledgeCommits', { assetScope: 'knowledge:conflict:vivy', limit: 7 }]])
+  const alias = await request('/knowledge/commits?asset_scope=knowledge%3Aconflict%3Avivy')
+  assert.equal(alias.status, 200)
+  assert.deepEqual(service.calls.at(-1), ['listKnowledgeCommits', { assetScope: 'knowledge:conflict:vivy', limit: 50 }])
+})
+
+test('knowledge write routes return the ledger revision', async () => {
+  const service = fakeHttpService({
+    async addEntity() { return { status: 'created', id: 'ent_alice', revision: 1 } },
+    async addTriple() { return { status: 'created', id: 7, revision: 2 } },
+    async invalidateTriple() { return { status: 'invalidated', id: 7, revision: 3 } },
+    async invalidateFact() { return { status: 'invalidated', id: 7, revision: 4 } },
+  })
+  let handler
+  registerMempalaceHttp({
+    webServer: { register(route) { handler = route.handler; return () => {} } },
+    get: () => ({ requestRejection: () => null }),
+  }, service)
+  const post = async (url, body) => {
+    const req = Readable.from([JSON.stringify(body)])
+    Object.assign(req, {
+      url: `/dsh-mempalace/api${url}`,
+      method: 'POST',
+      headers: { host: '127.0.0.1:3082', cookie: 'session=ok', 'content-type': 'application/json' },
+    })
+    let status, text
+    await handler(req, { writeHead(code) { status = code }, end(value) { text = value } })
+    return { status, data: text ? JSON.parse(text) : null }
+  }
+  assert.equal((await post('/knowledge/entity', { name: 'Alice' })).data.revision, 1)
+  assert.equal((await post('/knowledge/triple', { subject: 'Alice', predicate: 'likes', object: 'tea' })).data.revision, 2)
+  assert.equal((await post('/knowledge/invalidate', { id: 7 })).data.revision, 3)
+  assert.equal((await post('/knowledge/invalidate', { subject: 'Alice', predicate: 'likes', object: 'tea' })).data.revision, 4)
+})
+
+test('knowledge writes surface the revision in tools and the panel', () => {
+  assert.match(toolsSource, /r\$\{added\.revision\}/)
+  assert.match(toolsSource, /r\$\{invalidated\.revision\}/)
+  assert.match(clientSource, /saved\.revision/)
+  assert.match(serviceSource, /async knowledgeWrite\(/)
+})
 
 test('HTTP API enforces loopback, session, origin, JSON and body limits', async t => {
   let handler
@@ -464,16 +590,27 @@ test('HTTP API enforces loopback, session, origin, JSON and body limits', async 
   assert.equal((await request('/status', { auth: false })).status, 401)
   assert.equal((await request('/status', { host: 'example.com' })).status, 403)
   assert.equal((await request('/status', { host: 'localhost:3082' })).status, 200)
+  assert.equal((await request('/recent-memory')).status, 200)
+  assert.equal((await request('/wakeup')).status, 404)
 
   const paged = await request('/memories?limit=7&offset=3&sort=oldest')
   assert.equal(paged.status, 200)
   assert.deepEqual(service.calls.at(-1)[1], { project: undefined, topic: undefined, source: undefined, q: undefined, limit: 7, offset: 3, sort: 'oldest' })
 
-  assert.equal((await request('/memories', { method: 'POST', body: { content: 'x' } })).status, 200)
-  assert.equal((await request('/memories', { method: 'POST', body: { content: 'x' }, origin: 'https://example.com' })).status, 403)
-  assert.equal((await request('/memories', { method: 'POST', body: { content: 'x' }, contentType: 'text/plain' })).status, 415)
-  assert.equal((await request('/memories', { method: 'POST', raw: '{broken' })).status, 400)
-  assert.equal((await request('/memories', { method: 'POST', raw: 'x'.repeat(600 * 1024) })).status, 413)
+  const searched = await request('/search', { method: 'POST', body: { query: 'x' } })
+  assert.equal(searched.status, 200)
+  assert.equal(searched.data.ok, true)
+  assert.equal((await request('/search', { method: 'POST', body: { query: 'x' }, origin: 'https://example.com' })).status, 403)
+  assert.equal((await request('/search', { method: 'POST', body: { query: 'x' }, contentType: 'text/plain' })).status, 415)
+  assert.equal((await request('/search', { method: 'POST', raw: '{broken' })).status, 400)
+  assert.equal((await request('/search', { method: 'POST', raw: 'x'.repeat(600 * 1024) })).status, 413)
+
+  assert.equal((await request('/memories', { method: 'POST', body: { content: 'x' } })).status, 404)
+  assert.equal((await request('/memories/delete', { method: 'POST', body: { id: 'mem_1' } })).status, 404)
+  assert.equal((await request('/diary', { method: 'POST', body: { agent_name: 'agent', entry: 'x' } })).status, 404)
+  const diary = await request('/diary?agent_name=agent&last_n=3')
+  assert.equal(diary.status, 200)
+  assert.deepEqual(diary.data.entries, [])
   assert.equal((await request('/unknown')).status, 404)
 
   const exported = await request('/export')

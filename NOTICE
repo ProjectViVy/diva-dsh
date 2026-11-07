@@ -1,0 +1,45 @@
+# NOTICE
+
+本项目包含从 SurfCore 移植的代码。上游 SurfCore 固定为子模块
+`plugins/surfcore` 的提交 `59ec3066f7d42a0452fae01f170c9a8484d5dbe5`（v0.8.6），
+以 MIT 许可证发布，版权声明见 `plugins/surfcore/LICENSE`。移植文件继续遵循 MIT 许可证；
+本项目对其进行了模块拆分、路径隔离、错误处理和测试补充。
+
+## 记忆插件（`plugins/memory`）
+
+| 本项目文件 | 上游来源 |
+| --- | --- |
+| `src/card-engine.mjs` | `src/memory-card.js` |
+| `src/bili-memory.mjs`、`src/bili-api.mjs` | `src/bili-memory.js`、B 站公开数据读取逻辑 |
+| `src/session-memory.mjs` | QQ 桥接中的会话主题、待说事项和成员印象逻辑 |
+| `src/qq-sync.mjs` | QQ 桥接中的公开群消息同步逻辑 |
+| `src/session-map.mjs` | `src/session-map.js` |
+| `src/conversation-closure.mjs` | `src/conversation-closure.js` |
+| `src/slang-learner.mjs` | `src/slang-learner.js` |
+| `src/history-catchup.mjs` | `src/history-catchup.js` |
+| `src/context-snapshot.mjs` | `src/context-snapshot.js` |
+| `src/privacy.mjs`、`src/owner-bridge.mjs`、`src/maintenance.mjs`、`src/bridge-maintenance.mjs` | 隐私扫描、管理员告警和后台维护的桥接逻辑 |
+
+## 语音插件（`plugins/voice`）
+
+| 本项目文件 | 上游来源 |
+| --- | --- |
+| `src/voice-tts.js` | `src/voice-tts.js` |
+| `src/voice-packs.js` | `src/voice-packs.js` |
+| `src/voice-pack-import.js` | `voice-pack-import.js` |
+| `src/voice-diagnostics.js` | `voice-diagnostics.js` |
+| `src/voice-pack-secrets.js` | `voice-pack-secrets.js` |
+| `src/voice-core.mjs` | `src/voice-core.js`、`send-voice-lib.js` |
+| `src/voice-policy.mjs` | QQ 桥接中的语音触发规则、限流和发送审计逻辑 |
+| `src/online-installer.mjs`、`src/install-*.mjs` | 语音包在线安装脚本及相关下载、校验、解包逻辑 |
+
+## 适配层
+
+`scripts/lib/surfcore-runtime-transform.mjs`、`scripts/lib/surfcore-component-patch.mjs`
+在项目内生成 SurfCore 的构建期补丁，不修改上游子模块。`scripts/lib/component-migration.mjs`
+读取上游数据格式并复制到独立插件目录。
+
+## 人格模块
+
+人格、角色和桌宠相关源码（`persona`、`role`、`pet`、`character-persona`）未移植到
+记忆或语音插件，新代码不引用这些模块。

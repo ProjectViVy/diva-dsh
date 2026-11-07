@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { localEnvironment, prepareLocalDirectories } from './lib/source.mjs'
+import { runMempalaceNpm } from './lib/mempalace-setup.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const PLUGIN = join(ROOT, 'plugins', 'dsh-mempalace')
@@ -19,13 +21,7 @@ function step(message) {
 }
 
 function npm(args) {
-  const command = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-  const result = spawnSync(command, args, {
-    cwd: PLUGIN,
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-    env: { ...process.env, ...(registry ? { npm_config_registry: registry } : {}) },
-  })
+  const result = runMempalaceNpm(args, { root: ROOT, registry })
   if (result.error) throw result.error
   if (result.status !== 0) {
     const error = new Error(`npm exited with ${result.status ?? result.signal}`)
@@ -73,7 +69,7 @@ function verify() {
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', VERIFY_SCRIPT], {
     cwd: PLUGIN,
     encoding: 'utf8',
-    env: process.env,
+    env: localEnvironment(ROOT),
     timeout: 120_000,
   })
   if (result.error) throw result.error
@@ -87,7 +83,7 @@ function verify() {
 
 async function warm() {
   const { EmbeddingService } = await import(join(PLUGIN, 'src', 'store', 'embeddings.mjs'))
-  const home = process.env.DSH_HOME || join(ROOT, '.artifacts', 'dsh-home')
+  const home = localEnvironment(ROOT).DSH_HOME
   const service = new EmbeddingService({
     cacheDir: join(home, 'mempalace', 'models'),
     hfEndpoint: process.env.HF_ENDPOINT || '',
@@ -107,6 +103,7 @@ function writeMarker(payload) {
 
 async function main() {
   if (!existsSync(join(PLUGIN, 'package.json'))) throw new Error(`Missing plugin package: ${PLUGIN}`)
+  prepareLocalDirectories(ROOT)
   const marker = {
     version: 1,
     generatedAt: new Date().toISOString(),

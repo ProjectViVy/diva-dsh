@@ -1,0 +1,52 @@
+diff --git a/src/app/runtime.ts b/src/app/runtime.ts
+index 5219b1c..32afc39 100644
+--- a/src/app/runtime.ts
++++ b/src/app/runtime.ts
+@@ -67,7 +67,7 @@ export class Runtime extends Service implements SourceHost {
+   readonly setup: Setup
+   readonly prompts: Prompts
+   readonly effects: Effects
+-  /** Effect-backed voice sends; the bridge plugin commits through this host. */
++  /** Effect-backed voice sends; `SourceHost` requires it, so the bridge plugin always commits through this host. */
+   readonly voice: VoiceEffects
+   readonly sources: SourceRegistry
+   readonly commands: Commands
+diff --git a/src/sources/host.ts b/src/sources/host.ts
+index fd65c37..7b0103c 100644
+--- a/src/sources/host.ts
++++ b/src/sources/host.ts
+@@ -47,8 +47,8 @@ export interface SourceHost {
+   readonly sources: SourceRegistry
+   /** Returns the context for one Source kind; its `report` writes only the health entries declared by the kind. */
+   context(kind: { kind: string; health: readonly string[] }): SourceContext
+-  /** Effect-backed voice sends, present when the runtime wired a voice host. */
+-  readonly voice?: VoiceEffectHost
++  /** Effect-backed voice sends; the runtime always wires one, so a voice send never falls back to an untraced direct path. */
++  readonly voice: VoiceEffectHost
+ }
+ /** Display label, URL, and facts (`null` removes a fact) that a Source publishes on a Thread. */
+ export interface ThreadDescription { label?: string; url?: string; facts?: Record<string, ThreadFact | null> }
+diff --git a/tests/sources.spec.ts b/tests/sources.spec.ts
+index f4d0332..06f07b7 100644
+--- a/tests/sources.spec.ts
++++ b/tests/sources.spec.ts
+@@ -13,6 +13,8 @@ import { pollThreads as pollGithubThreads } from '../src/sources/github.ts'
+ import { SourceRegistry } from '../src/sources/registry.ts'
+ import { cursorAt, POLL_HORIZON_MS } from '../src/sources/poll.ts'
+ import { Store } from '../src/app/store.ts'
++import { Effects } from '../src/app/effects.ts'
++import { VoiceEffects } from '../src/app/voice-effects.ts'
+ import { Commands, commandError } from '../src/infra/commands.ts'
+ import { HealthBoard } from '../src/infra/health.ts'
+ import { testDeployment } from './fixtures/deployment.ts'
+@@ -42,7 +44,9 @@ function host(overrides: Partial<SourceContextDeps> = {}) {
+   const parts: SourceContextDeps = { store, engine, outbox: { send: message => { store.receipts.add(message) } }, commands, sources, deployment,
+     ready: Promise.resolve(), configured: () => true, receive, ...overrides }
+   // The Sources' functions take the context; plugin entries and kind callbacks take the host, which builds each kind's context.
+-  const value = { ...parts, context: (kind: { kind: string; health: readonly string[] }) => sourceContextOf(parts, kind) }
++  // `SourceHost` requires a voice host, so the fixture wires the real one instead of a stub and the contract stays checked.
++  const voice = new VoiceEffects(new Effects(store, board))
++  const value = { ...parts, context: (kind: { kind: string; health: readonly string[] }) => sourceContextOf(parts, kind), voice }
+   const context = sourceContextOf(parts, { kind: 'feishu', health: ['github', 'feishu', 'history'] })
+   const health = overrides.sources ? healthOf.get(overrides.sources)!.all : board.all
+   return { ...value, ...context, health, store, engine, commands: parts.commands, receive, executor }

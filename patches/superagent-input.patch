@@ -1,0 +1,792 @@
+diff --git a/docs/006-deployment.md b/docs/006-deployment.md
+index 4635bc2..8c70b14 100644
+--- a/docs/006-deployment.md
++++ b/docs/006-deployment.md
+@@ -171,6 +171,7 @@ Agents may rely on these routes and fields. The other routes in `src/app/api.ts`
+ | `GET state` | What every page reads: `setup`, with `problem` and `feishuProblem`, each `null` or a setup problem with `place`, `code`, `values` and `detail`, and `accounts` once setup resolved them; `health`, an entry per part, below, with `state` (`starting`, `ready`, `paused` or `error`), `detail` and `at`; `load`, the Executor Sessions `running`, the Tickets `queued` and `maxWorkers`; `paused`; `masterId`; and `subject`, the installation's binding (`subjectId`, `displayName`, `createdAt`, `schemaVersion`) |
+ | `GET subject` | The installation's subject binding: `subjectId`, `displayName`, `createdAt`, and `schemaVersion`. `subjectId` never changes. |
+ | `PUT subject` with `{"displayName": …}` | Renames the subject: the binding with the new `displayName`; the ID, creation time and schema version stay unchanged. Only `displayName`, 1 to 80 characters, may be sent. |
++| `POST inputs` with an InputEnvelope | Submits one input to the `local` Source: `triggerId` and `outcome` (`stored`, `duplicate` or `filtered`). The body holds `subjectId`, `sourceId` (`local` only), `externalEventId`, `dedupeKey`, `payload` (`text`, optional `url`), optional `layer` (`person`, `platform`, `schedule`, `wake` or `evolution`, default `person`), optional `human`, and optional `provenance` (`actor`, `note`). It creates a Trigger (and at most an Eval), never a Ticket; a repeated `dedupeKey` returns `duplicate` with the first `triggerId`. 400 for an invalid, oversized or unowned input; 503 while stopping |
+ | `GET settings` | `blocks`: `policy`, `eval` and `executor`, each with its `value` and its `revision`; `sources`: the Source instances, each with `id`, `kind`, `installed`, its block's `value`, `{"enabled": …, "config": {…}}`, and `revision`, its kind's form, and its setup `problem` when it has one; `policyVersion`; and `environment`, the execution environment's `root` and `variables` |
+ | `GET sources` | Each Source's status: `state` (`missing`, `off`, `error`, `setup`, `starting`, `paused` or `ready`), the `health` of its parts, its setup `problem`, the last day's `stats`, the Triggers it `filtered` in that day, and the messages it `dropped` in that day, newest drop first, each with its `channel`, `preview`, `ticket` (`id` and `title`) when it was for one, its `thread` when the store has it, and `dropped.at` and `dropped.reason`, `channelGone` or `channelIgnored` |
+ | `PUT settings/<block>` with `{"value": …, "revision": n}` | Saves one block: `saved`, the block's new `revision`, `policy_changed` and `restarting`. `value` is the whole block, as `GET settings` holds it; a missing key takes its default |
+diff --git a/docs/007-architecture.md b/docs/007-architecture.md
+index 8181e5b..b64242f 100644
+--- a/docs/007-architecture.md
++++ b/docs/007-architecture.md
+@@ -192,6 +192,8 @@ Generic code accesses Source behavior through the registry. `send(message, comma
+ 
+ Plugins receive `SourceHost`: the registry and `context(kind)`. The kind itself uses a narrower `SourceContext`, built by `sourceContextOf` in `src/app/source-context.ts`.
+ 
++The built-in `local` kind (`src/sources/local.ts`) is the local input Source: it polls nothing and has no channel, and declares `trusted`, so the Policy admits its inputs without sender lists (`SourceScope.trusted`). Inputs reach it through `POST inputs`, whose `Inputs` service (`src/app/input.ts`) stores an `InputEnvelope` and its dedupe receipt, then hands the Trigger to the Engine; it never creates a Ticket.
++
+ That context supplies deployment and commands, setup readiness (`ready`, `configured`, `problem`), configuration, `receive`, `atomic`, and typed `state`. It also exposes Thread reads and metadata writes, Ticket reads and binding/closure commands, Trigger reads, `notify` through Outbox, and `report` for declared health entries.
+ 
+ ### DshExecutor
+@@ -315,6 +317,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/core/index.ts` | The core's exports |
+ | `src/app/runtime.ts` | The Runtime, the composition root, with its start and stop |
+ | `src/app/subject.ts` | The subject binding: one stable `subject_<uuid>` per installation, created once in the Store, with its display-name rename |
++| `src/app/input.ts` | `Inputs`: validates an InputEnvelope, dedupes it by its persisted receipt, turns it into a Trigger, and requests a pass after commit; `InputError` carries the refusal code |
+ | `src/app/setup.ts` | Setup, and `setupChanged`, whether a save changes a field setup reads |
+ | `src/app/passes.ts` | Passes, the pass scheduler |
+ | `src/app/outbox.ts` | The Outbox: the Engine's `Outbox` port, the receipts and the `reply` effects that send them |
+@@ -360,6 +363,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/infra/text.ts` | Word counts and the chat message limit, `fill` and `sameName` |
+ | `src/infra/health.ts` | The `HealthBoard`, every part's health entry, each claimed by its one writer |
+ | `src/sources/kind.ts` | The `SourceKind` protocol |
++| `src/sources/local.ts` | The built-in local input Source: no polling, no channel, and `trusted` so the Policy admits its inputs without sender lists |
+ | `src/sources/registry.ts` | `SourceRegistry` |
+ | `src/sources/host.ts` | `SourceHost`, `SourceContext`, `Health`, `health` and the fixed health texts |
+ | `src/sources/poll.ts` | What GitHub and Feishu polling share: `POLL_HORIZON_MS`, `polled`, `cursorAt`, and `pollThreads`, which keeps a failure on its Thread as `pollError` |
+@@ -428,6 +432,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `tests/tools.spec.ts` | The Sessions' tools: what `orchestrator_read` reads for each role, and the shapes and checks of the other main Session tools |
+ | `tests/runtime-concurrency.spec.ts` | Work that overlaps: Triggers during a pass, Tickets that change during deliveries and launches |
+ | `tests/http.spec.ts` | The same-origin and loopback checks, the status of each kind of failure, the body limit, path parameters and queries |
++| `tests/input.spec.ts` | `Inputs`: one Trigger per `dedupeKey` across connections, receipts for filtered inputs, pass-after-commit, and every refusal |
+ | `tests/subject.spec.ts` | The subject binding: one ID across restarts and connections, no regeneration of a tampered binding, and display-name changes |
+ | `tests/settings.spec.ts` | Settings saves that race a model or account check, a Policy sync that a save outran, and the refusals of the pause, a sync and a block |
+ | `tests/views.spec.ts` | What the management views derive from the Store, such as the Thread a dropped message belongs to |
+diff --git a/src/app/api.ts b/src/app/api.ts
+index 5a5446a..f66b24a 100644
+--- a/src/app/api.ts
++++ b/src/app/api.ts
+@@ -1,6 +1,6 @@
+ /** Type-only management API contract between the web panel and host routes, imported by the panel without bundling host code. */
+ import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
+-import type { SubjectBinding } from '../core/model.ts'
++import type { InputReceipt, InputSubmission, SubjectBinding } from '../core/model.ts'
+ import type { PromptConfig, Prompts } from './prompts.ts'
+ import type { PromptsView, StateView, TicketPageView } from './http.ts'
+ import type { HistoryView } from './settings-history.ts'
+@@ -20,6 +20,7 @@ type Delivery = 'injected' | 'pending'
+ 
+ export interface Api {
+   'GET state': { response: StateView }
++  'POST inputs': { body: InputSubmission; response: InputReceipt }
+   'GET subject': { response: SubjectBinding }
+   'PUT subject': { body: { displayName: string }; response: SubjectBinding }
+   'GET overview': { response: OverviewView }
+diff --git a/src/app/http.ts b/src/app/http.ts
+index ec16715..b792a51 100644
+--- a/src/app/http.ts
++++ b/src/app/http.ts
+@@ -9,6 +9,7 @@ import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types
+ import { PromptConflict, SKILL_NAME, SKILL_PREFIX, TEAM_SECTIONS, builtInBase, builtInParts, defaultPrompts, savePrompts, type Prompts }
+   from './prompts.ts'
+ import { policyVersion } from '../policy.ts'
++import { InputError, type Inputs } from './input.ts'
+ import { SettingsConflict, type Settings } from './settings.ts'
+ import { SetupError, type SetupProblem } from '../setup.ts'
+ import { UserError, type EngineForPeople, type Ticket } from '../core/index.ts'
+@@ -43,6 +44,7 @@ export interface HttpHost {
+   readonly machine: Machine
+   readonly masterId: string
+   readonly subject: Pick<Subject, 'binding' | 'rename'>
++  readonly inputs: Pick<Inputs, 'submit'>
+   /** Resolves once startup finishes or setup determines what is still missing. */
+   readonly ready: Promise<void>
+   /** Resolved deployment; throws if read while waiting for setup (`!configured()`). */
+@@ -88,6 +90,7 @@ function failure(error: unknown): [number, Record<string, unknown>] {
+   if (error instanceof SetupError) return [400, { error: error.message, setup: error.problem }]
+   if (error instanceof RouteError) return [error.status, { error: error.message }]
+   if (error instanceof UserError) return [error.missing ? 404 : 400, { error: error.message, code: error.code, values: error.values }]
++  if (error instanceof InputError) return [error.code === 'unavailable' ? 503 : 400, { error: error.message, code: error.code }]
+   if (error instanceof SettingsConflict || error instanceof PromptConflict) return [409, { error: error.message }]
+   return [500, { error: error instanceof Error ? error.message : String(error) }]
+ }
+@@ -160,6 +163,7 @@ function routes(runtime: HttpHost): Routes {
+   const promptBody = (input: { body: (maxBytes?: number) => Promise<unknown> }) => input.body(4 * runtime.machine.promptMaxChars.get() + 4096)
+   return {
+     'GET state': () => stateView(runtime),
++    'POST inputs': async ({ body }) => runtime.inputs.submit(await body()),
+     'GET subject': () => runtime.subject.binding,
+     'PUT subject': async ({ body }) => {
+       const parsed = SubjectRename.safeParse(await body())
+diff --git a/src/app/input.ts b/src/app/input.ts
+new file mode 100644
+index 0000000..003311d
+--- /dev/null
++++ b/src/app/input.ts
+@@ -0,0 +1,92 @@
++/** Input intake: validates an InputEnvelope, dedupes it by its persisted receipt, and hands its Trigger to the Engine. */
++import { z } from 'zod'
++import { INPUT_LAYERS, type InputEnvelope, type InputReceipt, type InputRecord, type ReceiveResult, type Trigger } from '../core/index.ts'
++import { key } from '../core/ids.ts'
++import { KV } from '../kv.ts'
++import type { Store } from './store.ts'
++import type { Subject } from './subject.ts'
++
++/** The longest input text accepted; the management HTTP layer caps the whole request at 128 KiB. */
++export const MAX_INPUT_TEXT = 128 * 1024
++
++/** A rejected input submission; `code` tells the caller what to fix and maps to HTTP 400 (503 while stopping). */
++export class InputError extends Error {
++  constructor(readonly code: 'invalid' | 'subject_mismatch' | 'source_not_trusted' | 'unavailable', message: string) {
++    super(message)
++    this.name = 'InputError'
++  }
++}
++
++const SubmissionSchema = z.object({
++  subjectId: z.string().trim().min(1).max(200),
++  sourceId: z.string().regex(/^[a-z][a-z0-9-]*$/),
++  externalEventId: z.string().trim().min(1).max(200),
++  dedupeKey: z.string().trim().min(1).max(200),
++  layer: z.enum(INPUT_LAYERS).default('person'),
++  human: z.boolean().optional(),
++  payload: z.object({ text: z.string().trim().min(1).max(MAX_INPUT_TEXT),
++    url: z.url().refine(value => value.length <= 2000, 'URL exceeds 2000 characters').optional() }).strict(),
++  provenance: z.object({ actor: z.string().trim().min(1).max(200).optional(),
++    note: z.string().trim().min(1).max(500).optional() }).strict().optional(),
++}).strict()
++
++/** What `Inputs` uses from the Runtime; `receive` is the Engine's trigger intake, never a Ticket command. */
++export interface InputsHost {
++  readonly store: Store
++  readonly subject: Pick<Subject, 'binding'>
++  /** Whether a Source may submit inputs: installed, enabled, and marked `trusted`. */
++  trusted(source: string): boolean
++  receive(trigger: Trigger): ReceiveResult
++  /** Requests an orchestration pass; called after the submission commits. */
++  request(): void
++  closing(): boolean
++}
++
++/**
++ * Accepts InputEnvelopes for trusted Sources. Each submission becomes at most one Trigger, deduped by the Trigger ID
++ * derived from `sourceId` and `dedupeKey`; the envelope and its receipt are stored in the same transaction as intake,
++ * and the pass is requested only after that transaction commits. It never creates a Ticket.
++ */
++export class Inputs {
++  constructor(private readonly host: InputsHost) {}
++  submit(value: unknown): InputReceipt {
++    if (this.host.closing()) throw new InputError('unavailable', 'The orchestrator is stopping')
++    const parsed = SubmissionSchema.safeParse(value)
++    if (!parsed.success) {
++      const detail = parsed.error.issues.map(issue => `${issue.path.join('.') || 'input'}: ${issue.message}`).join('; ')
++      throw new InputError('invalid', `Invalid input: ${detail}`)
++    }
++    const input = parsed.data
++    const subjectId = this.host.subject.binding.subjectId
++    if (input.subjectId !== subjectId) {
++      throw new InputError('subject_mismatch', `The input names another subject; this installation is ${subjectId}`)
++    }
++    if (!this.host.trusted(input.sourceId)) {
++      throw new InputError('source_not_trusted', `Only a trusted local source may submit inputs; ${input.sourceId} cannot`)
++    }
++    const triggerId = key('input', input.sourceId, input.dedupeKey)
++    return this.host.store.atomic(() => {
++      const existing = this.host.store.get(KV.input.records(triggerId))
++      if (existing) {
++        // A dedupe key names one subject for its lifetime; a different subject must not inherit its Trigger.
++        if (existing.envelope.subjectId !== subjectId) throw new InputError('subject_mismatch', `The input names another subject; this installation is ${subjectId}`)
++        return { triggerId, outcome: 'duplicate' as const }
++      }
++      const receivedAt = new Date().toISOString()
++      const human = input.human ?? input.layer === 'person'
++      const envelope: InputEnvelope = { subjectId, sourceId: input.sourceId, externalEventId: input.externalEventId,
++        dedupeKey: input.dedupeKey, layer: input.layer, human, payload: input.payload, receivedAt,
++        provenance: { source: input.sourceId, at: receivedAt, externalId: input.externalEventId,
++          ...input.provenance?.actor ? { actor: input.provenance.actor } : {}, ...input.provenance?.note ? { note: input.provenance.note } : {} } }
++      const trigger: Trigger = { id: triggerId, source: input.sourceId, threads: [{ source: input.sourceId, id: subjectId }],
++        actor: { source: input.sourceId, id: subjectId }, human, addressed: 'direct', at: receivedAt, text: input.payload.text,
++        meta: { subjectId, input: { externalEventId: input.externalEventId, dedupeKey: input.dedupeKey, layer: input.layer } },
++        ...input.payload.url ? { url: input.payload.url } : {} }
++      const outcome = this.host.receive(trigger)
++      // `filtered` keeps its receipt too, so a redelivery is a duplicate rather than a second filtered Trigger.
++      this.host.store.set(KV.input.records(triggerId), { envelope, outcome } satisfies InputRecord)
++      if (outcome === 'stored') this.host.store.afterCommit(() => this.host.request())
++      return { triggerId, outcome }
++    })
++  }
++}
+diff --git a/src/app/runtime.ts b/src/app/runtime.ts
+index 6104c5b..cc75600 100644
+--- a/src/app/runtime.ts
++++ b/src/app/runtime.ts
+@@ -30,6 +30,7 @@ import { TextCache } from './cache.ts'
+ import { Effects } from './effects.ts'
+ import { Prompts } from './prompts.ts'
+ import { registerHttp, type HttpHost } from './http.ts'
++import { Inputs } from './input.ts'
+ import { Subject } from './subject.ts'
+ import type { LinkTarget } from './views/records.ts'
+ import { candidateCard, repliedTo, sourceLink, type LinkHost } from './links.ts'
+@@ -40,6 +41,7 @@ import { Outbox } from './outbox.ts'
+ import { Passes } from './passes.ts'
+ import { Setup } from './setup.ts'
+ import { feishuSettings } from '../sources/feishu.ts'
++import { localKind } from '../sources/local.ts'
+ import { health, type Health, type SourceContext, type SourceHost } from '../sources/host.ts'
+ import { Sessions } from './sessions.ts'
+ import { Settings } from './settings.ts'
+@@ -76,6 +78,7 @@ export class Runtime extends Service implements SourceHost {
+   private readonly runtimeHealth = this.board.claim('runtime', { state: 'starting', detail: '' })
+   readonly masterId: string
+   readonly subject: Subject
++  readonly inputs: Inputs
+   private readonly sourceLinks = new TextCache(200_000)
+   private readonly stopped = new AbortController()
+   private readonly disposers: (() => void)[] = []
+@@ -115,6 +118,7 @@ export class Runtime extends Service implements SourceHost {
+           .catch(() => { /* sync() records its failure in health. */ })
+         return () => {}
+       })
++      this.disposers.push(sources.register(localKind))
+       const links: LinkHost = { store, links: this.sourceLinks, commands, sources, lifetime: this.lifetime }
+       const link = (trigger: Trigger, signal?: AbortSignal) => sourceLink(links, trigger, signal)
+       const environment = (ticket: Ticket) => this.ticketEnvironment(ticket)
+@@ -160,6 +164,8 @@ export class Runtime extends Service implements SourceHost {
+       const evaluateDue = () => { engine.evaluateDue(); evals.set(evalsHealth(store)) }
+       const passes = this.passes = new Passes({ engine: { receive: trigger => engine.receive(trigger), evaluateDue }, effects,
+         health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(), closing: () => this.closing() })
++      this.inputs = new Inputs({ store, subject: this.subject, trusted: source => sources.trusted(source),
++        receive: trigger => engine.receive(trigger), request: () => passes.request(), closing: () => this.closing() })
+       this.sourceDeps = { store, engine, outbox, commands, sources, get ready() { return runtime.ready },
+         get deployment() { return setup.deployment }, configured: () => setup.configured(),
+         get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => passes.receive(trigger) }
+@@ -222,8 +228,8 @@ export class Runtime extends Service implements SourceHost {
+   }
+   private httpHost(): HttpHost {
+     const runtime = this
+-    const { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, setup, passes, subject } = this
+-    return { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, subject,
++    const { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, setup, passes, subject, inputs } = this
++    return { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, subject, inputs,
+       get deployment() { return setup.deployment },
+       get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem },
+       configured: () => setup.configured(), links: () => runtime.links(), ticketEnvironment: ticket => runtime.ticketEnvironment(ticket),
+diff --git a/src/app/settings.ts b/src/app/settings.ts
+index f3d034d..3cf84e7 100644
+--- a/src/app/settings.ts
++++ b/src/app/settings.ts
+@@ -176,7 +176,9 @@ export class Settings {
+     const restarting = setupChanged(old, settings) || !this.host.setup.configured()
+     const before = policyVersion(old), after = policyVersion(settings)
+     const scope = (version: SettingsValue) => ({
+-      scope: (input: { source: string; meta: Record<string, unknown> }) => this.host.sources.scope(input, version) })
++      scope: (input: { source: string; meta: Record<string, unknown> }) => this.host.sources.scope(input, version),
++      trusted: (source: string) => this.host.sources.trusted(source),
++    })
+     const effects = before === after ? new Map() : policyEffects(store.tickets.open(), old, SettingsSchema.parse(settings), scope)
+     const notified = [...effects.keys()]
+     store.atomic(() => {
+diff --git a/src/app/views/overview.ts b/src/app/views/overview.ts
+index 66f0a77..309dde3 100644
+--- a/src/app/views/overview.ts
++++ b/src/app/views/overview.ts
+@@ -43,13 +43,15 @@ export function overview(host: ViewHost, health: HealthMap, policyVersionValue:
+   const evaluating = store.threads.active().filter(thread => thread.evaluating)
+   const instances = sources.instances()
+   const running = instances.filter(instance => instance.enabled && instance.installed).map(instance => sourceHealth(sources, instance, health))
++  // An enabled trusted Source needs no sender allowlist, so it alone is enough to originate work.
++  const trusted = instances.some(instance => instance.enabled && instance.installed && sources.kind(instance.kind)?.trusted)
+   // Exclude source-owned and policy-sync health entries so only core runtime errors surface as `runtime-error`.
+   const sourceParts = new Set(instances.flatMap(instance => sources.kind(instance.kind)?.health ?? []))
+   const problems = [
+     ...(setup ? [{ kind: 'setup' as const, ...setup }] : []),
+     ...(running.length ? [] : [{ kind: 'no-source' as const }]),
+-    // Only allowed senders can originate work, so empty allowlists mean no request can ever become a ticket.
+-    ...(anyoneAllowed(settings) ? [] : [{ kind: 'no-allowed' as const }]),
++    // Only allowed senders or an enabled trusted Source can originate work; otherwise no request can ever become a ticket.
++    ...(anyoneAllowed(settings) || trusted ? [] : [{ kind: 'no-allowed' as const }]),
+     ...running.flatMap(source => source.health.filter(item => item.state === 'error').map(item => ({ kind: 'source-error' as const, source: { id: source.id, title: source.title, health: item } }))),
+     ...(settings.paused ? [{ kind: 'executor-paused' as const }] : []),
+     // Unavailable Evals behind the `evals` health entry are listed individually as `eval-unavailable` below.
+diff --git a/src/core/model.ts b/src/core/model.ts
+index c9e687a..8a652f2 100644
+--- a/src/core/model.ts
++++ b/src/core/model.ts
+@@ -19,6 +19,45 @@ export function isoTime(value: string): string {
+   return Number.isFinite(time) ? new Date(time).toISOString() : value
+ }
+ 
++/** The five input layers that feed the orchestrator; every Trigger starts as one of these. */
++export const INPUT_LAYERS = ['person', 'platform', 'schedule', 'wake', 'evolution'] as const
++export type InputLayer = (typeof INPUT_LAYERS)[number]
++/** The person-facing payload of an input: its text and an optional URL the text refers to. */
++export interface InputPayload { text: string; url?: string }
++/** Provenance mirrored from `plugins/_shared/contracts.mjs`; the orchestrator does not import plugin source. */
++export interface InputProvenance { source: string; at: string; externalId?: string; actor?: string; note?: string }
++/**
++ * One accepted input before it becomes a Trigger: the same envelope reaches the orchestrator from people, platforms,
++ * Schedule, Wake and EvolutionRequest, and `dedupeKey` decides whether it is new.
++ */
++export interface InputEnvelope {
++  subjectId: string
++  sourceId: string
++  externalEventId: string
++  dedupeKey: string
++  layer: InputLayer
++  human: boolean
++  payload: InputPayload
++  receivedAt: string
++  provenance: InputProvenance
++}
++/** What a delivery submits; the orchestrator owns `receivedAt` and completes `provenance`. */
++export interface InputSubmission {
++  subjectId: string
++  sourceId: string
++  externalEventId: string
++  dedupeKey: string
++  layer?: InputLayer
++  human?: boolean
++  payload: InputPayload
++  provenance?: { actor?: string; note?: string }
++}
++export type InputOutcome = 'stored' | 'duplicate' | 'filtered'
++/** What a submission answered: the Trigger its dedupe key names, and what happened this time. */
++export interface InputReceipt { triggerId: string; outcome: InputOutcome }
++/** The persisted envelope and its intake outcome, kept by Trigger ID so a redelivered `dedupeKey` is recognized. */
++export interface InputRecord { envelope: InputEnvelope; outcome: InputOutcome }
++
+ /**
+  * The installation's stable identity in the personal-agent ecosystem: `subjectId` never changes, `displayName` may, and
+  * `schemaVersion` is the cross-domain record version the binding conforms to.
+diff --git a/src/core/ports.ts b/src/core/ports.ts
+index 08c7a1c..aa0d1b3 100644
+--- a/src/core/ports.ts
++++ b/src/core/ports.ts
+@@ -11,6 +11,8 @@ export type ScopeResult = { listened: true; observed: boolean; row?: string } |
+ /** Source configuration as the domain sees it: listening scope per trigger or per recorded Mandate basis. */
+ export interface SourceScope {
+   scope(input: { source: string; meta: Record<string, unknown> }): ScopeResult
++  /** Whether a Source's inputs are trusted by construction (the local input Source); Policy admits them without sender lists. */
++  trusted?(source: string): boolean
+ }
+ 
+ /** Versioned rules; `gate` decides who may originate work. Source scope is not part of Policy. */
+diff --git a/src/kv.ts b/src/kv.ts
+index 234d891..c552aa6 100644
+--- a/src/kv.ts
++++ b/src/kv.ts
+@@ -2,7 +2,7 @@
+  * Typed key-value store keys and key families grouped by the single component that owns and writes each family.
+  * Readers and writers refer to a record by its entry here so each key is spelled once with its value type.
+  */
+-import type { SubjectBinding } from './core/model.ts'
++import type { InputRecord, SubjectBinding } from './core/model.ts'
+ import type { PromptVersion } from './app/prompts.ts'
+ import type { SettingsVersion } from './app/store.ts'
+ import type { SettingsSave } from './policy.ts'
+@@ -34,6 +34,8 @@ export const KV = {
+   runtime: { masterId: record<string>('master-id') },
+   /** Subject: the installation's stable subject binding, written once by `Subject.open`. */
+   subject: { binding: record<SubjectBinding>('subject-binding') },
++  /** Inputs: each accepted InputEnvelope by its Trigger ID, which is also its dedupe record. */
++  input: { records: family<InputRecord, [triggerId: string]>('input-record:') },
+   /** Sessions: prompt revisions each Session has worked under, ordered oldest first; the last entry (`.at(-1)`) is its active revision. */
+   sessions: { prompts: family<number[], [session: string]>('session-prompts:') },
+   /** Schema 11 migration: legacy main-Session queues imported into the effect table. */
+diff --git a/src/policy.ts b/src/policy.ts
+index b2b910b..2456a71 100644
+--- a/src/policy.ts
++++ b/src/policy.ts
+@@ -190,6 +190,13 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
+   return {
+     version, paused: settings.paused, evalTimeoutMs: settings.eval.timeoutSeconds * 1000,
+     gate(trigger: Trigger, thread, tickets) {
++      // A trusted Source (the local input Source) delivers inputs inside the trust boundary: no sender list is involved.
++      if (sources.trusted?.(trigger.source)) {
++        const scope = listened(sources, trigger.source, trigger.meta)
++        const recorded = { source: trigger.source, scope: trigger.meta, ...scope.listened && scope.row !== undefined ? { row: scope.row } : {} }
++        return { admissible: true, strength: trigger.human ? 'explicit' : 'inferred',
++          basis: { ...recorded, via: 'addressed', addressed: trigger.addressed ?? 'direct', sender: trigger.actor.id } }
++      }
+       if (!trigger.human) return machineGate(trigger)
+       const allowed = allowedSender(settings, trigger.actor)
+       const scope = listened(sources, trigger.source, trigger.meta)
+@@ -217,6 +224,8 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
+       const { source } = basis
+       const current = source && basis.scope ? listened(sources, source, basis.scope) : undefined
+       if (current && !current.listened) return false
++      // A trusted Source's Mandates hold while it stays installed and enabled; its inputs never needed a sender list.
++      if (source && (sources.trusted?.(source) ?? false)) return true
+       const rulesOn = (rules: string[] | undefined) => (rules ?? []).every(id => settings.policy.rules.some(rule => rule.enabled && rule.id === id))
+       // Explicit follow-ups remain valid; inferred follow-ups require auto mode and enabled matched rules.
+       if (basis.via === 'followup') return mandate.strength === 'explicit' || (mode === 'auto' && rulesOn(basis.rules))
+diff --git a/src/sources/kind.ts b/src/sources/kind.ts
+index e939d4e..b977879 100644
+--- a/src/sources/kind.ts
++++ b/src/sources/kind.ts
+@@ -97,6 +97,8 @@ export interface SourceKind<C extends Record<string, unknown> = Record<string, u
+   fields: FieldSpec[]
+   /** Health entry names owned by this kind under `health[...]`; no other kind or core loop may report them. */
+   health: string[]
++  /** Marks a kind whose inputs are trusted by construction: the Policy gate admits them without sender lists. */
++  trusted?: true
+   /** Listening rule for a trigger (or recorded Mandate basis) of this kind; kinds without `scope` listen to everything they produce and observe none of it. */
+   scope?(input: { meta: Record<string, unknown> }, config: C): ScopeResult
+   /** Outbound reply adapter; kinds without `channel` produce no replies or channel checks. */
+diff --git a/src/sources/local.ts b/src/sources/local.ts
+new file mode 100644
+index 0000000..f7ca920
+--- /dev/null
++++ b/src/sources/local.ts
+@@ -0,0 +1,20 @@
++/** The local input Source: no polling and no channel; it accepts InputEnvelopes delivered by the orchestration layer. */
++import { z } from 'zod'
++import type { SourceKind } from './kind.ts'
++
++const LocalConfig = z.object({}).strict()
++/**
++ * Accepts inputs handed to the orchestrator itself (`POST inputs`, later the CLI and loopback IPC).
++ * It polls nothing and has no outbound channel; `trusted` lets the Policy admit its inputs without sender lists.
++ * It never creates Tickets: its inputs become Triggers, and only a Decision creates a Ticket.
++ */
++export const localKind: SourceKind = {
++  kind: 'local',
++  title: { zh: '本机输入', en: 'Local input' },
++  description: { zh: '接受本机投递的输入（面板、CLI 与回环调用）；不轮询，也不直接创建工单。',
++    en: 'Accepts inputs delivered on this machine (panel, CLI and loopback callers); it polls nothing and never creates tickets.' },
++  schema: LocalConfig,
++  fields: [],
++  health: [],
++  trusted: true,
++}
+diff --git a/src/sources/registry.ts b/src/sources/registry.ts
+index a4e0e77..28ed828 100644
+--- a/src/sources/registry.ts
++++ b/src/sources/registry.ts
+@@ -41,6 +41,11 @@ export class SourceRegistry implements SourceScope {
+     return new Map(names.flatMap(name => { const entry = this.health.get(name); return entry ? [[name, entry] as const] : [] }))
+   }
+   kind(id: string): SourceKind | undefined { return this.kinds.get(id) }
++  /** Whether `source` is an installed, enabled kind whose inputs are trusted by construction (the local input Source). */
++  trusted(source: string): boolean {
++    const kind = this.kinds.get(source)
++    return kind !== undefined && kind.trusted === true && this.resolve(kind, this.settings().sources[source]).enabled
++  }
+   /** Every registered kind's instance ordered by ID, followed by stored instances whose kind is not installed (with their config kept as stored). */
+   instances(settings = this.settings()): (SourceInstance & { installed: boolean })[] {
+     const installed = [...this.kinds.values()].sort((a, b) => a.kind.localeCompare(b.kind)).map(kind => ({ ...this.resolve(kind, settings.sources[kind.kind]), installed: true }))
+diff --git a/tests/fixtures/panel-server.ts b/tests/fixtures/panel-server.ts
+index b2bf420..74d6547 100644
+--- a/tests/fixtures/panel-server.ts
++++ b/tests/fixtures/panel-server.ts
+@@ -297,6 +297,11 @@ const SourceSave = z.object({ enabled: z.boolean(), config: z.unknown() })
+ 
+ const ROUTES: { [K in keyof Api]: Route<K> } = {
+   'GET state': { answer: stateView },
++  'POST inputs': { body: true, answer: ({ body }) => {
++    const value = body as { dedupeKey?: unknown }
++    if (typeof value.dedupeKey !== 'string' || !value.dedupeKey) return refuse(400, 'Invalid input')
++    return { triggerId: `trigger-${value.dedupeKey}`, outcome: 'stored' as const }
++  } },
+   'GET subject': { answer: () => server.subject },
+   'PUT subject': { body: true, answer: ({ body }) => {
+     const value = body as Record<string, unknown>
+diff --git a/tests/http.spec.ts b/tests/http.spec.ts
+index 41d27c5..7b340b7 100644
+--- a/tests/http.spec.ts
++++ b/tests/http.spec.ts
+@@ -6,6 +6,7 @@ import { SettingsConflict } from '../src/app/settings.ts'
+ import type { HttpHost } from '../src/app/http.ts'
+ import { SettingsSchema } from '../src/policy.ts'
+ import { SetupError } from '../src/setup.ts'
++import { InputError } from '../src/app/input.ts'
+ 
+ type Handler = (req: unknown, res: unknown) => Promise<void>
+ type Headers = Record<string, string | undefined>
+@@ -115,3 +116,24 @@ it('serves the subject binding and lets a person change only its display name',
+   expect(await call('GET', 'subject', undefined, { 'x-orchestrator-request': undefined }))
+     .toEqual({ status: 403, body: { error: 'Same-origin management request required' } })
+ })
++
++it('accepts an InputEnvelope, maps its refusals, and keeps the route same-origin', async () => {
++  const calls: unknown[] = []
++  const call = serve({ inputs: { submit: (value: unknown) => {
++    calls.push(value)
++    const text = (value as { payload?: { text?: string } }).payload?.text
++    if (text === 'stopping') throw new InputError('unavailable', 'The orchestrator is stopping')
++    if (text === 'refused') throw new InputError('subject_mismatch', 'The input names another subject')
++    return { triggerId: 'input-1', outcome: 'stored' as const }
++  } } })
++  expect(await call('POST', 'inputs', { subjectId: 'subject_1' })).toEqual({ status: 200, body: { triggerId: 'input-1', outcome: 'stored' } })
++  expect(await call('POST', 'inputs', { payload: { text: 'refused' } })).toEqual({ status: 400,
++    body: { error: 'The input names another subject', code: 'subject_mismatch' } })
++  expect(await call('POST', 'inputs', { payload: { text: 'stopping' } })).toEqual({ status: 503,
++    body: { error: 'The orchestrator is stopping', code: 'unavailable' } })
++  expect(await call('POST', 'inputs', 'x'.repeat(129 * 1024))).toMatchObject({ status: 400,
++    body: { error: `Request exceeds ${128 * 1024} bytes` } })
++  expect(await call('POST', 'inputs', { payload: { text: 'x' } }, { 'x-orchestrator-request': undefined }))
++    .toEqual({ status: 403, body: { error: 'Same-origin management request required' } })
++  expect(calls).toHaveLength(3)
++})
+diff --git a/tests/input.spec.ts b/tests/input.spec.ts
+new file mode 100644
+index 0000000..daf213e
+--- /dev/null
++++ b/tests/input.spec.ts
+@@ -0,0 +1,93 @@
++import { mkdtempSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { expect, it } from 'vitest'
++import { InputError, Inputs, MAX_INPUT_TEXT } from '../src/app/input.ts'
++import { Store } from '../src/app/store.ts'
++import { key, type Trigger } from '../src/core/index.ts'
++import { KV } from '../src/kv.ts'
++
++const SUBJECT = 'subject_11111111-1111-4111-8111-111111111111'
++const OTHER = 'subject_22222222-2222-4222-8222-222222222222'
++const TRIGGER_ID = key('input', 'local', 'dedupe-1')
++const binding = { subjectId: SUBJECT, displayName: 'Vivy', createdAt: '2026-11-03T00:00:00.000Z', schemaVersion: 1 }
++const submission = { subjectId: SUBJECT, sourceId: 'local', externalEventId: 'evt-1', dedupeKey: 'dedupe-1', payload: { text: '  hello  ' } }
++function setup(outcome: 'stored' | 'filtered' = 'stored', closing = false) {
++  const file = join(mkdtempSync(join(tmpdir(), 'orchestrator-input-')), 'orchestrator.sqlite')
++  const store = new Store(file)
++  const received: Trigger[] = [], requests: string[] = []
++  const inputs = new Inputs({ store, subject: { binding }, trusted: source => source === 'local',
++    receive: trigger => { received.push(trigger); return outcome },
++    request: () => { requests.push(store.get(KV.input.records(TRIGGER_ID)) ? 'committed' : 'early') },
++    closing: () => closing })
++  return { file, store, inputs, received, requests }
++}
++
++it('turns one InputEnvelope into one Trigger and records its receipt in the submitting transaction', () => {
++  const { store, inputs, received, requests } = setup()
++  const receipt = inputs.submit(submission)
++  expect(receipt).toEqual({ triggerId: TRIGGER_ID, outcome: 'stored' })
++  expect(received).toHaveLength(1)
++  expect(received[0]).toMatchObject({ id: TRIGGER_ID, source: 'local', threads: [{ source: 'local', id: SUBJECT }],
++    actor: { source: 'local', id: SUBJECT }, human: true, addressed: 'direct', text: 'hello',
++    meta: { subjectId: SUBJECT, input: { externalEventId: 'evt-1', dedupeKey: 'dedupe-1', layer: 'person' } } })
++  expect(new Date(received[0]!.at).toISOString()).toBe(received[0]!.at)
++  expect(store.get(KV.input.records(receipt.triggerId))).toMatchObject({ outcome: 'stored',
++    envelope: { subjectId: SUBJECT, sourceId: 'local', externalEventId: 'evt-1', dedupeKey: 'dedupe-1', layer: 'person', human: true,
++      payload: { text: 'hello' }, receivedAt: received[0]!.at,
++      provenance: { source: 'local', at: received[0]!.at, externalId: 'evt-1' } } })
++  // The pass is requested only after the receipt is committed, so a pass can never miss the input.
++  expect(requests).toEqual(['committed'])
++  store.close()
++})
++
++it('returns the first Trigger for a repeated dedupe key, also from another connection, and records nothing twice', () => {
++  const { file, store, inputs, received, requests } = setup()
++  expect(inputs.submit(submission)).toEqual({ triggerId: TRIGGER_ID, outcome: 'stored' })
++  expect(inputs.submit({ ...submission, externalEventId: 'evt-2', payload: { text: 'something else' } }))
++    .toEqual({ triggerId: TRIGGER_ID, outcome: 'duplicate' })
++  const reopened = new Store(file)
++  const restarted = new Inputs({ store: reopened, subject: { binding }, trusted: () => true,
++    receive: () => { throw new Error('a duplicate must not reach intake') }, request: () => {}, closing: () => false })
++  expect(restarted.submit(submission)).toEqual({ triggerId: TRIGGER_ID, outcome: 'duplicate' })
++  expect(received).toHaveLength(1)
++  expect(requests).toEqual(['committed'])
++  expect(reopened.keys(KV.input.records)).toEqual([KV.input.records(TRIGGER_ID)])
++  store.close(); reopened.close()
++})
++
++it('records a filtered input as its receipt, asks for no pass, and dedupes a redelivery', () => {
++  const { store, inputs, requests } = setup('filtered')
++  expect(inputs.submit(submission)).toEqual({ triggerId: TRIGGER_ID, outcome: 'filtered' })
++  expect(store.get(KV.input.records(TRIGGER_ID))).toMatchObject({ outcome: 'filtered' })
++  expect(inputs.submit(submission)).toEqual({ triggerId: TRIGGER_ID, outcome: 'duplicate' })
++  expect(requests).toEqual([])
++  store.close()
++})
++
++it('carries the layer, human flag, URL and submitter provenance into the envelope and Trigger', () => {
++  const { store, inputs, received } = setup()
++  const receipt = inputs.submit({ ...submission, layer: 'schedule', human: true, payload: { text: 'daily', url: 'https://example.com/t' },
++    provenance: { actor: 'scheduler', note: 'morning run' } })
++  expect(received[0]).toMatchObject({ human: true, url: 'https://example.com/t', meta: { input: { layer: 'schedule' } } })
++  expect(store.get(KV.input.records(receipt.triggerId))).toMatchObject({ envelope: { layer: 'schedule',
++    provenance: { source: 'local', externalId: 'evt-1', actor: 'scheduler', note: 'morning run' } } })
++  store.close()
++})
++
++it('refuses an invalid payload, a foreign subject, an untrusted Source and a stopping orchestrator', () => {
++  const { store, inputs, received } = setup()
++  const code = (value: unknown) => { try { inputs.submit(value) } catch (error) { return (error as InputError).code } }
++  expect(code({ ...submission, payload: { text: '' } })).toBe('invalid')
++  expect(code({ ...submission, payload: { text: 'x'.repeat(MAX_INPUT_TEXT + 1) } })).toBe('invalid')
++  expect(code({ ...submission, unexpected: true })).toBe('invalid')
++  expect(code({ ...submission, subjectId: OTHER })).toBe('subject_mismatch')
++  expect(code({ ...submission, sourceId: 'github' })).toBe('source_not_trusted')
++  expect(received).toHaveLength(0)
++  expect(store.keys(KV.input.records)).toEqual([])
++  const stopping = setup('stored', true)
++  const stoppingCode = (() => { try { stopping.inputs.submit(submission) } catch (error) { return (error as InputError).code } })()
++  expect(stoppingCode).toBe('unavailable')
++  stopping.store.close()
++  store.close()
++})
+diff --git a/tests/policy.spec.ts b/tests/policy.spec.ts
+index 4a25b14..92d0606 100644
+--- a/tests/policy.spec.ts
++++ b/tests/policy.spec.ts
+@@ -5,6 +5,7 @@ import { migrateSettings } from '../src/app/migration.ts'
+ import { SourceRegistry } from '../src/sources/registry.ts'
+ import { feishuKind } from '../src/sources/feishu.ts'
+ import { githubKind } from '../src/sources/github.ts'
++import { localKind } from '../src/sources/local.ts'
+ import type { Thread, Ticket, Trigger } from '../src/core/index.ts'
+ 
+ const MEMBER = 'ou_alice'
+@@ -86,6 +87,27 @@ describe('gate', () => {
+     expect(policy.gate(feishu({ actor: { source: 'feishu', id: 'ou_guest' } }), thread(), [])).toEqual({ admissible: false, reason: 'not_a_member' })
+     expect(policy.gate(unaddressed({ meta: { chatId: CHAT, direct: false, mentioned: false } }), thread(), [])).toEqual({ admissible: false, reason: 'no_mention' })
+   })
++  it('admits a trusted Source\'s inputs without an allowlist, and keeps that admission only while the Source is enabled', () => {
++    let current = SettingsSchema.parse({})
++    const registry = new SourceRegistry(() => current)
++    registry.register(localKind)
++    const local = (overrides: Partial<Trigger> = {}): Trigger => ({ id: 'local-1', source: 'local', threads: [{ source: 'local', id: 'subject_1' }],
++      actor: { source: 'local', id: 'subject_1' }, human: true, addressed: 'direct', at: '', text: 'hi', meta: { subjectId: 'subject_1' }, ...overrides })
++    const localThread = (): Thread => ({ ...thread(), key: 'local:subject_1', ref: { source: 'local', id: 'subject_1' } })
++    const gate = settingsPolicy(current, registry).gate(local(), localThread(), [])
++    expect(gate).toEqual({ admissible: true, strength: 'explicit', basis: { source: 'local', scope: { subjectId: 'subject_1' },
++      via: 'addressed', addressed: 'direct', sender: 'subject_1' } })
++    expect(settingsPolicy(current, registry).gate(local({ human: false }), localThread(), [])).toMatchObject({ admissible: true,
++      strength: 'inferred', basis: { via: 'addressed' } })
++    const basis = (gate as Extract<typeof gate, { admissible: true }>).basis
++    expect(settingsPolicy(current, registry).revalidate({ strength: 'explicit', policyVersion: policyVersion(current), basis,
++      actor: local().actor, scope: 'local:subject_1' })).toBe(true)
++    // Disabling the Source revokes trust: submissions are refused before the gate, and recorded Mandates fail revalidation.
++    current = SettingsSchema.parse({ sources: { local: { enabled: false, config: {} } } })
++    expect(settingsPolicy(current, registry).gate(local({ human: false }), localThread(), [])).toEqual({ admissible: false, reason: 'not_human' })
++    expect(settingsPolicy(current, registry).revalidate({ strength: 'explicit', policyVersion: policyVersion(current), basis,
++      actor: local().actor, scope: 'local:subject_1' })).toBe(false)
++  })
+ })
+ describe('admission table', () => {
+   const STRANGER = 'ou_stranger'
+diff --git a/tests/registry.spec.ts b/tests/registry.spec.ts
+index 35045f0..e8f70b8 100644
+--- a/tests/registry.spec.ts
++++ b/tests/registry.spec.ts
+@@ -12,6 +12,7 @@ import { feishuChannel, feishuTrigger, feishuTriggerId } from '../src/sources/fe
+ import { testDeployment } from './fixtures/deployment.ts'
+ import { feishuKind } from '../src/sources/feishu.ts'
+ import { githubKind } from '../src/sources/github.ts'
++import { localKind } from '../src/sources/local.ts'
+ 
+ const probe: SourceKind<{ interval: number }> = {
+   kind: 'probe', title: { zh: '探针', en: 'Probe' }, description: { zh: '', en: '' }, health: [],
+@@ -160,3 +161,24 @@ describe('Source registry', () => {
+     expect(run.mock.calls[0]![1]).toEqual(expect.arrayContaining(['+messages-reply', '--message-id', 'om_dm']))
+   })
+ })
++
++it('trusts only an installed, enabled kind that declares itself trusted', () => {
++  const sources = new SourceRegistry(() => SettingsSchema.parse({ sources: { probe: { enabled: false, config: { interval: 7 } } } }))
++  sources.register({ ...probe, trusted: true })
++  expect(sources.trusted('probe')).toBe(false)
++  const enabled = new SourceRegistry(() => SettingsSchema.parse({}))
++  enabled.register({ ...probe, trusted: true })
++  expect(enabled.trusted('probe')).toBe(true)
++  expect(enabled.trusted('missing')).toBe(false)
++})
++
++it('registers the local input Source as a trusted kind with no configuration, polling or channel', () => {
++  const sources = new SourceRegistry(() => SettingsSchema.parse({}))
++  sources.register(localKind)
++  expect(sources.instance('local')).toMatchObject({ enabled: true, config: {} })
++  expect(sources.trusted('local')).toBe(true)
++  expect(sources.kind('local')).toMatchObject({ fields: [], health: [], trusted: true })
++  expect(sources.kind('local')?.scope).toBeUndefined()
++  expect(sources.kind('local')?.channel).toBeUndefined()
++  expect(sources.scope({ source: 'local', meta: {} })).toEqual({ listened: true, observed: false })
++})
+diff --git a/tests/runtime.spec.ts b/tests/runtime.spec.ts
+index daf32f5..d23b0a7 100644
+--- a/tests/runtime.spec.ts
++++ b/tests/runtime.spec.ts
+@@ -49,9 +49,11 @@ let guards: Map<string, Guard>
+ let restricts: Map<string, unknown[]>
+ type HttpHandler = (req: unknown, res: unknown) => Promise<void>
+ let http: HttpHandler
+-async function api(method: string, path: string): Promise<{ status: number; body: unknown }> {
++async function api(method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }> {
+   let status = 0, text = ''
+-  const req = { method, url: `/orchestrator/api/${path}`, headers: { host: '127.0.0.1:3082', 'x-orchestrator-request': '1' } }
++  const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body))]
++  const req = { method, url: `/orchestrator/api/${path}`, headers: { host: '127.0.0.1:3082', 'x-orchestrator-request': '1' },
++    async *[Symbol.asyncIterator]() { yield* chunks } }
+   await http(req, { writeHead: (code: number) => { status = code }, end: (data: string) => { text = data } })
+   return { status, body: JSON.parse(text) }
+ }
+@@ -863,6 +865,41 @@ it('runs in personal mode without GitHub: setup completes, GitHub is off, and no
+     .rejects.toThrow('GitHub is not configured in this deployment; GitHub commands are unavailable')
+ })
+ 
++it('accepts a local InputEnvelope once, evaluates it without GitHub, and only a Decision creates the ticket', async () => {
++  const next = await restart({}, { github: null })
++  await next.ready
++  // A person's explicit input would be routed rather than assessed; a platform input is an inferred candidate, the path Eval decides.
++  await next.settings.save('eval', { ...next.store.settings().eval, mode: 'auto' }, next.store.blockRevision('eval'), 'panel')
++  const subjectId = ((await api('GET', 'subject')).body as { subjectId: string }).subjectId
++  const submission = { subjectId, sourceId: 'local', externalEventId: 'evt-1', dedupeKey: 'daily-1', layer: 'platform',
++    payload: { text: '把副标题改成“浏览网页”' } }
++  const first = await api('POST', 'inputs', submission)
++  expect(first).toMatchObject({ status: 200, body: { outcome: 'stored', triggerId: expect.any(String) } })
++  const triggerId = (first.body as { triggerId: string }).triggerId
++  expect(next.store.triggers.get(triggerId)).toMatchObject({ source: 'local', human: false, addressed: 'direct',
++    text: '把副标题改成“浏览网页”', meta: { subjectId, input: { externalEventId: 'evt-1', dedupeKey: 'daily-1', layer: 'platform' } } })
++  await next.idle()
++  // The input became a Trigger and an Eval, never a Ticket.
++  expect(next.store.triggers.disposition(triggerId)).toMatchObject({ evalId: expect.any(String) })
++  expect(next.store.tickets.list()).toEqual([])
++  // The duplicate is recognized from the persisted receipt, before and after a restart, and creates no second Trigger.
++  expect(await api('POST', 'inputs', submission)).toMatchObject({ status: 200, body: { outcome: 'duplicate', triggerId } })
++  const restarted = await restart({}, { github: null })
++  await restarted.ready
++  expect(await api('POST', 'inputs', submission)).toMatchObject({ status: 200, body: { outcome: 'duplicate', triggerId } })
++  expect(restarted.store.keys(KV.input.records)).toHaveLength(1)
++  await restarted.idle()
++  // Evaluation proceeds without GitHub; the Decision is what creates the Ticket.
++  const details = await runTool(restarted.masterId, 'orchestrator_eval', { trigger_id: triggerId })
++  expect(details).toMatchObject({ trigger_id: triggerId, strength: 'inferred' })
++  const accepted = await runTool(restarted.masterId, 'orchestrator_eval_decide', { trigger_id: triggerId, decision: 'accept', title: '文案修订',
++    worktree_name: 'copy-fix', scope: '改副标题', reason: 'explicit copy change', intent_evidence: 'quoted', acknowledgement: '收到。',
++    rule_assessments: [{ rule_id: 'copy', matched: true, reason: 'copy change' }, { rule_id: 'visual', matched: false, reason: 'not visual' }],
++    direction: { implementation_requested: true, target_basis: 'specified', requires_design_decision: false, evidence: 'names the replacement' } })
++  expect(accepted).toMatchObject({ decision: 'accept', ticket: { ticket_id: expect.any(String) } })
++  expect(restarted.store.tickets.list()).toHaveLength(1)
++})
++
+ it('keeps one subject across restarts and serves it from GET subject and GET state', async () => {
+   const first = (await api('GET', 'subject')).body as { subjectId: string }
+   expect(first).toMatchObject({ displayName: 'Vivy', schemaVersion: 1 })
+@@ -1146,6 +1183,9 @@ it('counts a ticket whose directory the host prepared before prepare commands ex
+ it('runs a GitHub-only deployment: the GitHub part of the Policy decides alone, and the Feishu part has nothing to sync', async () => {
+   const next = await restart({}, { feishu: null })
+   await next.ready
++  // The built-in local Source is enabled by default and would (correctly) satisfy the allowlist check; this case is about
++  // the GitHub part of the Policy deciding alone.
++  await next.settings.save('source:local', { enabled: false, config: {} }, next.store.blockRevision('source:local'), 'panel')
+   expect(next.health).not.toHaveProperty('feishu')
+   expect(next.health).not.toHaveProperty('sync:feishu')
+   const problems = () => overviewOf(next).problems
+diff --git a/tests/views.spec.ts b/tests/views.spec.ts
+index 1a2f71c..83f7413 100644
+--- a/tests/views.spec.ts
++++ b/tests/views.spec.ts
+@@ -7,6 +7,7 @@ import { SettingsSchema } from '../src/policy.ts'
+ import { SourceRegistry } from '../src/sources/registry.ts'
+ import { feishuKind } from '../src/sources/feishu.ts'
+ import { githubKind } from '../src/sources/github.ts'
++import { localKind } from '../src/sources/local.ts'
+ import { snapshot, threadSummary, ticketSummary, triggerView } from '../src/app/views/records.ts'
+ import { basisFacts, ticketDetail } from '../src/app/views/tickets.ts'
+ import { threadDetail } from '../src/app/views/threads.ts'
+@@ -194,6 +195,17 @@ it('says no Source runs when every Source is off, and states a Source missing or
+     .toEqual({ feishu: ['off', true], github: ['off', true], jira: ['missing', false] })
+ })
+ 
++it('needs no sender allowlist while an enabled trusted Source can originate work', () => {
++  const host = views()
++  const settings = store.settings()
++  store.saveSettings({ ...settings, policy: { ...settings.policy, sources: {} } })
++  expect(problems(host).map(item => item.kind)).toContain('no-allowed')
++  host.sources.register(localKind)
++  expect(problems(host).map(item => item.kind)).not.toContain('no-allowed')
++  store.saveSettings({ ...store.settings(), sources: { ...store.settings().sources, local: { enabled: false, config: {} } } })
++  expect(problems(host).map(item => item.kind)).toContain('no-allowed')
++})
++
+ it('sends text without HTML, entity-encoded tags included, and with images named', () => {
+   const text = '<div>Hello <b>there</b></div> &lt;script&gt;alert(1)&lt;/script&gt; <!-- note --> ![shot](https://x/y.png) [Image: diagram]'
+   expect(plain(text)).toBe('Hello there alert(1) [image] [image]')

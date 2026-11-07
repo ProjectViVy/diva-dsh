@@ -98,8 +98,8 @@ export function registerMempalaceHttp(ctx, service) {
         if (route === '/status' && req.method === 'GET') {
           return send(res, 200, { ok: true, snapshot: await service.statusSnapshot() })
         }
-        if (route === '/wakeup' && req.method === 'GET') {
-          return send(res, 200, { ok: true, ...await service.wakeupPreview({ project: string(query.get('project')) || null }) })
+        if (route === '/recent-memory' && req.method === 'GET') {
+          return send(res, 200, { ok: true, ...await service.recentMemoryPreview({ project: string(query.get('project')) || null }) })
         }
         if (route === '/memories' && req.method === 'GET') {
           const listed = await service.listMemories({
@@ -112,25 +112,6 @@ export function registerMempalaceHttp(ctx, service) {
             sort: string(query.get('sort')) || 'newest',
           })
           return send(res, 200, { ok: true, ...listed })
-        }
-        if (route === '/memories' && req.method === 'POST') {
-          if (!requireJson(req, fail)) return
-          const body = await readBody(req)
-          const saved = await service.saveMemory({
-            content: body.content,
-            project: body.project,
-            topic: body.topic,
-            source: body.source || 'manual-save',
-            importance: body.importance,
-            session_id: body.session_id || '',
-          })
-          return send(res, 200, { ok: true, ...saved })
-        }
-        if (route === '/memories/delete' && req.method === 'POST') {
-          if (!requireJson(req, fail)) return
-          const body = await readBody(req)
-          const deleted = await service.deleteMemory(string(body.id))
-          return send(res, 200, { ok: true, ...deleted })
         }
         if (route === '/search' && req.method === 'POST') {
           if (!requireJson(req, fail)) return
@@ -230,6 +211,15 @@ export function registerMempalaceHttp(ctx, service) {
             timeline: await service.timeline(string(query.get('entity')) || undefined),
           })
         }
+        if (route === '/knowledge/commits' && req.method === 'GET') {
+          return send(res, 200, {
+            ok: true,
+            ...await service.listKnowledgeCommits({
+              assetScope: string(query.get('assetScope') || query.get('asset_scope')) || undefined,
+              limit: integer(query.get('limit'), 50),
+            }),
+          })
+        }
         if (route === '/diary' && req.method === 'GET') {
           return send(res, 200, {
             ok: true,
@@ -240,18 +230,6 @@ export function registerMempalaceHttp(ctx, service) {
             }),
           })
         }
-        if (route === '/diary' && req.method === 'POST') {
-          if (!requireJson(req, fail)) return
-          const body = await readBody(req)
-          return send(res, 200, {
-            ok: true,
-            ...await service.diaryWrite({
-              agent_name: body.agent_name || 'agent',
-              entry: body.entry,
-              topic: body.topic || undefined,
-            }),
-          })
-        }
         if (route === '/config' && req.method === 'GET') {
           const snapshot = await service.statusSnapshot()
           return send(res, 200, {
@@ -259,6 +237,7 @@ export function registerMempalaceHttp(ctx, service) {
             config: snapshot.config,
             models: snapshot.models,
             diagnostics: snapshot.diagnostics,
+            retirement: snapshot.retirement,
             paths: snapshot.paths,
             state: snapshot.state,
             error: snapshot.error,

@@ -17,7 +17,10 @@ function parameters(properties, required = []) {
   return { type: 'object', properties, required, additionalProperties: false }
 }
 
-function render(value) {
+// DSH 调用 output.render(exec.arguments, value)：**参数在前、值在后**。
+// 只声明一个形参时它绑定到调用参数，工具会静默渲染成空字符串（isError 仍是 false）。
+// 同仓库的正确写法见 dsh-continual-harness/src/tool.ts 与 dsh-laputa/src/tool.ts。
+function render(_args, value) {
   return [{ type: 'text', text: String(value?.text ?? '') }]
 }
 
@@ -103,8 +106,8 @@ export function createTools(service) {
       description:
         'Search stored memories with local semantic similarity, keyword search, or SQLite full-text fallback. '
         + 'Use it for past decisions, previous conversations, and "what did we decide about X" questions. '
-        + 'Filter by project or topic when the question names one. Every result carries a similarity score '
-        + 'and an id that memory_delete accepts. The response reports mode=keyword when the embedding model is unavailable.',
+        + 'Filter by project or topic when the question names one. Every result carries a similarity score. '
+        + 'The response reports mode=keyword when the embedding model is unavailable.',
       parameters: parameters({
         query: { type: 'string', description: 'What to search for, in natural language.' },
         project: { type: 'string', description: 'Optional project filter.' },
@@ -129,43 +132,6 @@ export function createTools(service) {
             ...search.results.map(formatMemory),
           ].join('\n\n---\n\n')
           return result(truncate(text), { mode: search.mode, count: search.results.length, query })
-        } catch (error) {
-          throw wrapError(error)
-        }
-      },
-    },
-    {
-      name: 'memory_save',
-      description:
-        'Explicitly save important information to persistent memory. Use it when the user says "remember this", '
-        + 'or when a decision, preference, or durable fact is established. Include enough context to be useful '
-        + 'in a later session. Set project and topic for organization; importance 0.0-1.0 controls wake-up ranking.',
-      parameters: parameters({
-        content: { type: 'string', description: 'The information to remember, with its context.' },
-        project: { type: 'string', description: 'Project this belongs to (defaults to the session project).' },
-        topic: { type: 'string', description: 'Topic category such as auth, database, or architecture.' },
-        importance: { type: 'number', minimum: 0, maximum: 1, description: 'Importance weight 0.0-1.0 (default 0.8).' },
-      }, ['content']),
-      output: { schema: outputSchema, render },
-      async execute(args, exec) {
-        try {
-          const content = requireString(args, 'content', { max: 20_000 })
-          const project = projectFor(args, exec, { defaultToSession: true })
-          const topic = optionalString(args, 'topic')
-          const saved = await service.saveMemory({
-            content,
-            project: project || undefined,
-            topic: topic ? normalizeTopicLabel(topic) : '',
-            source: 'manual-save',
-            importance: optionalNumber(args, 'importance', { min: 0, max: 1 }) ?? 0.8,
-            session_id: String(exec?.agent?.session?.id ?? ''),
-          })
-          if (saved.status === 'duplicate') {
-            return result(`This memory already exists (${saved.id}).`, { status: 'duplicate', id: saved.id })
-          }
-          return result(`Saved to memory (${saved.id}) in ${project || 'general'}/${topic || 'inferred'}.`, {
-            status: 'stored', id: saved.id, project: project || 'general',
-          })
         } catch (error) {
           throw wrapError(error)
         }
@@ -211,7 +177,7 @@ export function createTools(service) {
       name: 'memory_status',
       description:
         'Show the memory store overview: total memories, project distribution, storage size, embedding/keyword backend '
-        + 'health, auto-capture and wake-up settings, knowledge-graph counts, and palace tunnel count.',
+        + 'health, preview settings, knowledge-graph counts, and palace tunnel count.',
       parameters: parameters({}),
       output: { schema: outputSchema, render },
       async execute() {
@@ -231,11 +197,8 @@ export function createTools(service) {
             `- **Sessions**: ${stats.sessions}`,
             `- **Embedding backend**: ${snapshot.models.embedding}${store.embedding_error ? ` (${store.embedding_error})` : ''}`,
             `- **Keyword index**: ${snapshot.fts.enabled ? 'enabled' : 'disabled'}`,
-            `- **Auto-capture**: ${snapshot.config.autoCapture ? 'on' : 'off'}`,
-            `- **Wake-up**: ${snapshot.config.wakeUpEnabled ? 'on' : 'off'}`,
             `- **Default project**: ${snapshot.config.defaultProject || '(session project)'}`,
           )
-          if (store.identity_exists) lines.push('- **Identity**: configured')
           if (stats.oldest) lines.push(`- **Range**: ${stats.oldest} → ${stats.newest}`)
           const projects = Object.entries(stats.projects)
           if (projects.length > 0) {
@@ -355,7 +318,7 @@ export function createTools(service) {
           })
           const since = optionalString(args, 'valid_from', { max: 64 })
           return result(
-            `Added fact: **${subject}** ${predicate} **${object}**${since ? ` (since ${since})` : ''} (#${added.id}).`,
+            `Added fact: **${subject}** ${predicate} **${object}**${since ? ` (since ${since})` : ''} (#${added.id}, r${added.revision}).`,
             added,
           )
         } catch (error) {
@@ -466,28 +429,10 @@ export function createTools(service) {
       },
     },
     {
-      name: 'memory_delete',
-      description:
-        'Delete one memory by id. Irreversible. Find the id with memory_search or memory_recall first, and confirm with the user before deleting anything they did not ask to remove.',
-      parameters: parameters({
-        id: { type: 'string', description: 'Memory id, as returned by search or recall.' },
-      }, ['id']),
-      output: { schema: outputSchema, render },
-      async execute(args) {
-        try {
-          const id = requireString(args, 'id', { max: 300 })
-          const deleted = await service.deleteMemory(id)
-          return result(`Deleted memory ${deleted.id}.`, deleted)
-        } catch (error) {
-          throw wrapError(error)
-        }
-      },
-    },
-    {
       name: 'memory_check_duplicate',
       description:
         'Check whether content already exists, by exact content hash or by semantic similarity at a threshold. '
-        + 'Call it before memory_save when the content may repeat an earlier memory.',
+        + 'Read-only: it reports an existing memory instead of writing one.',
       parameters: parameters({
         content: { type: 'string', description: 'Content to check.' },
         threshold: { type: 'number', minimum: 0, maximum: 1, description: 'Similarity threshold (default 0.9).' },
@@ -538,7 +483,7 @@ export function createTools(service) {
           if (invalidated.status === 'not_found') {
             invalid(`no active fact found for ${subject} ${predicate} ${object}; use knowledge_query to inspect it`)
           }
-          return result(`Invalidated fact #${invalidated.id}: ${subject} ${predicate} ${object}.`, invalidated)
+          return result(`Invalidated fact #${invalidated.id} (r${invalidated.revision}): ${subject} ${predicate} ${object}.`, invalidated)
         } catch (error) {
           throw wrapError(error)
         }
@@ -565,32 +510,6 @@ export function createTools(service) {
             return `- ${start} → ${end}: ${fact.subject} ${fact.predicate} ${fact.object} (${fact.project})`
           }).join('\n')
           return result(truncate(`## Timeline\n\n${text}`), timeline)
-        } catch (error) {
-          throw wrapError(error)
-        }
-      },
-    },
-    {
-      name: 'memory_diary_write',
-      description:
-        'Write a private diary entry for this agent. Diary entries are stored as high-importance memories under '
-        + 'diary-<agent> and are meant for reflections, lessons, and handoff notes rather than user facts.',
-      parameters: parameters({
-        agent_name: { type: 'string', description: 'Agent identity that owns the diary.' },
-        entry: { type: 'string', description: 'Diary entry text.' },
-        topic: { type: 'string', description: 'Optional diary topic (default "diary").' },
-      }, ['agent_name', 'entry']),
-      output: { schema: outputSchema, render },
-      async execute(args) {
-        try {
-          const agentName = requireString(args, 'agent_name', { max: 100 })
-          const entry = requireString(args, 'entry', { max: 20_000 })
-          const written = await service.diaryWrite({
-            agent_name: agentName,
-            entry,
-            topic: optionalString(args, 'topic', { max: 100 }) || undefined,
-          })
-          return result(`Diary entry stored for ${agentName} (${written.id}).`, written)
         } catch (error) {
           throw wrapError(error)
         }

@@ -1,0 +1,15 @@
+{
+  "patches": [
+    "superagent-windows.patch",
+    "superagent-personal.patch",
+    "superagent-subject.patch",
+    "superagent-input.patch",
+    "superagent-effects.patch",
+    "superagent-surfcore.patch",
+    "superagent-voice.patch",
+    "superagent-context.patch",
+    "superagent-schedule.patch",
+    "superagent-schedule-panel.patch",
+    "superagent-voice-closeout.patch"
+  ]
+}

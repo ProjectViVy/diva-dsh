@@ -31,54 +31,126 @@ window.__ModuleLoader__.load({
       ['settings', '设置'],
     ]
 
-    const styles = {
-      root: { display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base)', borderRadius: 'var(--dsw-radius-lg)', minHeight: '100%', boxSizing: 'border-box' },
-      header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' },
-      title: { margin: 0, fontSize: '20px', fontWeight: 600 },
-      subtitle: { margin: '4px 0 0', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' },
-      tabs: { display: 'flex', gap: '4px', flexWrap: 'wrap', borderBottom: '1px solid var(--dsw-alias-border-l2)', paddingBottom: '8px' },
-      tab: { border: '1px solid transparent', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', padding: '7px 12px', borderRadius: 'var(--dsw-radius-md)', cursor: 'pointer', fontSize: '13px' },
-      tabActive: { borderColor: 'var(--dsw-alias-border-l3)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', fontWeight: 600 },
-      grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' },
-      card: { border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', borderRadius: 'var(--dsw-radius-lg)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px', minWidth: 0 },
-      cardTitle: { margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--dsw-alias-label-secondary)' },
-      metric: { fontSize: '24px', fontWeight: 650, lineHeight: 1.1 },
-      metricLabel: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' },
-      row: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
-      field: { display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '140px', flex: '1 1 160px' },
-      label: { fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' },
-      input: { padding: '7px 9px', border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 'var(--dsw-radius-md)', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)', fontSize: '13px', minWidth: 0 },
-      textarea: { padding: '8px 9px', border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 'var(--dsw-radius-md)', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)', fontSize: '13px', minHeight: '88px', resize: 'vertical', width: '100%', boxSizing: 'border-box' },
-      button: { padding: '7px 12px', border: '1px solid var(--dsw-alias-border-l3)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', borderRadius: 'var(--dsw-radius-md)', cursor: 'pointer', fontSize: '13px' },
-      primary: { borderColor: 'var(--dsw-alias-state-business-primary)', background: 'var(--dsw-alias-state-business-primary)', color: 'var(--dsw-alias-label-primary-inverted)' },
-      danger: { borderColor: 'var(--dsw-alias-state-error-primary)', color: 'var(--dsw-alias-state-error-primary)' },
-      link: { background: 'transparent', border: 'none', color: 'var(--dsw-alias-link)', cursor: 'pointer', padding: '4px 6px', fontSize: '12px' },
-      item: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 'var(--dsw-radius-md)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--dsw-alias-bg-layer-1)' },
-      meta: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', display: 'flex', gap: '8px', flexWrap: 'wrap' },
-      text: { margin: 0, fontSize: '13px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55 },
-      badge: { fontSize: '11px', padding: '2px 7px', borderRadius: '999px', border: '1px solid var(--dsw-alias-border-l3)', color: 'var(--dsw-alias-label-secondary)' },
-      badgeWarn: { borderColor: 'var(--dsw-alias-state-warn-primary)', color: 'var(--dsw-alias-state-warn-label)' },
-      badgeError: { borderColor: 'var(--dsw-alias-state-error-primary)', color: 'var(--dsw-alias-state-error-primary)' },
-      badgeOk: { borderColor: 'var(--dsw-alias-state-success-primary)', color: 'var(--dsw-alias-state-success-primary)' },
-      alert: { border: '1px solid var(--dsw-alias-state-error-primary)', background: 'var(--dsw-alias-state-error-secondary)', color: 'var(--dsw-alias-label-primary)', borderRadius: 'var(--dsw-radius-md)', padding: '10px 12px', fontSize: '12px', lineHeight: 1.5 },
-      warn: { border: '1px solid var(--dsw-alias-state-warn-primary)', background: 'var(--dsw-alias-state-warn-tertiary)', color: 'var(--dsw-alias-label-primary)', borderRadius: 'var(--dsw-radius-md)', padding: '10px 12px', fontSize: '12px', lineHeight: 1.5 },
-      toast: { position: 'sticky', top: 0, zIndex: 5, padding: '9px 12px', borderRadius: 'var(--dsw-radius-md)', fontSize: '12px', border: '1px solid var(--dsw-alias-border-l3)', background: 'var(--dsw-alias-bg-layer-3)' },
-      toastError: { borderColor: 'var(--dsw-alias-state-error-primary)' },
-      toastOk: { borderColor: 'var(--dsw-alias-state-success-primary)' },
-      pre: { margin: 0, padding: '10px', borderRadius: 'var(--dsw-radius-md)', background: 'var(--dsw-alias-markdown-code-block)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '320px', overflow: 'auto' },
-      table: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' },
-      th: { textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--dsw-alias-border-l2)', color: 'var(--dsw-alias-label-tertiary)', fontWeight: 500 },
-      td: { padding: '6px 8px', borderBottom: '1px solid var(--dsw-alias-border-l1)', verticalAlign: 'top' },
-      barTrack: { height: '6px', borderRadius: '999px', background: 'var(--dsw-alias-bg-layer-3)', overflow: 'hidden', minWidth: '60px', flex: '1 1 80px' },
-      barFill: { height: '100%', background: 'var(--dsw-alias-state-business-primary)' },
-      muted: { color: 'var(--dsw-alias-label-tertiary)', fontSize: '12px' },
-      empty: { border: '1px dashed var(--dsw-alias-border-l3)', borderRadius: 'var(--dsw-radius-lg)', padding: '24px', textAlign: 'center', color: 'var(--dsw-alias-label-tertiary)', fontSize: '13px' },
-      scroll: { overflowX: 'auto' },
-    }
+    const MZ_CSS = `
+      .mempalace-panel{--mz-line:var(--dsw-alias-border-l2,rgba(127,127,127,.24));--mz-line-strong:var(--dsw-alias-border-l3,rgba(127,127,127,.4));--mz-brand:var(--dsw-alias-brand-primary,#2f6fed);--mz-ok:var(--dsw-alias-state-success-primary,#1a7f4b);--mz-warn:var(--dsw-alias-state-warn-primary,#a86a00);--mz-bad:var(--dsw-alias-state-error-primary,#c43b3b);--mz-fg:var(--dsw-alias-label-primary,#1f2329);--mz-fg2:var(--dsw-alias-label-secondary,rgba(0,0,0,.64));--mz-fg3:var(--dsw-alias-label-tertiary,rgba(0,0,0,.46));--mz-bg:var(--dsw-alias-bg-base,#fff);--mz-bg1:var(--dsw-alias-bg-layer-1,rgba(127,127,127,.04));--mz-bg2:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.08));height:100%;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;background:var(--mz-bg);color:var(--mz-fg);font:13.5px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+      .mempalace-panel *{box-sizing:border-box}
+      .mempalace-panel h1,.mempalace-panel h2,.mempalace-panel h3,.mempalace-panel p{margin:0}
+      .mempalace-panel a{color:var(--mz-brand)}
+      .mz-head{flex:none;display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:15px 22px 13px;border-bottom:1px solid var(--mz-line);background:linear-gradient(135deg,rgba(47,111,237,.10),rgba(255,122,162,.07) 58%,transparent)}
+      .mz-head-main{min-width:0}
+      .mz-kicker{margin:0 0 2px;font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mz-fg3)}
+      .mz-head h1{font-size:19px;font-weight:660;letter-spacing:.01em}
+      .mz-sub{margin-top:3px;font-size:12px;color:var(--mz-fg2);max-width:660px}
+      .mz-head-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px;padding-top:2px}
+      .mz-dots{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px 12px;max-width:100%}
+      .mz-dot{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--mz-fg2);white-space:nowrap}
+      .mz-dot::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--mz-fg3);box-shadow:0 0 0 3px rgba(127,127,127,.12);flex:none}
+      .mz-dot.ok::before{background:var(--mz-ok);box-shadow:0 0 0 3px rgba(26,127,75,.16)}
+      .mz-dot.warn::before{background:var(--mz-warn);box-shadow:0 0 0 3px rgba(168,106,0,.16)}
+      .mz-dot.bad::before{background:var(--mz-bad);box-shadow:0 0 0 3px rgba(196,59,59,.16)}
+      .mz-chip{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:999px;border:1px solid var(--mz-line-strong);font-size:11px;line-height:1.6;color:var(--mz-fg2);background:rgba(127,127,127,.06);white-space:nowrap}
+      .mz-chip.ok{color:var(--mz-ok);border-color:rgba(26,127,75,.35);background:rgba(26,127,75,.1)}
+      .mz-chip.warn{color:var(--mz-warn);border-color:rgba(168,106,0,.35);background:rgba(168,106,0,.1)}
+      .mz-chip.bad{color:var(--mz-bad);border-color:rgba(196,59,59,.35);background:rgba(196,59,59,.1)}
+      .mz-chip.info{color:var(--mz-brand);border-color:rgba(47,111,237,.35);background:rgba(47,111,237,.1)}
+      .mz-alerts{flex:none;display:flex;flex-direction:column;gap:6px;padding:8px 22px 0}
+      .mz-alerts:empty{display:none;padding:0}
+      .mz-alert{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:8px 11px;border-radius:9px;border:1px solid var(--mz-line-strong);background:var(--mz-bg2);font-size:12px;color:var(--mz-fg2)}
+      .mz-alert.block{flex-direction:column;align-items:stretch;gap:6px}
+      .mz-alert.danger{border-color:rgba(196,59,59,.35);background:rgba(196,59,59,.08);color:var(--mz-bad)}
+      .mz-alert.warn{border-color:rgba(168,106,0,.35);background:rgba(168,106,0,.08);color:var(--mz-warn)}
+      .mz-tabs{flex:none;display:flex;gap:2px;padding:0 14px;margin-top:8px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;border-bottom:1px solid var(--mz-line);background:var(--mz-bg1)}
+      .mz-tabs::-webkit-scrollbar{display:none}
+      .mz-tab{flex:none;appearance:none;background:none;border:0;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;margin:0;padding:9px 12px 7px;font:inherit;font-size:12.5px;font-weight:500;color:var(--mz-fg2);cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+      .mz-tab:hover{background:rgba(127,127,127,.08);color:var(--mz-fg)}
+      .mz-tab.on{color:var(--mz-brand);border-bottom-color:var(--mz-brand);font-weight:650}
+      .mz-tab:focus-visible{outline:2px solid var(--mz-brand);outline-offset:-2px}
+      .mz-body{flex:1;min-height:0;overflow:auto;padding:14px 20px 26px;scrollbar-gutter:stable}
+      .mz-stack{display:flex;flex-direction:column;gap:13px;width:100%;max-width:1060px;margin:0 auto;outline:0}
+      .mz-card{margin:0;padding:13px 15px 15px;border:1px solid var(--mz-line);border-radius:12px;background:var(--mz-bg1);box-shadow:0 1px 2px rgba(16,24,40,.04);min-width:0}
+      .mz-card-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;font-weight:660;margin-bottom:6px}
+      .mz-card-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+      .mz-card-body{display:flex;flex-direction:column;gap:8px;min-width:0}
+      .mz-card-body>p{font-size:12px;color:var(--mz-fg2);word-break:break-word}
+      .mz-card-body>.mz-btn,.mz-card-body>.mz-linkbtn{align-self:flex-start}
+      .mz-card-body>h3{font-size:12.5px;font-weight:650;margin-top:4px}
+      .mz-card-subtitle{margin:4px 0 0;font-size:12.5px;font-weight:650}
+      .mz-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:9px 12px}
+      .mz-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:9px 12px}
+      .mz-metric{font-size:22px;font-weight:650;line-height:1.15;letter-spacing:-.01em;font-variant-numeric:tabular-nums;word-break:break-word}
+      .mz-metric-label{display:block;margin-top:2px;font-size:11px;font-weight:400;letter-spacing:0;color:var(--mz-fg3)}
+      .mz-field{display:flex;flex-direction:column;gap:4px;margin:0;font-size:11.5px;color:var(--mz-fg3);min-width:140px;flex:1 1 160px}
+      .mz-field>span{font-size:11.5px;color:var(--mz-fg3)}
+      .mz-field>input,.mz-field>select,.mz-field>textarea{width:100%}
+      .mz-field>.mz-btn{align-self:flex-start}
+      .mz-check{display:inline-flex;align-items:flex-start;gap:7px;margin:2px 0;font-size:12.5px;color:var(--mz-fg);cursor:pointer}
+      .mz-check input{width:15px;height:15px;margin:2px 0 0;accent-color:var(--mz-brand);flex:none}
+      .mempalace-panel input[type=text],.mempalace-panel input[type=number],.mempalace-panel input[type=password],.mempalace-panel input:not([type]),.mempalace-panel select,.mempalace-panel textarea{font:inherit;font-size:12.5px;color:var(--mz-fg);background:var(--mz-bg);border:1px solid var(--mz-line-strong);border-radius:8px;padding:5px 9px;height:31px;outline:none;transition:border-color .15s,box-shadow .15s}
+      .mempalace-panel textarea{height:auto;min-height:76px;padding:8px 10px;resize:vertical;line-height:1.55}
+      .mempalace-panel input[type=checkbox]{accent-color:var(--mz-brand)}
+      .mempalace-panel input[type=range]{width:100%;margin:7px 0;accent-color:var(--mz-brand)}
+      .mempalace-panel input[type=text]:focus,.mempalace-panel input[type=number]:focus,.mempalace-panel input[type=password]:focus,.mempalace-panel input:not([type]):focus,.mempalace-panel select:focus,.mempalace-panel textarea:focus{border-color:var(--mz-brand);box-shadow:0 0 0 3px rgba(47,111,237,.16)}
+      .mempalace-panel input:disabled,.mempalace-panel select:disabled,.mempalace-panel textarea:disabled{opacity:.55;cursor:not-allowed}
+      .mz-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:31px;margin:0;padding:0 12px;border-radius:8px;border:1px solid var(--mz-line-strong);background:var(--mz-bg);color:var(--mz-fg);font:inherit;font-size:12px;font-weight:550;white-space:nowrap;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+      .mz-btn:hover:not(:disabled){background:var(--mz-bg2);border-color:var(--mz-fg3)}
+      .mz-btn:focus-visible{outline:2px solid var(--mz-brand);outline-offset:1px}
+      .mz-btn:disabled{opacity:.45;cursor:not-allowed}
+      .mz-btn-primary{background:var(--mz-brand);border-color:var(--mz-brand);color:var(--mz-bg)}
+      .mz-btn-primary:hover:not(:disabled){background:var(--mz-brand);border-color:var(--mz-brand);filter:brightness(1.07)}
+      .mz-btn-danger{color:var(--mz-bad);border-color:rgba(196,59,59,.42);background:rgba(196,59,59,.07)}
+      .mz-btn-danger:hover:not(:disabled){background:rgba(196,59,59,.14);border-color:var(--mz-bad)}
+      .mz-btn-quiet{border-style:dashed;color:var(--mz-fg2)}
+      .mz-linkbtn{appearance:none;display:inline-flex;align-items:center;gap:4px;margin:0;padding:2px 5px;border:0;border-radius:6px;background:transparent;color:var(--mz-brand);font:inherit;font-size:12px;cursor:pointer}
+      .mz-linkbtn:hover:not(:disabled){background:rgba(127,127,127,.1);text-decoration:underline}
+      .mz-linkbtn:focus-visible{outline:2px solid var(--mz-brand);outline-offset:1px}
+      .mz-linkbtn.danger{color:var(--mz-bad)}
+      .mz-linkbtn:disabled{opacity:.45;cursor:not-allowed}
+      .mz-row{display:flex;flex-wrap:wrap;align-items:center;gap:7px;min-width:0}
+      .mz-row.between{justify-content:space-between;row-gap:6px}
+      .mz-rec{padding:11px 12px;border:1px solid var(--mz-line);border-radius:10px;background:var(--mz-bg);display:flex;flex-direction:column;gap:5px;min-width:0}
+      .mz-list{display:flex;flex-direction:column;gap:8px}
+      .mz-rec strong{font-size:13px;font-weight:620;word-break:break-word}
+      .mz-rec p{font-size:12.5px;color:var(--mz-fg2);white-space:pre-wrap;word-break:break-word}
+      .mz-text{margin:0;font-size:12.5px;color:var(--mz-fg2);white-space:pre-wrap;word-break:break-word}
+      .mz-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11px;color:var(--mz-fg3);word-break:break-word}
+      .mz-mono{font:11.5px/17px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--mz-fg3)}
+      .mz-col{display:flex;flex-direction:column;gap:3px}
+      .mz-timeline{display:flex;flex-direction:column;gap:2px;padding:3px 0;font-size:11.5px;color:var(--mz-fg3);word-break:break-word}
+      .mz-pre{margin:0;padding:9px 11px;max-height:280px;overflow:auto;border:1px solid var(--mz-line);border-radius:9px;background:var(--mz-bg2);color:var(--mz-fg);font:11.5px/17px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+      .mz-hint{font-size:11.5px;color:var(--mz-fg3);word-break:break-word}
+      .mz-empty{padding:14px;text-align:center;font-size:12px;color:var(--mz-fg3);border:1px dashed var(--mz-line-strong);border-radius:10px}
+      .mz-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+      .mz-table{width:100%;border-collapse:collapse;font-size:12px}
+      .mz-table th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--mz-line);color:var(--mz-fg3);font-weight:500;white-space:nowrap}
+      .mz-table td{padding:6px 8px;border-bottom:1px solid var(--mz-line);vertical-align:top;word-break:break-word}
+      .mz-table tr:last-child td{border-bottom:0}
+      .mz-table tbody tr.on{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08))}
+      .mz-bar{display:flex;height:6px;flex:1 1 80px;min-width:60px;max-width:100%;border-radius:999px;background:rgba(127,127,127,.18);overflow:hidden}
+      .mz-bar-fill{height:100%;border-radius:999px;background:var(--mz-brand);transition:width .3s ease}
+      .mz-bar-label{flex:0 1 110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:var(--mz-fg3)}
+      .mz-bar-count{min-width:28px;text-align:right;font-size:11.5px;color:var(--mz-fg3);font-variant-numeric:tabular-nums}
+      .mz-svg{display:block;width:100%;height:auto}
+      .mz-spark{display:block;width:100%;height:120px}
+      .mz-svg g[role=button]{cursor:pointer}
+      .mz-svg g[role=button]:focus-visible{outline:none}
+      .mz-svg g[role=button]:focus-visible circle{stroke-width:3}
+      .mz-file{max-width:100%;font-size:12px;color:var(--mz-fg2)}
+      .mz-file::file-selector-button{margin-right:8px;height:28px;padding:0 11px;border:1px solid var(--mz-line-strong);border-radius:8px;background:var(--mz-bg);color:var(--mz-fg);font:inherit;font-size:12px;font-weight:550;cursor:pointer}
+      .mz-file::file-selector-button:hover{background:var(--mz-bg2)}
+      .mz-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(560px,92vw);padding:9px 14px;border-radius:10px;border:1px solid var(--mz-line-strong);background:var(--mz-bg);color:var(--mz-fg);font-size:12.5px;box-shadow:0 8px 28px rgba(16,24,40,.18);animation:mz-in .18s ease}
+      .mz-toast::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--mz-ok);flex:none}
+      .mz-toast.danger::before{background:var(--mz-bad);box-shadow:0 0 0 3px rgba(196,59,59,.16)}
+      .mz-toast-text{flex:1 1 auto;min-width:0;word-break:break-word}
+      @keyframes mz-in{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
+      @media(max-width:760px){.mz-head{flex-direction:column;gap:8px;padding:13px 14px 11px}.mz-head-actions{justify-content:flex-start}.mz-dots{max-width:100%;justify-content:flex-start}.mz-alerts{padding:7px 14px 0}.mz-tabs{padding:0 8px;margin-top:7px}.mz-body{padding:11px 12px 20px}.mz-grid,.mz-metrics{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}.mz-card-body>.mz-row>.mz-field{flex:1 1 100%}.mz-btn{height:30px;padding:0 10px}.mz-bar-label{flex:1 1 90px}}
+      @media(prefers-reduced-motion:reduce){.mempalace-panel *{transition:none!important;animation:none!important}}
+    `
 
     function button(label, onClick, options = {}) {
-      const style = { ...styles.button, ...(options.kind === 'primary' ? styles.primary : {}), ...(options.kind === 'danger' ? styles.danger : {}), ...(options.style || {}) }
-      return h('button', { type: 'button', onClick, disabled: options.disabled, style }, label)
+      const kind = options.kind || ''
+      const base = kind === 'link' ? 'mz-linkbtn' : 'mz-btn'
+      const className = [base, kind === 'primary' && 'mz-btn-primary', kind === 'danger' && 'mz-btn-danger', kind === 'quiet' && 'mz-btn-quiet', options.className].filter(Boolean).join(' ')
+      return h('button', { type: 'button', onClick, disabled: options.disabled, className, style: options.style }, label)
     }
 
     function fmtTime(value) {
@@ -96,30 +168,31 @@ window.__ModuleLoader__.load({
     }
 
     function Badge({ children, kind }) {
-      return h('span', { style: { ...styles.badge, ...(kind === 'warn' ? styles.badgeWarn : {}), ...(kind === 'error' ? styles.badgeError : {}), ...(kind === 'ok' ? styles.badgeOk : {}) } }, children)
+      const tone = kind === 'warn' ? 'warn' : kind === 'error' ? 'bad' : kind === 'ok' ? 'ok' : ''
+      return h('span', { className: tone ? `mz-chip ${tone}` : 'mz-chip' }, children)
     }
 
     function Card({ title, actions, children }) {
-      return h('section', { style: styles.card },
-        title || actions ? h('div', { style: { ...styles.row, justifyContent: 'space-between' } },
-          title ? h('h3', { style: styles.cardTitle }, title) : h('span'),
-          actions ? h('div', { style: styles.row }, actions) : null) : null,
-        children)
+      return h('section', { className: 'mz-card' },
+        title || actions ? h('div', { className: 'mz-card-title' },
+          title ? h('span', null, title) : h('span'),
+          actions ? h('div', { className: 'mz-card-actions' }, actions) : null) : null,
+        h('div', { className: 'mz-card-body' }, children))
     }
 
     function Field({ label, children, style }) {
-      return h('label', { style: { ...styles.field, ...(style || {}) } }, h('span', { style: styles.label }, label), children)
+      return h('label', { className: 'mz-field', style }, h('span', null, label), children)
     }
 
     function Empty({ children }) {
-      return h('div', { style: styles.empty }, children)
+      return h('div', { className: 'mz-empty' }, children)
     }
 
     function Failure({ error, onRetry }) {
       if (!error) return null
-      return h('div', { style: styles.alert, role: 'alert' },
-        h('div', null, error),
-        onRetry ? h('div', { style: { marginTop: '8px' } }, button('重试', onRetry)) : null)
+      return h('div', { className: 'mz-alert danger', role: 'alert' },
+        h('span', null, error),
+        onRetry ? button('重试', onRetry, { kind: 'quiet' }) : null)
     }
 
     function Toast({ toast, onClose }) {
@@ -130,11 +203,11 @@ window.__ModuleLoader__.load({
       }, [toast, onClose])
       if (!toast) return null
       return h('div', {
-        style: { ...styles.toast, ...(toast.kind === 'error' ? styles.toastError : styles.toastOk) },
+        className: toast.kind === 'error' ? 'mz-toast danger' : 'mz-toast',
         role: toast.kind === 'error' ? 'alert' : 'status',
-      }, h('div', { style: { ...styles.row, justifyContent: 'space-between' } },
-        h('span', null, toast.text),
-        h('button', { type: 'button', onClick: onClose, style: styles.link, 'aria-label': '关闭提示' }, '关闭')))
+      },
+        h('span', { className: 'mz-toast-text' }, toast.text),
+        h('button', { type: 'button', className: 'mz-linkbtn', onClick: onClose, 'aria-label': '关闭提示' }, '关闭'))
     }
 
     function Sparkline({ timeline }) {
@@ -156,74 +229,70 @@ window.__ModuleLoader__.load({
       const points = days.map((day, index) => `${pad + index * step},${height - pad - (day.count / max) * (height - pad * 2)}`).join(' ')
       const total = days.reduce((sum, day) => sum + day.count, 0)
       return h('div', null,
-        h('svg', { viewBox: `0 0 ${width} ${height}`, width: '100%', height: '120px', role: 'img', 'aria-label': `最近 28 天共写入 ${total} 条记忆` },
+        h('svg', { className: 'mz-spark', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': `最近 28 天共写入 ${total} 条记忆` },
           h('line', { x1: pad, y1: height - pad, x2: width - pad, y2: height - pad, stroke: 'var(--dsw-alias-border-l2)', strokeWidth: 1 }),
           h('polyline', { points, fill: 'none', stroke: 'var(--dsw-alias-state-business-primary)', strokeWidth: 2, strokeLinejoin: 'round' }),
           days.map((day, index) => h('circle', { key: day.key, cx: pad + index * step, cy: height - pad - (day.count / max) * (height - pad * 2), r: day.count > 0 ? 2.5 : 0, fill: 'var(--dsw-alias-state-business-primary)' }))),
-        h('div', { style: { ...styles.row, justifyContent: 'space-between' } },
-          h('span', { style: styles.muted }, days[0]?.key),
-          h('span', { style: styles.muted }, `28 天合计 ${total} 条`),
-          h('span', { style: styles.muted }, days[days.length - 1]?.key)))
+        h('div', { className: 'mz-row between' },
+          h('span', { className: 'mz-hint' }, days[0]?.key),
+          h('span', { className: 'mz-hint' }, `28 天合计 ${total} 条`),
+          h('span', { className: 'mz-hint' }, days[days.length - 1]?.key)))
     }
 
     function Bars({ title, counts }) {
       const entries = Object.entries(counts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8)
       const max = Math.max(1, ...entries.map(entry => entry[1]))
       return h(Card, { title },
-        entries.length === 0 ? h('div', { style: styles.muted }, '暂无数据') : entries.map(([name, count]) => h('div', { key: name, style: styles.row },
-          h('span', { style: { ...styles.muted, flex: '0 1 110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: name }, name),
-          h('div', { style: styles.barTrack }, h('div', { style: { ...styles.barFill, width: `${(count / max) * 100}%` } })),
-          h('span', { style: { ...styles.muted, minWidth: '28px', textAlign: 'right' } }, count))))
+        entries.length === 0 ? h('p', { className: 'mz-hint' }, '暂无数据') : entries.map(([name, count]) => h('div', { key: name, className: 'mz-row' },
+          h('span', { className: 'mz-bar-label', title: name }, name),
+          h('div', { className: 'mz-bar' }, h('div', { className: 'mz-bar-fill', style: { width: `${(count / max) * 100}%` } })),
+          h('span', { className: 'mz-bar-count' }, count))))
     }
 
     function OverviewTab({ snapshot, refreshStatus, notify }) {
-      const [wakeup, setWakeup] = useState(null)
+      const [recent, setRecent] = useState(null)
       const [error, setError] = useState('')
-      const loadWakeup = useCallback(async () => {
+      const loadRecent = useCallback(async () => {
         try {
-          setWakeup(await request('/wakeup'))
+          setRecent(await request('/recent-memory'))
           setError('')
         } catch (failure) { setError(failure.message) }
       }, [])
-      useEffect(() => { void loadWakeup() }, [loadWakeup])
+      useEffect(() => { void loadRecent() }, [loadRecent])
       const stats = snapshot?.stats
       const ready = snapshot?.state === 'ready'
       return h(React.Fragment, null,
-        !snapshot ? h('div', { style: styles.warn, role: 'status' }, '正在读取记忆宫殿状态…') : null,
-        snapshot && !ready ? h('div', { style: snapshot.state === 'loading' ? styles.warn : styles.alert, role: 'alert' },
+        !snapshot ? h('div', { className: 'mz-alert warn', role: 'status' }, '正在读取记忆宫殿状态…') : null,
+        snapshot && !ready ? h('div', { className: snapshot.state === 'loading' ? 'mz-alert warn block' : 'mz-alert danger block', role: 'alert' },
           h('strong', null, snapshot?.state === 'loading' ? '数据层正在加载…' : '内存宫殿数据层不可用'),
-          snapshot?.error ? h('div', { style: { marginTop: '6px' } }, snapshot.error) : null,
-          snapshot?.hint ? h('div', { style: { marginTop: '6px' } }, `提示：${snapshot.hint}`) : null,
-          h('div', { style: { marginTop: '8px' } }, button('重新检查', () => { void refreshStatus() }))) : null,
-        h('div', { style: styles.grid },
-          h(Card, { title: '记忆总量' }, h('div', { style: styles.metric }, stats?.total ?? '—'), h('div', { style: styles.metricLabel }, '条（含分块）')),
-          h(Card, { title: '存储占用' }, h('div', { style: styles.metric }, stats ? `${stats.storageSizeKb}` : '—'), h('div', { style: styles.metricLabel }, 'KB（数据库 + WAL）')),
-          h(Card, { title: '会话' }, h('div', { style: styles.metric }, stats?.sessions ?? '—'), h('div', { style: styles.metricLabel }, '个已记录会话')),
-          h(Card, { title: '项目' }, h('div', { style: styles.metric }, stats ? Object.keys(stats.projects).length : '—'), h('div', { style: styles.metricLabel }, '个记忆房间')),
-          h(Card, { title: '向量后端' }, h('div', { style: styles.row }, h(Badge, { kind: snapshot?.models?.embedding === 'ready' ? 'ok' : 'warn' }, snapshot?.models?.embedding || 'idle')), h('div', { style: styles.metricLabel }, snapshot?.fts?.enabled ? '关键字索引已启用' : '关键字索引未启用')),
-          h(Card, { title: '自动捕获' }, h('div', { style: styles.metric }, snapshot?.config?.autoCapture ? '开' : '关'), h('div', { style: styles.metricLabel }, `唤醒注入 ${snapshot?.config?.wakeUpEnabled ? '开启' : '关闭'}`))),
-        stats && stats.oldest ? h('div', { style: styles.muted }, `时间范围：${fmtDay(stats.oldest)} → ${fmtDay(stats.newest)} · 平均 ${stats.avgContentLength} 字符/条`) : null,
+          snapshot?.error ? h('div', null, snapshot.error) : null,
+          snapshot?.hint ? h('div', null, `提示：${snapshot.hint}`) : null,
+          h('div', { className: 'mz-row' }, button('重新检查', () => { void refreshStatus() }))) : null,
+        h('div', { className: 'mz-metrics' },
+          h(Card, { title: '记忆总量' }, h('div', { className: 'mz-metric' }, stats?.total ?? '—', h('span', { className: 'mz-metric-label' }, '条（含分块）'))),
+          h(Card, { title: '存储占用' }, h('div', { className: 'mz-metric' }, stats ? `${stats.storageSizeKb}` : '—', h('span', { className: 'mz-metric-label' }, 'KB（数据库 + WAL）'))),
+          h(Card, { title: '会话' }, h('div', { className: 'mz-metric' }, stats?.sessions ?? '—', h('span', { className: 'mz-metric-label' }, '个已记录会话'))),
+          h(Card, { title: '项目' }, h('div', { className: 'mz-metric' }, stats ? Object.keys(stats.projects).length : '—', h('span', { className: 'mz-metric-label' }, '个记忆房间'))),
+          h(Card, { title: '向量后端' }, h('div', { className: 'mz-row' }, h(Badge, { kind: snapshot?.models?.embedding === 'ready' ? 'ok' : 'warn' }, snapshot?.models?.embedding || 'idle')), h('div', { className: 'mz-hint' }, snapshot?.fts?.enabled ? '关键字索引已启用' : '关键字索引未启用'))),
+        stats && stats.oldest ? h('div', { className: 'mz-hint' }, `时间范围：${fmtDay(stats.oldest)} → ${fmtDay(stats.newest)} · 平均 ${stats.avgContentLength} 字符/条`) : null,
         h(Card, { title: '最近 28 天活动' }, h(Sparkline, { timeline: stats?.timeline })),
-        h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' } },
+        h('div', { className: 'mz-grid' },
           h(Bars, { title: '项目分布', counts: stats?.projects }),
           h(Bars, { title: '话题分布', counts: stats?.topics }),
           h(Bars, { title: '来源分布', counts: stats?.sources })),
-        h(Card, { title: '唤醒注入预览', actions: button('刷新预览', loadWakeup) },
+        h(Card, { title: '近期记忆预览（只读）', actions: button('刷新预览', loadRecent) },
           h(Failure, { error }),
-          wakeup?.text ? h('pre', { style: styles.pre }, wakeup.text) : h('div', { style: styles.muted }, '当前没有可注入的记忆（或唤醒注入已关闭）。'),
-          wakeup?.tokens ? h('div', { style: styles.muted }, `估算 ${wakeup.tokens} tokens · 项目：${wakeup.project || '全部'}`) : null,
-          h('div', { style: styles.muted }, '记忆内容以“不可信参考数据”包裹，模型不会把其中的文字当作指令。')))
+          recent?.text ? h('pre', { className: 'mz-pre' }, recent.text) : h('p', { className: 'mz-hint' }, '当前没有可预览的记忆。'),
+          recent?.tokens ? h('p', { className: 'mz-hint' }, `估算 ${recent.tokens} tokens · 项目：${recent.project || '全部'}`) : null,
+          h('p', { className: 'mz-hint' }, '预览只读，不会进入系统提示；记忆内容按“不可信参考数据”展示。')))
     }
 
-    function MemoriesTab({ snapshot, project, setProject, refreshStatus, notify }) {
+    function MemoriesTab({ snapshot, project, setProject }) {
       const [filters, setFilters] = useState({ topic: '', source: '', q: '', sort: 'newest' })
       const [data, setData] = useState(null)
       const [offset, setOffset] = useState(0)
       const [expanded, setExpanded] = useState('')
-      const [confirmId, setConfirmId] = useState('')
       const [error, setError] = useState('')
-      const [busy, setBusy] = useState(false)
-      const [draft, setDraft] = useState({ content: '', project: '', topic: '', source: 'manual-save', importance: 0.8 })
       const limit = 20
       const load = useCallback(async () => {
         const params = new URLSearchParams({ limit: String(limit), offset: String(offset), sort: filters.sort })
@@ -243,94 +312,43 @@ window.__ModuleLoader__.load({
         const timer = setTimeout(() => { void load() }, 250)
         return () => clearTimeout(timer)
       }, [load])
-      async function save() {
-        const content = draft.content.trim()
-        if (!content) { notify('error', '记忆内容不能为空'); return }
-        setBusy(true)
-        try {
-          try {
-            const search = await request('/search', { query: content, n_results: 1 })
-            const hit = search.results?.[0]
-            if (hit && hit.similarity >= 0.9 && !window.confirm(`发现相似记忆（${pct(hit.similarity)}）：\n${hit.text.slice(0, 200)}\n\n仍然保存？`)) {
-              setBusy(false)
-              return
-            }
-          } catch { /* duplicate check is advisory */ }
-          const saved = await request('/memories', {
-            content,
-            project: draft.project || project || undefined,
-            topic: draft.topic || undefined,
-            source: draft.source || undefined,
-            importance: Number(draft.importance),
-          })
-          notify('ok', saved.status === 'duplicate' ? '相同内容已存在，未重复写入' : '记忆已保存')
-          setDraft({ content: '', project: '', topic: '', source: 'manual-save', importance: 0.8 })
-          setOffset(0)
-          await load()
-          await refreshStatus()
-        } catch (failure) { notify('error', failure.message) } finally { setBusy(false) }
-      }
-      async function remove(id) {
-        if (confirmId !== id) {
-          setConfirmId(id)
-          setTimeout(() => setConfirmId(current => current === id ? '' : current), 5000)
-          return
-        }
-        setBusy(true)
-        try {
-          await request('/memories/delete', { id })
-          notify('ok', '记忆已删除')
-          setConfirmId('')
-          if (data?.items?.length === 1 && offset > 0) setOffset(Math.max(0, offset - limit))
-          else await load()
-          await refreshStatus()
-        } catch (failure) { notify('error', failure.message) } finally { setBusy(false) }
-      }
       const pages = data ? Math.max(1, Math.ceil(data.total / limit)) : 1
       const page = Math.floor(offset / limit) + 1
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
+      return h(React.Fragment, null,
         h(Card, { title: '筛选' },
-          h('div', { style: styles.row },
-            h(Field, { label: '项目' }, h('input', { style: styles.input, value: project, placeholder: '全部项目', onChange: event => { setProject(event.target.value.trim()); setOffset(0) } })),
-            h(Field, { label: '话题' }, h('input', { style: styles.input, value: filters.topic, placeholder: '全部话题', onChange: event => { setFilters({ ...filters, topic: event.target.value }); setOffset(0) } })),
-            h(Field, { label: '来源' }, h('input', { style: styles.input, value: filters.source, placeholder: '全部来源', onChange: event => { setFilters({ ...filters, source: event.target.value }); setOffset(0) } })),
-            h(Field, { label: '关键字' }, h('input', { style: styles.input, value: filters.q, placeholder: '内容包含…', onChange: event => { setFilters({ ...filters, q: event.target.value }); setOffset(0) } })),
-            h(Field, { label: '排序' }, h('select', { style: styles.input, value: filters.sort, onChange: event => { setFilters({ ...filters, sort: event.target.value }); setOffset(0) } },
+          h('div', { className: 'mz-row' },
+            h(Field, { label: '项目' }, h('input', { value: project, placeholder: '全部项目', onChange: event => { setProject(event.target.value.trim()); setOffset(0) } })),
+            h(Field, { label: '话题' }, h('input', { value: filters.topic, placeholder: '全部话题', onChange: event => { setFilters({ ...filters, topic: event.target.value }); setOffset(0) } })),
+            h(Field, { label: '来源' }, h('input', { value: filters.source, placeholder: '全部来源', onChange: event => { setFilters({ ...filters, source: event.target.value }); setOffset(0) } })),
+            h(Field, { label: '关键字' }, h('input', { value: filters.q, placeholder: '内容包含…', onChange: event => { setFilters({ ...filters, q: event.target.value }); setOffset(0) } })),
+            h(Field, { label: '排序' }, h('select', { value: filters.sort, onChange: event => { setFilters({ ...filters, sort: event.target.value }); setOffset(0) } },
               h('option', { value: 'newest' }, '最新优先'),
               h('option', { value: 'oldest' }, '最早优先'),
               h('option', { value: 'importance' }, '重要度优先'))),
-            h(Field, { label: '操作' }, button('刷新', load, { disabled: busy })))),
-        h(Card, { title: '新增记忆' },
-          h('textarea', { style: styles.textarea, value: draft.content, placeholder: '要记住的内容（含上下文）', onChange: event => setDraft({ ...draft, content: event.target.value }) }),
-          h('div', { style: styles.row },
-            h(Field, { label: '项目' }, h('input', { style: styles.input, value: draft.project, placeholder: project || '会话项目 / general', onChange: event => setDraft({ ...draft, project: event.target.value }) })),
-            h(Field, { label: '话题' }, h('input', { style: styles.input, value: draft.topic, placeholder: '例如 auth、database', onChange: event => setDraft({ ...draft, topic: event.target.value }) })),
-            h(Field, { label: '来源' }, h('input', { style: styles.input, value: draft.source, onChange: event => setDraft({ ...draft, source: event.target.value }) })),
-            h(Field, { label: `重要度 ${Number(draft.importance).toFixed(2)}` }, h('input', { style: styles.input, type: 'range', min: 0, max: 1, step: 0.05, value: draft.importance, onChange: event => setDraft({ ...draft, importance: Number(event.target.value) }) }))),
-          h('div', { style: styles.row }, button('保存记忆', save, { kind: 'primary', disabled: busy || !draft.content.trim() }), h('span', { style: styles.muted }, '保存前会自动做一次相似度检查。'))),
+            h('div', { className: 'mz-field' }, h('span', null, '操作'), button('刷新', load)))),
+        h(Card, { title: '只读归档' },
+          h('p', { className: 'mz-hint' }, '记忆由 ActMem 写入；这里只展示和检索归档，不提供新增或删除。')),
         h(Failure, { error, onRetry: load }),
         data && data.items.length === 0 ? h(Empty, null, '当前筛选下没有记忆。') : null,
-        data ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
-          data.items.map(item => h('article', { key: item.id, style: styles.item },
-            h('div', { style: { ...styles.row, justifyContent: 'space-between' } },
-              h('div', { style: styles.meta },
+        data ? h('div', { className: 'mz-list' },
+          data.items.map(item => h('article', { key: item.id, className: 'mz-rec' },
+            h('div', { className: 'mz-row between' },
+              h('div', { className: 'mz-meta' },
                 h(Badge, null, item.project),
                 h(Badge, null, item.topic),
                 h(Badge, { kind: item.embedded ? 'ok' : 'warn' }, item.embedded ? '已向量化' : '关键字'),
                 h('span', null, item.source),
                 h('span', null, fmtTime(item.timestamp))),
-              h('div', { style: styles.row },
+              h('div', { className: 'mz-row' },
                 item.parent_id ? h(Badge, null, `分块 ${item.chunk_index}`) : null,
-                h('span', { style: styles.muted }, item.id))),
-            h('p', { style: styles.text }, expanded === item.id ? item.content : `${item.content.slice(0, 320)}${item.content.length > 320 ? '…' : ''}`),
-            h('div', { style: styles.row },
-              item.content.length > 320 ? h('button', { type: 'button', style: styles.link, onClick: () => setExpanded(expanded === item.id ? '' : item.id) }, expanded === item.id ? '收起' : '展开全文') : null,
-              h('button', { type: 'button', style: { ...styles.link, color: 'var(--dsw-alias-state-error-primary)' }, disabled: busy, onClick: () => remove(item.id) }, confirmId === item.id ? '再次点击确认删除' : '删除'))))) : null,
-        data ? h('div', { style: { ...styles.row, justifyContent: 'space-between' } },
-          h('span', { style: styles.muted }, `共 ${data.total} 条 · 第 ${page} / ${pages} 页`),
-          h('div', { style: styles.row },
-            button('上一页', () => setOffset(Math.max(0, offset - limit)), { disabled: busy || offset === 0 }),
-            button('下一页', () => setOffset(offset + limit), { disabled: busy || offset + limit >= data.total }))) : null)
+                h('span', { className: 'mz-mono' }, item.id))),
+            h('p', { className: 'mz-text' }, expanded === item.id ? item.content : `${item.content.slice(0, 320)}${item.content.length > 320 ? '…' : ''}`),
+            item.content.length > 320 ? h('div', { className: 'mz-row' }, button(expanded === item.id ? '收起' : '展开全文', () => setExpanded(expanded === item.id ? '' : item.id), { kind: 'link' })) : null))) : null,
+        data ? h('div', { className: 'mz-row between' },
+          h('span', { className: 'mz-hint' }, `共 ${data.total} 条 · 第 ${page} / ${pages} 页`),
+          h('div', { className: 'mz-row' },
+            button('上一页', () => setOffset(Math.max(0, offset - limit)), { disabled: offset === 0 }),
+            button('下一页', () => setOffset(offset + limit), { disabled: offset + limit >= data.total }))) : null)
     }
 
     function SearchTab({ project, notify }) {
@@ -365,26 +383,70 @@ window.__ModuleLoader__.load({
           navigator.clipboard.writeText(text).then(() => notify('ok', '已复制到剪贴板')).catch(() => notify('error', '复制失败'))
         } else notify('error', '当前环境不支持剪贴板')
       }
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
+      return h(React.Fragment, null,
         h(Card, { title: '语义搜索' },
-          h('div', { style: styles.row },
-            h(Field, { label: '查询', style: { flex: '3 1 260px' } }, h('input', { style: styles.input, value: query, placeholder: '例如：我们上次怎么解决登录过期？', onChange: event => setQuery(event.target.value), onKeyDown: event => { if (event.key === 'Enter') void search() } })),
-            h(Field, { label: '项目' }, h('input', { style: styles.input, value: filters.project, placeholder: '全部项目', onChange: event => setFilters({ ...filters, project: event.target.value }) })),
-            h(Field, { label: '话题' }, h('input', { style: styles.input, value: filters.topic, placeholder: '全部话题', onChange: event => setFilters({ ...filters, topic: event.target.value }) })),
-            h(Field, { label: '结果数' }, h('input', { style: styles.input, type: 'number', min: 1, max: 20, value: filters.n_results, onChange: event => setFilters({ ...filters, n_results: event.target.value }) })),
-            h(Field, { label: '操作' }, h('div', { style: styles.row },
+          h('div', { className: 'mz-row' },
+            h(Field, { label: '查询', style: { flex: '3 1 260px' } }, h('input', { value: query, placeholder: '例如：我们上次怎么解决登录过期？', onChange: event => setQuery(event.target.value), onKeyDown: event => { if (event.key === 'Enter') void search() } })),
+            h(Field, { label: '项目' }, h('input', { value: filters.project, placeholder: '全部项目', onChange: event => setFilters({ ...filters, project: event.target.value }) })),
+            h(Field, { label: '话题' }, h('input', { value: filters.topic, placeholder: '全部话题', onChange: event => setFilters({ ...filters, topic: event.target.value }) })),
+            h(Field, { label: '结果数' }, h('input', { type: 'number', min: 1, max: 20, value: filters.n_results, onChange: event => setFilters({ ...filters, n_results: event.target.value }) })),
+            h('div', { className: 'mz-field' }, h('span', null, '操作'), h('div', { className: 'mz-row' },
               button(busy ? '搜索中…' : '搜索', search, { kind: 'primary', disabled: busy || !query.trim() }),
               busy ? button('取消', () => controller.current?.abort()) : null)))),
         h(Failure, { error }),
         result ? h(Card, { title: `结果（${result.results.length}）`, actions: result.mode === 'keyword' ? h(Badge, { kind: 'warn' }, '关键字回退') : h(Badge, { kind: 'ok' }, result.mode === 'mixed' ? '语义 + 关键字' : '语义') },
-          result.results.length === 0 ? h(Empty, null, '没有匹配的记忆。') : result.results.map(item => h('article', { key: item.id, style: { ...styles.item, marginBottom: '8px' } },
-            h('div', { style: { ...styles.row, justifyContent: 'space-between' } },
-              h('div', { style: styles.meta }, h(Badge, null, item.project), h(Badge, null, item.topic), h('span', null, fmtTime(item.timestamp))),
-              h('div', { style: styles.row },
-                h('span', { style: { ...styles.muted, minWidth: '48px' } }, item.similarity > 0 ? pct(item.similarity) : '关键字'),
-                h('div', { style: { ...styles.barTrack, maxWidth: '120px' } }, h('div', { style: { ...styles.barFill, width: `${Math.max(2, item.similarity * 100)}%` } })),
-                button('复制', () => copy(item.text), { style: styles.link }))),
-            h('p', { style: styles.text }, item.text)))) : null)
+          result.results.length === 0 ? h(Empty, null, '没有匹配的记忆。') : result.results.map(item => h('article', { key: item.id, className: 'mz-rec' },
+            h('div', { className: 'mz-row between' },
+              h('div', { className: 'mz-meta' }, h(Badge, null, item.project), h(Badge, null, item.topic), h('span', null, fmtTime(item.timestamp))),
+              h('div', { className: 'mz-row' },
+                h('span', { className: 'mz-hint', style: { minWidth: '48px' } }, item.similarity > 0 ? pct(item.similarity) : '关键字'),
+                h('div', { className: 'mz-bar', style: { maxWidth: '120px' } }, h('div', { className: 'mz-bar-fill', style: { width: `${Math.max(2, item.similarity * 100)}%` } })),
+                button('复制', () => copy(item.text), { kind: 'link' }))),
+            h('p', { className: 'mz-text' }, item.text)))) : null)
+    }
+
+    function LedgerCard() {
+      const [scope, setScope] = useState('')
+      const [limit, setLimit] = useState(50)
+      const [commits, setCommits] = useState(null)
+      const [error, setError] = useState('')
+      const [busy, setBusy] = useState(false)
+      const load = useCallback(async () => {
+        setBusy(true)
+        try {
+          const query = `limit=${limit}${scope.trim() ? `&assetScope=${encodeURIComponent(scope.trim())}` : ''}`
+          const data = await request(`/knowledge/commits?${query}`)
+          setCommits(data.commits || [])
+          setError('')
+        } catch (failure) {
+          setError(failure.message)
+          setCommits(null)
+        } finally { setBusy(false) }
+      }, [scope, limit])
+      useEffect(() => { void load() }, [])
+      const tone = state => state === 'live' ? 'ok' : state === 'rolled_back' ? 'error' : 'warn'
+      return h(Card, { title: '知识版本账本（只读）', actions: button(busy ? '读取中…' : '刷新', load, { disabled: busy }) },
+        h('div', { className: 'mz-row' },
+          h(Field, { label: '资源范围（留空为全部）' }, h('input', { value: scope, placeholder: 'knowledge:conflict:…', onChange: event => setScope(event.target.value) })),
+          h(Field, { label: '条数（1-200）' }, h('input', { type: 'number', min: 1, max: 200, value: limit, onChange: event => setLimit(Math.min(200, Math.max(1, Number(event.target.value) || 50))) }))),
+        h(Failure, { error, onRetry: load }),
+        commits === null
+          ? (error ? null : h('p', { className: 'mz-hint' }, '加载中…'))
+          : commits.length === 0
+            ? h(Empty, null, '还没有知识版本提交。')
+            : h('div', { className: 'mz-scroll' },
+              h('table', { className: 'mz-table' },
+                h('thead', null, h('tr', null,
+                  h('th', null, '修订'), h('th', null, '状态'), h('th', null, '资源范围'),
+                  h('th', null, '提交键'), h('th', null, '恢复自'), h('th', null, '时间'))),
+                h('tbody', null, commits.map(entry => h('tr', { key: entry.commitKey },
+                  h('td', null, `r${entry.revision}`),
+                  h('td', null, h(Badge, { kind: tone(entry.state) }, entry.state)),
+                  h('td', null, h('span', { className: 'mz-mono' }, entry.assetScope)),
+                  h('td', null, h('span', { className: 'mz-mono' }, entry.commitKey)),
+                  h('td', null, entry.restoresRevision === null ? '—' : `r${entry.restoresRevision}`),
+                  h('td', null, fmtTime(entry.createdAt))))))),
+        h('p', { className: 'mz-hint' }, '账本只读：提交与回滚由所有者组件写入，这里只按时间倒序展示。'))
     }
 
     function KnowledgeTab({ project, notify }) {
@@ -440,7 +502,7 @@ window.__ModuleLoader__.load({
         setBusy(true)
         try {
           const saved = await request('/knowledge/entity', { name: entityDraft.name.trim(), entity_type: entityDraft.entity_type || undefined, properties })
-          notify('ok', saved.status === 'updated' ? '实体已更新' : '实体已创建')
+          notify('ok', `${saved.status === 'updated' ? '实体已更新' : '实体已创建'} · r${saved.revision}`)
           setEntityDraft({ name: '', entity_type: 'project', properties: '{}' })
           await loadStats()
           await loadEntities()
@@ -454,7 +516,7 @@ window.__ModuleLoader__.load({
         }
         setBusy(true)
         try {
-          await request('/knowledge/triple', {
+          const saved = await request('/knowledge/triple', {
             subject: tripleDraft.subject.trim(),
             predicate: tripleDraft.predicate.trim(),
             object: tripleDraft.object.trim(),
@@ -463,7 +525,7 @@ window.__ModuleLoader__.load({
             confidence: Number(tripleDraft.confidence),
             project: tripleDraft.project || project || undefined,
           })
-          notify('ok', '事实已写入知识图谱')
+          notify('ok', `事实已写入知识图谱 · r${saved.revision}`)
           setTripleDraft({ subject: '', predicate: '', object: '', valid_from: '', valid_to: '', confidence: 1, project })
           await loadStats()
           if (selected) await loadDetail(selected)
@@ -477,63 +539,64 @@ window.__ModuleLoader__.load({
         }
         setBusy(true)
         try {
-          await request('/knowledge/invalidate', {
+          const saved = await request('/knowledge/invalidate', {
             subject: fact.subject,
             predicate: fact.predicate,
             object: fact.object,
             ended: new Date().toISOString(),
           })
-          notify('ok', '事实已标记为失效')
+          notify('ok', `事实已标记为失效 · r${saved.revision}`)
           setInvalidateId(null)
           await loadStats()
           if (selected) await loadDetail(selected)
         } catch (failure) { notify('error', failure.message) } finally { setBusy(false) }
       }
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
-        h('div', { style: styles.grid },
-          h(Card, { title: '实体' }, h('div', { style: styles.metric }, stats?.entityCount ?? '—'), h('div', { style: styles.metricLabel }, '个实体')),
-          h(Card, { title: '事实' }, h('div', { style: styles.metric }, stats?.tripleCount ?? '—'), h('div', { style: styles.metricLabel }, `${stats?.activeTriples ?? 0} 条仍有效`)),
-          h(Card, { title: '谓语' }, h('div', { style: styles.metric }, stats ? Object.keys(stats.predicates).length : '—'), h('div', { style: styles.metricLabel }, '种关系类型'))),
+      return h(React.Fragment, null,
+        h('div', { className: 'mz-metrics' },
+          h(Card, { title: '实体' }, h('div', { className: 'mz-metric' }, stats?.entityCount ?? '—', h('span', { className: 'mz-metric-label' }, '个实体'))),
+          h(Card, { title: '事实' }, h('div', { className: 'mz-metric' }, stats?.tripleCount ?? '—', h('span', { className: 'mz-metric-label' }, `${stats?.activeTriples ?? 0} 条仍有效`))),
+          h(Card, { title: '谓语' }, h('div', { className: 'mz-metric' }, stats ? Object.keys(stats.predicates).length : '—', h('span', { className: 'mz-metric-label' }, '种关系类型')))),
         h(Failure, { error, onRetry: () => { void loadStats(); void loadEntities() } }),
-        h(Card, { title: '实体列表', actions: h('div', { style: styles.row },
-          h('input', { style: styles.input, value: entityQuery, placeholder: '搜索实体', onChange: event => setEntityQuery(event.target.value) }),
+        h(Card, { title: '实体列表', actions: h('div', { className: 'mz-row' },
+          h('input', { value: entityQuery, placeholder: '搜索实体', onChange: event => setEntityQuery(event.target.value) }),
           button('刷新', loadEntities)) },
-          entities.length === 0 ? h(Empty, null, '还没有实体。先添加实体或直接写入一条事实。') : h('div', { style: styles.scroll },
-            h('table', { style: styles.table },
-              h('thead', null, h('tr', null, h('th', { style: styles.th }, '名称'), h('th', { style: styles.th }, '类型'), h('th', { style: styles.th }, '事实数'), h('th', { style: styles.th }, '操作'))),
-              h('tbody', null, entities.map(entity => h('tr', { key: entity.id, style: selected === entity.name ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined },
-                h('td', { style: styles.td }, entity.name),
-                h('td', { style: styles.td }, entity.type),
-                h('td', { style: styles.td }, entity.facts),
-                h('td', { style: styles.td }, button(selected === entity.name ? '已选中' : '查看', () => setSelected(entity.name), { style: styles.link })))))))),
+          entities.length === 0 ? h(Empty, null, '还没有实体。先添加实体或直接写入一条事实。') : h('div', { className: 'mz-scroll' },
+            h('table', { className: 'mz-table' },
+              h('thead', null, h('tr', null, h('th', null, '名称'), h('th', null, '类型'), h('th', null, '事实数'), h('th', null, '操作'))),
+              h('tbody', null, entities.map(entity => h('tr', { key: entity.id, className: selected === entity.name ? 'on' : undefined },
+                h('td', null, entity.name),
+                h('td', null, entity.type),
+                h('td', null, entity.facts),
+                h('td', null, button(selected === entity.name ? '已选中' : '查看', () => setSelected(entity.name), { kind: 'link' })))))))),
         h(Card, { title: '新增实体' },
-          h('div', { style: styles.row },
-            h(Field, { label: '名称' }, h('input', { style: styles.input, value: entityDraft.name, onChange: event => setEntityDraft({ ...entityDraft, name: event.target.value }) })),
-            h(Field, { label: '类型' }, h('input', { style: styles.input, value: entityDraft.entity_type, onChange: event => setEntityDraft({ ...entityDraft, entity_type: event.target.value }) })),
-            h(Field, { label: '属性 JSON', style: { flex: '2 1 220px' } }, h('input', { style: styles.input, value: entityDraft.properties, onChange: event => setEntityDraft({ ...entityDraft, properties: event.target.value }) }))),
+          h('div', { className: 'mz-row' },
+            h(Field, { label: '名称' }, h('input', { value: entityDraft.name, onChange: event => setEntityDraft({ ...entityDraft, name: event.target.value }) })),
+            h(Field, { label: '类型' }, h('input', { value: entityDraft.entity_type, onChange: event => setEntityDraft({ ...entityDraft, entity_type: event.target.value }) })),
+            h(Field, { label: '属性 JSON', style: { flex: '2 1 220px' } }, h('input', { value: entityDraft.properties, onChange: event => setEntityDraft({ ...entityDraft, properties: event.target.value }) }))),
           button('保存实体', addEntity, { kind: 'primary', disabled: busy })),
         h(Card, { title: '新增事实' },
-          h('div', { style: styles.row },
-            h(Field, { label: '主语' }, h('input', { style: styles.input, value: tripleDraft.subject, onChange: event => setTripleDraft({ ...tripleDraft, subject: event.target.value }) })),
-            h(Field, { label: '谓语' }, h('input', { style: styles.input, value: tripleDraft.predicate, placeholder: 'uses / depends_on', onChange: event => setTripleDraft({ ...tripleDraft, predicate: event.target.value }) })),
-            h(Field, { label: '宾语' }, h('input', { style: styles.input, value: tripleDraft.object, onChange: event => setTripleDraft({ ...tripleDraft, object: event.target.value }) })),
-            h(Field, { label: '项目' }, h('input', { style: styles.input, value: tripleDraft.project, onChange: event => setTripleDraft({ ...tripleDraft, project: event.target.value }) }))),
-          h('div', { style: styles.row },
-            h(Field, { label: '生效时间' }, h('input', { style: styles.input, value: tripleDraft.valid_from, placeholder: '2026-01-01（可选）', onChange: event => setTripleDraft({ ...tripleDraft, valid_from: event.target.value }) })),
-            h(Field, { label: '失效时间' }, h('input', { style: styles.input, value: tripleDraft.valid_to, placeholder: '可选', onChange: event => setTripleDraft({ ...tripleDraft, valid_to: event.target.value }) })),
-            h(Field, { label: '置信度' }, h('input', { style: styles.input, type: 'number', min: 0, max: 1, step: 0.1, value: tripleDraft.confidence, onChange: event => setTripleDraft({ ...tripleDraft, confidence: event.target.value }) }))),
+          h('div', { className: 'mz-row' },
+            h(Field, { label: '主语' }, h('input', { value: tripleDraft.subject, onChange: event => setTripleDraft({ ...tripleDraft, subject: event.target.value }) })),
+            h(Field, { label: '谓语' }, h('input', { value: tripleDraft.predicate, placeholder: 'uses / depends_on', onChange: event => setTripleDraft({ ...tripleDraft, predicate: event.target.value }) })),
+            h(Field, { label: '宾语' }, h('input', { value: tripleDraft.object, onChange: event => setTripleDraft({ ...tripleDraft, object: event.target.value }) })),
+            h(Field, { label: '项目' }, h('input', { value: tripleDraft.project, onChange: event => setTripleDraft({ ...tripleDraft, project: event.target.value }) }))),
+          h('div', { className: 'mz-row' },
+            h(Field, { label: '生效时间' }, h('input', { value: tripleDraft.valid_from, placeholder: '2026-01-01（可选）', onChange: event => setTripleDraft({ ...tripleDraft, valid_from: event.target.value }) })),
+            h(Field, { label: '失效时间' }, h('input', { value: tripleDraft.valid_to, placeholder: '可选', onChange: event => setTripleDraft({ ...tripleDraft, valid_to: event.target.value }) })),
+            h(Field, { label: '置信度' }, h('input', { type: 'number', min: 0, max: 1, step: 0.1, value: tripleDraft.confidence, onChange: event => setTripleDraft({ ...tripleDraft, confidence: event.target.value }) }))),
           button('写入事实', addTriple, { kind: 'primary', disabled: busy })),
         selected ? h(Card, { title: `实体详情：${selected}`, actions: button('关闭', () => setSelected(null)) },
-          facts.length === 0 ? h(Empty, null, '该实体没有匹配的事实。') : h('div', { style: styles.scroll },
-            h('table', { style: styles.table },
-              h('thead', null, h('tr', null, h('th', { style: styles.th }, '事实'), h('th', { style: styles.th }, '有效期'), h('th', { style: styles.th }, '项目'), h('th', { style: styles.th }, '操作'))),
+          facts.length === 0 ? h(Empty, null, '该实体没有匹配的事实。') : h('div', { className: 'mz-scroll' },
+            h('table', { className: 'mz-table' },
+              h('thead', null, h('tr', null, h('th', null, '事实'), h('th', null, '有效期'), h('th', null, '项目'), h('th', null, '操作'))),
               h('tbody', null, facts.map(fact => h('tr', { key: fact.id },
-                h('td', { style: styles.td }, `${fact.subject} ${fact.predicate} ${fact.object}`),
-                h('td', { style: styles.td }, `${fact.valid_from ? fmtDay(fact.valid_from) : '—'} → ${fact.valid_to ? fmtDay(fact.valid_to) : '现在'}`),
-                h('td', { style: styles.td }, fact.project),
-                h('td', { style: styles.td }, fact.valid_to ? h(Badge, { kind: 'warn' }, '已失效') : h('button', { type: 'button', style: { ...styles.link, color: 'var(--dsw-alias-state-error-primary)' }, disabled: busy, onClick: () => invalidate(fact) }, invalidateId === fact.id ? '再次点击确认' : '标记失效'))))))),
-          h('h4', { style: styles.cardTitle }, '实体时间线'),
-          timeline.length === 0 ? h('div', { style: styles.muted }, '暂无时间线。') : timeline.map(fact => h('div', { key: fact.id, style: { ...styles.meta, padding: '4px 0' }, }, h('span', null, `${fact.valid_from || fact.created_at} → ${fact.valid_to || '现在'}`), h('span', null, `${fact.subject} ${fact.predicate} ${fact.object}`)))) : null)
+                h('td', null, `${fact.subject} ${fact.predicate} ${fact.object}`),
+                h('td', null, `${fact.valid_from ? fmtDay(fact.valid_from) : '—'} → ${fact.valid_to ? fmtDay(fact.valid_to) : '现在'}`),
+                h('td', null, fact.project),
+                h('td', null, fact.valid_to ? h(Badge, { kind: 'warn' }, '已失效') : button(invalidateId === fact.id ? '再次点击确认' : '标记失效', () => invalidate(fact), { kind: 'link', className: 'danger', disabled: busy }))))))),
+          h('h3', { className: 'mz-card-subtitle' }, '实体时间线'),
+          timeline.length === 0 ? h('p', { className: 'mz-hint' }, '暂无时间线。') : timeline.map(fact => h('div', { key: fact.id, className: 'mz-timeline' }, h('span', null, `${fact.valid_from || fact.created_at} → ${fact.valid_to || '现在'}`), h('span', null, `${fact.subject} ${fact.predicate} ${fact.object}`)))) : null,
+        h(LedgerCard))
     }
 
     function PalaceTab({ notify, onOpenProject }) {
@@ -596,11 +659,11 @@ window.__ModuleLoader__.load({
       }, [graph])
       const maxStrength = Math.max(1, ...layout.edges.map(edge => edge.strength))
       const hoveredNode = hover?.type === 'node' ? hover.name : null
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
+      return h(React.Fragment, null,
         h(Failure, { error, onRetry: load }),
         h(Card, { title: '宫殿图', actions: button('刷新', load) },
-          !graph ? h('div', { style: styles.muted }, '加载中…') : graph.nodes.length === 0 ? h(Empty, null, '还没有项目房间。保存几条记忆后，项目会自动出现。') : h('div', null,
-            h('svg', { viewBox: `0 0 ${layout.width} ${layout.height}`, width: '100%', role: 'img', style: { height: 'auto', display: 'block' }, 'aria-label': `宫殿图：${graph.nodes.length} 个项目、${graph.edges.length} 条隧道` },
+          !graph ? h('p', { className: 'mz-hint' }, '加载中…') : graph.nodes.length === 0 ? h(Empty, null, '还没有项目房间。保存几条记忆后，项目会自动出现。') : h('div', null,
+            h('svg', { className: 'mz-svg', viewBox: `0 0 ${layout.width} ${layout.height}`, role: 'img', 'aria-label': `宫殿图：${graph.nodes.length} 个项目、${graph.edges.length} 条隧道` },
               layout.edges.map((edge, index) => h('path', {
                 key: `${edge.topic}-${index}`,
                 d: `M ${edge.x1} ${edge.y1} Q ${edge.cx} ${edge.cy} ${edge.x2} ${edge.y2}`,
@@ -635,32 +698,30 @@ window.__ModuleLoader__.load({
                 if (!node?.topics?.length) return null
                 return h('text', { x: node.x, y: node.y - layout.nodeRadius(node.memoryCount) - 10, textAnchor: 'middle', fontSize: 11, fill: 'var(--dsw-alias-label-secondary)' }, node.topics.slice(0, 3).join(' · '))
               })() : null),
-            graph.nodes.length === 1 ? h('div', { style: styles.warn }, '目前只有一个项目，且没有共享话题。再保存一个项目或让两个项目共享话题后会出现隧道。') : null,
-            h('div', { style: styles.muted }, `点击项目节点查看该项目记忆；点击彩色线查看隧道两侧的记忆。线宽表示共享话题的记忆总量（最大 ${maxStrength}）。`))),
+            graph.nodes.length === 1 ? h('div', { className: 'mz-alert warn' }, '目前只有一个项目，且没有共享话题。再保存一个项目或让两个项目共享话题后会出现隧道。') : null,
+            h('p', { className: 'mz-hint' }, `点击项目节点查看该项目记忆；点击彩色线查看隧道两侧的记忆。线宽表示共享话题的记忆总量（最大 ${maxStrength}）。`))),
         selectedEdge ? h(Card, { title: `隧道：${selectedEdge.projectA} ↔ ${selectedEdge.projectB} · ${selectedEdge.topic}`, actions: button('关闭', () => { setSelectedEdge(null); setTunnel(null) }) },
-          busy ? h('div', { style: styles.muted }, '加载隧道记忆…') : tunnel && tunnel.length > 0 ? tunnel.map(item => h('div', { key: item.id, style: { ...styles.item, marginBottom: '8px' } },
-            h('div', { style: styles.meta }, h(Badge, null, item.project), h(Badge, null, item.topic), h('span', null, fmtTime(item.timestamp))),
-            h('p', { style: styles.text }, item.text))) : h(Empty, null, '这条隧道暂时没有记忆。')) : null,
-        graph && graph.edges.length > 0 ? h(Card, { title: '隧道列表' }, h('div', { style: styles.scroll },
-          h('table', { style: styles.table },
-            h('thead', null, h('tr', null, h('th', { style: styles.th }, '话题'), h('th', { style: styles.th }, '项目 A'), h('th', { style: styles.th }, '项目 B'), h('th', { style: styles.th }, '强度'), h('th', { style: styles.th }, '操作'))),
+          busy ? h('p', { className: 'mz-hint' }, '加载隧道记忆…') : tunnel && tunnel.length > 0 ? tunnel.map(item => h('div', { key: item.id, className: 'mz-rec' },
+            h('div', { className: 'mz-meta' }, h(Badge, null, item.project), h(Badge, null, item.topic), h('span', null, fmtTime(item.timestamp))),
+            h('p', { className: 'mz-text' }, item.text))) : h(Empty, null, '这条隧道暂时没有记忆。')) : null,
+        graph && graph.edges.length > 0 ? h(Card, { title: '隧道列表' }, h('div', { className: 'mz-scroll' },
+          h('table', { className: 'mz-table' },
+            h('thead', null, h('tr', null, h('th', null, '话题'), h('th', null, '项目 A'), h('th', null, '项目 B'), h('th', null, '强度'), h('th', null, '操作'))),
             h('tbody', null, graph.edges.map((edge, index) => h('tr', { key: `${edge.topic}-${index}` },
-              h('td', { style: styles.td }, edge.topic),
-              h('td', { style: styles.td }, edge.projectA),
-              h('td', { style: styles.td }, edge.projectB),
-              h('td', { style: styles.td }, edge.strength),
-              h('td', { style: styles.td }, button('查看', () => { void openTunnel(edge) }, { style: styles.link })))))))) : null)
+              h('td', null, edge.topic),
+              h('td', null, edge.projectA),
+              h('td', null, edge.projectB),
+              h('td', null, edge.strength),
+              h('td', null, button('查看', () => { void openTunnel(edge) }, { kind: 'link' })))))))) : null)
     }
 
-    function DiaryTab({ notify }) {
+    function DiaryTab() {
       const [agentName, setAgentName] = useState(() => {
         try { return window.localStorage.getItem('dsh-mempalace.diary-agent') || 'agent' } catch { return 'agent' }
       })
       const [lastN, setLastN] = useState(10)
       const [entries, setEntries] = useState(null)
-      const [draft, setDraft] = useState({ entry: '', topic: 'diary' })
       const [error, setError] = useState('')
-      const [busy, setBusy] = useState(false)
       const load = useCallback(async () => {
         try { window.localStorage.setItem('dsh-mempalace.diary-agent', agentName) } catch { /* private mode */ }
         try {
@@ -671,31 +732,18 @@ window.__ModuleLoader__.load({
         } catch (failure) { setError(failure.message); setEntries(null) }
       }, [agentName, lastN])
       useEffect(() => { void load() }, [load])
-      async function write() {
-        if (!draft.entry.trim()) { notify('error', '日记内容不能为空'); return }
-        setBusy(true)
-        try {
-          await request('/diary', { agent_name: agentName, entry: draft.entry, topic: draft.topic || undefined })
-          notify('ok', '日记已写入')
-          setDraft({ entry: '', topic: 'diary' })
-          await load()
-        } catch (failure) { notify('error', failure.message) } finally { setBusy(false) }
-      }
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
+      return h(React.Fragment, null,
         h(Card, { title: '日记' },
-          h('div', { style: styles.row },
-            h(Field, { label: 'Agent 名称' }, h('input', { style: styles.input, value: agentName, onChange: event => setAgentName(event.target.value) })),
-            h(Field, { label: '读取条数' }, h('input', { style: styles.input, type: 'number', min: 1, max: 100, value: lastN, onChange: event => setLastN(Number(event.target.value) || 10) })),
-            h(Field, { label: '操作' }, button('读取', load))),
-          h('textarea', { style: styles.textarea, value: draft.entry, placeholder: '今天的反思、经验或交接笔记…', onChange: event => setDraft({ ...draft, entry: event.target.value }) }),
-          h('div', { style: styles.row },
-            h(Field, { label: '话题' }, h('input', { style: styles.input, value: draft.topic, onChange: event => setDraft({ ...draft, topic: event.target.value }) })),
-            h(Field, { label: '操作' }, button('写入日记', write, { kind: 'primary', disabled: busy || !draft.entry.trim() })))),
+          h('div', { className: 'mz-row' },
+            h(Field, { label: 'Agent 名称' }, h('input', { value: agentName, onChange: event => setAgentName(event.target.value) })),
+            h(Field, { label: '读取条数' }, h('input', { type: 'number', min: 1, max: 100, value: lastN, onChange: event => setLastN(Number(event.target.value) || 10) })),
+            h('div', { className: 'mz-field' }, h('span', null, '操作'), button('读取', load))),
+          h('p', { className: 'mz-hint' }, '日记为只读归档：写入已退役，新的个人记忆由 ActMem 提交。')),
         h(Failure, { error, onRetry: load }),
         entries ? h(Card, { title: `最近 ${entries.length} 条（按时间正序）`, actions: button('刷新', load) },
-          entries.length === 0 ? h(Empty, null, '还没有日记条目。') : entries.map(entry => h('article', { key: entry.id, style: { ...styles.item, marginBottom: '8px' } },
-            h('div', { style: styles.meta }, h(Badge, null, entry.topic), h('span', null, fmtTime(entry.timestamp))),
-            h('p', { style: styles.text }, entry.text)))) : null)
+          entries.length === 0 ? h(Empty, null, '还没有日记条目。') : entries.map(entry => h('article', { key: entry.id, className: 'mz-rec' },
+            h('div', { className: 'mz-meta' }, h(Badge, null, entry.topic), h('span', null, fmtTime(entry.timestamp))),
+            h('p', { className: 'mz-text' }, entry.text)))) : null)
     }
 
     function SettingsTab({ snapshot, refreshStatus, notify }) {
@@ -767,59 +815,54 @@ window.__ModuleLoader__.load({
         } catch (failure) { notify('error', `导出失败：${failure.message}`) } finally { setBusy('') }
       }
       if (!config) {
-        return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
+        return h(React.Fragment, null,
           h(Failure, { error, onRetry: load }),
-          h('div', { style: styles.muted }, '加载设置…'))
+          h('p', { className: 'mz-hint' }, '加载设置…'))
       }
       const toggle = key => h('input', { type: 'checkbox', checked: Boolean(config[key]), onChange: event => setConfig({ ...config, [key]: event.target.checked }) })
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
+      return h(React.Fragment, null,
         h(Failure, { error, onRetry: load }),
         h(Card, { title: '行为设置' },
-          h('div', { style: styles.row },
-            h('label', { style: styles.row }, toggle('autoCapture'), '自动捕获真人对话（关闭后不再写入新会话内容）'),
-            h('label', { style: styles.row }, toggle('wakeUpEnabled'), '新会话注入唤醒记忆'),
-            h('label', { style: styles.row }, toggle('topicInferenceEnabled'), '本地话题推断')),
-          h('div', { style: styles.row },
-            h(Field, { label: '唤醒 token 上限' }, h('input', { style: styles.input, type: 'number', min: 64, max: 8000, value: config.wakeUpMaxTokens, onChange: event => setConfig({ ...config, wakeUpMaxTokens: Number(event.target.value) }) })),
-            h(Field, { label: '默认项目（留空用会话）' }, h('input', { style: styles.input, value: config.defaultProject || '', onChange: event => setConfig({ ...config, defaultProject: event.target.value.trim() || null }) })),
-            h(Field, { label: '去重阈值' }, h('input', { style: styles.input, type: 'number', min: 0, max: 1, step: 0.05, value: config.dedupeThreshold, onChange: event => setConfig({ ...config, dedupeThreshold: Number(event.target.value) }) }))),
-          h('div', { style: styles.row },
-            h(Field, { label: '用户消息最小字符' }, h('input', { style: styles.input, type: 'number', min: 0, value: config.userMinChars, onChange: event => setConfig({ ...config, userMinChars: Number(event.target.value) }) })),
-            h(Field, { label: '回答最小字符' }, h('input', { style: styles.input, type: 'number', min: 0, value: config.captureMinChars, onChange: event => setConfig({ ...config, captureMinChars: Number(event.target.value) }) })),
-            h(Field, { label: '单条捕获上限' }, h('input', { style: styles.input, type: 'number', min: 100, value: config.captureMaxChars, onChange: event => setConfig({ ...config, captureMaxChars: Number(event.target.value) }) })),
-            h(Field, { label: '待写入队列上限' }, h('input', { style: styles.input, type: 'number', min: 1, max: 100, value: config.maxPendingCaptures, onChange: event => setConfig({ ...config, maxPendingCaptures: Number(event.target.value) }) })))),
+          h('div', { className: 'mz-row' },
+            h('label', { className: 'mz-check' }, toggle('topicInferenceEnabled'), '本地话题推断')),
+          h('div', { className: 'mz-row' },
+            h(Field, { label: '预览 token 上限' }, h('input', { type: 'number', min: 64, max: 8000, value: config.wakeUpMaxTokens, onChange: event => setConfig({ ...config, wakeUpMaxTokens: Number(event.target.value) }) })),
+            h(Field, { label: '默认项目（留空用会话）' }, h('input', { value: config.defaultProject || '', onChange: event => setConfig({ ...config, defaultProject: event.target.value.trim() || null }) })),
+            h(Field, { label: '去重阈值' }, h('input', { type: 'number', min: 0, max: 1, step: 0.05, value: config.dedupeThreshold, onChange: event => setConfig({ ...config, dedupeThreshold: Number(event.target.value) }) })))),
         h(Card, { title: '模型与网络' },
-          h('div', { style: styles.row },
-            h(Field, { label: '向量模型' }, h('input', { style: styles.input, value: config.embeddingModel, onChange: event => setConfig({ ...config, embeddingModel: event.target.value }) })),
-            h(Field, { label: '话题模型（留空关闭）' }, h('input', { style: styles.input, value: config.topicModel, onChange: event => setConfig({ ...config, topicModel: event.target.value }) })),
-            h(Field, { label: '模型缓存目录' }, h('input', { style: styles.input, value: config.modelCacheDir, placeholder: '$DSH_HOME/mempalace/models', onChange: event => setConfig({ ...config, modelCacheDir: event.target.value }) })),
-            h(Field, { label: 'HF 端点（镜像）' }, h('input', { style: styles.input, value: config.hfEndpoint, placeholder: 'https://hf-mirror.com', onChange: event => setConfig({ ...config, hfEndpoint: event.target.value }) })),
-            h(Field, { label: '模型加载超时（秒）' }, h('input', { style: styles.input, type: 'number', min: 10, max: 900, value: Math.round((config.modelLoadTimeoutMs || 60000) / 1000), onChange: event => setConfig({ ...config, modelLoadTimeoutMs: Number(event.target.value) * 1000 }) }))),
-          h('div', { style: styles.row },
-            h('label', { style: styles.row }, toggle('keywordsFallback'), '语义不可用时使用关键字检索'),
+          h('div', { className: 'mz-row' },
+            h(Field, { label: '向量模型' }, h('input', { value: config.embeddingModel, onChange: event => setConfig({ ...config, embeddingModel: event.target.value }) })),
+            h(Field, { label: '话题模型（留空关闭）' }, h('input', { value: config.topicModel, onChange: event => setConfig({ ...config, topicModel: event.target.value }) })),
+            h(Field, { label: '模型缓存目录' }, h('input', { value: config.modelCacheDir, placeholder: '$DSH_HOME/mempalace/models', onChange: event => setConfig({ ...config, modelCacheDir: event.target.value }) })),
+            h(Field, { label: 'HF 端点（镜像）' }, h('input', { value: config.hfEndpoint, placeholder: 'https://hf-mirror.com', onChange: event => setConfig({ ...config, hfEndpoint: event.target.value }) })),
+            h(Field, { label: '模型加载超时（秒）' }, h('input', { type: 'number', min: 10, max: 900, value: Math.round((config.modelLoadTimeoutMs || 60000) / 1000), onChange: event => setConfig({ ...config, modelLoadTimeoutMs: Number(event.target.value) * 1000 }) }))),
+          h('div', { className: 'mz-row' },
+            h('label', { className: 'mz-check' }, toggle('keywordsFallback'), '语义不可用时使用关键字检索'),
             button('保存设置', save, { kind: 'primary', disabled: Boolean(busy) }),
             button(busy === 'warmup' ? '加载模型中…' : '预热模型', () => action('warmup', '/models/warmup', data => `模型状态：向量 ${data.result.embedding}，话题 ${data.result.topic}`), { disabled: Boolean(busy) }))),
         h(Card, { title: '诊断' },
-          h('div', { style: styles.meta },
+          h('div', { className: 'mz-meta' },
             h(Badge, { kind: snapshot?.state === 'ready' ? 'ok' : 'warn' }, `数据层 ${snapshot?.state || 'unknown'}`),
             h(Badge, { kind: snapshot?.models?.embedding === 'ready' ? 'ok' : 'warn' }, `向量 ${snapshot?.models?.embedding || 'idle'}`),
             h(Badge, { kind: snapshot?.models?.topic === 'ready' ? 'ok' : 'warn' }, `话题模型 ${snapshot?.models?.topic || 'idle'}`)),
-          snapshot?.error ? h('div', { style: styles.alert }, snapshot.error) : null,
-          snapshot?.hint ? h('div', { style: styles.warn }, snapshot.hint) : null,
-          diagnostics?.paths ? h('div', { style: { ...styles.muted, display: 'flex', flexDirection: 'column', gap: '3px' } },
+          snapshot?.error ? h('div', { className: 'mz-alert danger' }, snapshot.error) : null,
+          snapshot?.hint ? h('div', { className: 'mz-alert warn' }, snapshot.hint) : null,
+          diagnostics?.retirement?.warnings?.length
+            ? h('div', { className: 'mz-alert warn block' }, `旧状态迁移警告：${diagnostics.retirement.warnings.join('；')}`)
+            : null,
+          diagnostics?.paths ? h('div', { className: 'mz-hint mz-col' },
             h('span', null, `状态目录：${diagnostics.paths.stateDir}`),
-            h('span', null, `数据库：${diagnostics.paths.dbPath}`),
-            h('span', null, `身份文件：${diagnostics.paths.identityPath}`)) : null,
-          diagnostics?.diagnostics ? h('pre', { style: styles.pre }, JSON.stringify(diagnostics.diagnostics, null, 2)) : h('div', { style: styles.muted }, '未找到 setup 诊断文件；运行 npm run setup:mempalace 后重启服务。'),
-          h('div', { style: { ...styles.muted, marginTop: '4px' } }, '模型首次使用时会下载到缓存目录；中国网络可使用 https://hf-mirror.com。自动捕获会把真人对话原文写入本地数据库。')),
+            h('span', null, `数据库：${diagnostics.paths.dbPath}`)) : null,
+          diagnostics?.diagnostics ? h('pre', { className: 'mz-pre' }, JSON.stringify(diagnostics.diagnostics, null, 2)) : h('p', { className: 'mz-hint' }, '未找到 setup 诊断文件；运行 npm run setup:mempalace 后重启服务。'),
+          h('p', { className: 'mz-hint' }, '模型首次使用时会下载到缓存目录；中国网络可使用 https://hf-mirror.com。本插件不再记录对话；新个人记忆由 ActMem 写入，历史归档仍可检索。')),
         h(Card, { title: '导入 / 导出' },
-          h('div', { style: styles.row },
-            h('input', { ref: fileRef, type: 'file', accept: 'application/json,.json', 'aria-label': '选择导入文件', onChange: event => { void importFile(event.target.files?.[0]) } }),
+          h('div', { className: 'mz-row' },
+            h('input', { ref: fileRef, type: 'file', className: 'mz-file', accept: 'application/json,.json', 'aria-label': '选择导入文件', onChange: event => { void importFile(event.target.files?.[0]) } }),
             button(busy === 'export' ? '导出中…' : '导出全部数据', download, { disabled: Boolean(busy) })),
-          h('div', { style: styles.muted }, '导出为 JSON 附件（先做 WAL checkpoint）。导入上限 10 MB，重复记忆与事实会跳过。'),
-          importSummary ? h('pre', { style: styles.pre }, JSON.stringify(importSummary, null, 2)) : null),
+          h('p', { className: 'mz-hint' }, '导出为 JSON 附件（先做 WAL checkpoint）。导入上限 10 MB，重复记忆与事实会跳过。'),
+          importSummary ? h('pre', { className: 'mz-pre' }, JSON.stringify(importSummary, null, 2)) : null),
         h(Card, { title: '维护' },
-          h('div', { style: styles.row },
+          h('div', { className: 'mz-row' },
             button(busy === 'reindex' ? '重建中…' : '重建缺失向量', () => action('reindex', '/reindex', data => `重建完成：更新 ${data.updated}，失败 ${data.failed}`), { disabled: Boolean(busy) }),
             button(busy === 'vacuum' ? '整理中…' : '整理数据库（VACUUM）', () => action('vacuum', '/maintenance/vacuum', '数据库已整理'), { disabled: Boolean(busy) }))))
     }
@@ -830,6 +873,7 @@ window.__ModuleLoader__.load({
       const [toast, setToast] = useState(null)
       const [memoryProject, setMemoryProject] = useState('')
       const [statusError, setStatusError] = useState('')
+      const bodyRef = useRef(null)
       const notify = useCallback((kind, text) => setToast({ kind, text, at: Date.now() }), [])
       const closeToast = useCallback(() => setToast(null), [])
       const refreshStatus = useCallback(async () => {
@@ -840,37 +884,79 @@ window.__ModuleLoader__.load({
         } catch (failure) { setStatusError(failure.message) }
       }, [])
       useEffect(() => { void refreshStatus() }, [refreshStatus])
+      useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = 0 }, [tab])
       const openProject = useCallback(project => {
         setMemoryProject(project)
         setTab('memories')
       }, [])
       let content = null
       if (tab === 'overview') content = h(OverviewTab, { snapshot, refreshStatus, notify })
-      else if (tab === 'memories') content = h(MemoriesTab, { snapshot, project: memoryProject, setProject: setMemoryProject, refreshStatus, notify })
+      else if (tab === 'memories') content = h(MemoriesTab, { snapshot, project: memoryProject, setProject: setMemoryProject })
       else if (tab === 'search') content = h(SearchTab, { project: memoryProject, notify })
       else if (tab === 'knowledge') content = h(KnowledgeTab, { project: memoryProject, notify })
       else if (tab === 'palace') content = h(PalaceTab, { notify, onOpenProject: openProject })
-      else if (tab === 'diary') content = h(DiaryTab, { notify })
+      else if (tab === 'diary') content = h(DiaryTab)
       else content = h(SettingsTab, { snapshot, refreshStatus, notify })
-      return h('div', { style: styles.root, className: 'mempalace-panel' },
-        h(Toast, { toast, onClose: closeToast }),
-        h('header', { style: styles.header },
-          h('div', null,
-            h('h2', { style: styles.title }, '记忆宫殿'),
-            h('p', { style: styles.subtitle }, '本地持久记忆 · 语义检索 · 宫殿图 · 时序知识图谱 · 日记')),
-          h('div', { style: styles.row },
-            snapshot?.state === 'ready' ? h(Badge, { kind: 'ok' }, `后端 ${snapshot.stats?.total ?? 0} 条`) : h(Badge, { kind: 'warn' }, `后端 ${snapshot?.state || '未知'}`),
+      const tabItems = TABS.map(([id, label]) => ({ id, label }))
+      const onTabKeyDown = (event, index) => {
+        if (event.key === 'Home' || event.key === 'End') {
+          event.preventDefault()
+          const next = event.key === 'Home' ? 0 : tabItems.length - 1
+          setTab(tabItems[next].id)
+          if (typeof document !== 'undefined') document.getElementById(`mz-tab-${tabItems[next].id}`)?.focus()
+          return
+        }
+        const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+        if (!step) return
+        event.preventDefault()
+        const next = (index + step + tabItems.length) % tabItems.length
+        setTab(tabItems[next].id)
+        if (typeof document !== 'undefined') document.getElementById(`mz-tab-${tabItems[next].id}`)?.focus()
+      }
+      const dots = [
+        h('span', { key: 'backend', className: `mz-dot ${snapshot?.state === 'ready' ? 'ok' : snapshot ? 'warn' : ''}` },
+          snapshot ? `数据层 ${snapshot.state}` : '正在读取状态'),
+        h('span', { key: 'total', className: 'mz-dot' }, `记忆 ${snapshot?.stats?.total ?? 0} 条`),
+        h('span', { key: 'embed', className: `mz-dot ${snapshot?.models?.embedding === 'ready' ? 'ok' : 'warn'}` },
+          `向量 ${snapshot?.models?.embedding || 'idle'}`),
+        statusError ? h('span', { key: 'status', className: 'mz-dot bad' }, '状态读取失败') : null,
+      ].filter(Boolean)
+      return h('main', { className: 'mempalace-panel' },
+        h('style', null, MZ_CSS),
+        h('header', { className: 'mz-head' },
+          h('div', { className: 'mz-head-main' },
+            h('p', { className: 'mz-kicker' }, 'DSH · 记忆宫殿'),
+            h('h1', null, '记忆宫殿'),
+            h('p', { className: 'mz-sub' }, '本地持久记忆 · 语义检索 · 宫殿图 · 时序知识图谱 · 日记')),
+          h('div', { className: 'mz-head-actions' },
+            h('div', { className: 'mz-dots' }, ...dots),
             button('刷新状态', refreshStatus))),
-        h(Failure, { error: statusError, onRetry: refreshStatus }),
-        h('nav', { style: styles.tabs, 'aria-label': '记忆宫殿标签' },
-          TABS.map(([key, label]) => h('button', {
-            key,
+        h('div', { className: 'mz-alerts' },
+          statusError ? h('div', { className: 'mz-alert danger', role: 'alert' },
+            h('span', null, statusError),
+            button('重试', refreshStatus, { kind: 'quiet' })) : null),
+        h('div', { className: 'mz-tabs', role: 'tablist', 'aria-label': '记忆宫殿导航' },
+          tabItems.map((item, index) => h('button', {
+            key: item.id,
+            id: `mz-tab-${item.id}`,
             type: 'button',
-            style: { ...styles.tab, ...(tab === key ? styles.tabActive : {}) },
-            'aria-current': tab === key ? 'page' : undefined,
-            onClick: () => setTab(key),
-          }, label))),
-        h('div', { role: 'tabpanel' }, content))
+            role: 'tab',
+            'aria-selected': tab === item.id,
+            'aria-controls': `mz-panel-${item.id}`,
+            tabIndex: tab === item.id ? 0 : -1,
+            className: tab === item.id ? 'mz-tab on' : 'mz-tab',
+            onClick: () => setTab(item.id),
+            onKeyDown: event => onTabKeyDown(event, index),
+          }, item.label))),
+        h('div', { className: 'mz-body', ref: bodyRef },
+          h('div', {
+            id: `mz-panel-${tab}`,
+            role: 'tabpanel',
+            'aria-labelledby': `mz-tab-${tab}`,
+            tabIndex: 0,
+            className: 'mz-stack',
+          }, content)),
+        h(Toast, { toast, onClose: closeToast }))
     }
 
     function Icon({ size = 20 }) {

@@ -1,0 +1,21 @@
+{
+  "patchVersion": 4,
+  "_temporaryPinNote": "2026-11-05 临时钉：src/bridge.js 的哈希取自**工作区**（含未提交的「入站语音条→文字」改动），目的是让 npm run start / setup:components 不被 SURFCORE_PATCH_DRIFT 挡住。这些改动提交后，请把本文件 submodule.commit 更新为新 HEAD（bridge.js 的哈希不变，因为提交不改字节）；在干净检出 59ec306 的环境里该条目会再次报漂移，属预期。",
+  "submodule": {
+    "path": "plugins/surfcore",
+    "commit": "59ec3066f7d42a0452fae01f170c9a8484d5dbe5",
+    "tag": "v0.8.6"
+  },
+  "sources": {
+    "src/bridge.js": "f103e414767f3784c775ff1ac83912572a4300739806b93cf22a6634ea67df55",
+    "src/bili-share-scheduler.js": "c0d6941c7b5fa6db5e96be6ae8f17bf4d95b6e85830d3132d75a15b5efc43a56",
+    "src/character-persona.js": "0f22a5a3939b9c7de2a8f53282ad3df272b9af1302f953702fd8a4c0a31dabf7",
+    "plugins/surfcore/lib/index.js": "644e927dbeb9bbaf09aa424fb4d25adf7040abb37dca86ecbe8e271ba95fb88c",
+    "plugins/surfcore/lib/scheduler.js": "ddd5c7766ffa02a356c07465c1aa9dbd1021b9ed5905eb0d09b994bc3284a2a4",
+    "plugins/surfcore/lib/client.js": "8788b6b3cbda88e0f64ba11c02bf0eec415f50c0aaa5b88154df488de63cbf23",
+    "plugins/surfcore/lib/align.js": "4ec296f11e3d82cd74eb36c471b7f3f81a52d7b7d3d622e2f7c7a78c27917456",
+    "plugins/surfcore/tools/commands/dm-await.mjs": "71a9c55ae623296ee0da0b2fb4121e101a2cb2b8ec45894a9df0209aa49d3d25",
+    "plugins/surfcore/tools/lib/msgfeed.mjs": "4ca582cbdd8c2208730a376c8196d8e1d744a263106a655d4f60e8cedde9ea88",
+    "plugins/surfcore/tools/lib/state-paths.mjs": "3537a00f68486e68295269123e22a0852e9aa7c79c57a2b10b84772adecb4b97"
+  }
+}

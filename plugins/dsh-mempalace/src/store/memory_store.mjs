@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { createHash } from 'node:crypto'
 import {
   CHUNK_OVERLAP,
   CHUNK_SIZE,
@@ -13,6 +14,27 @@ import {
 } from './chunk.mjs'
 
 const MAX_IMPORT_ERRORS = 20
+
+const KNOWLEDGE_CHECKS = ['provenance', 'conflict', 'integrity', 'retrieval']
+
+function knowledgeError(code, message, hint) {
+  return Object.assign(new Error(message), { code, hint })
+}
+
+function knowledgeIdOf(subjectId, assetScope) {
+  return `kn_${createHash('sha256').update(`${subjectId}\0${assetScope}`, 'utf8').digest('hex').slice(0, 32)}`
+}
+
+/** JSON with object keys sorted recursively, so the same knowledge commit always digests identically. */
+function canonical(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`
+}
+
+function knowledgeDigest(assetScope, ops, checks) {
+  return createHash('sha256').update(canonical({ assetScope, ops, checks }), 'utf8').digest('hex')
+}
 
 function clamp(value, min, max, fallback) {
   const number = Number(value)
@@ -68,10 +90,6 @@ export class MemoryStore {
     return path.join(this.memoryDir, 'memories.jsonl')
   }
 
-  get identityPath() {
-    return path.join(this.memoryDir, 'identity.txt')
-  }
-
   async open() {
     if (this.opened) return this
     if (this.opening) return this.opening
@@ -88,6 +106,7 @@ export class MemoryStore {
       this.db.pragma('journal_mode = WAL')
       this.#createSchema()
       this.#migrateLegacyColumns()
+      this.#migrateArchiveColumns()
       this.#prepare()
       this.#prepareFts()
       this.opened = true
@@ -110,12 +129,16 @@ export class MemoryStore {
         content_hash TEXT NOT NULL UNIQUE,
         project TEXT NOT NULL DEFAULT 'general',
         topic TEXT NOT NULL DEFAULT 'general',
-        source TEXT NOT NULL DEFAULT 'auto-capture',
+        source TEXT NOT NULL DEFAULT 'manual',
         timestamp TEXT NOT NULL,
         session_id TEXT NOT NULL DEFAULT '',
         importance REAL DEFAULT 0.5,
         chunk_index INTEGER DEFAULT 0,
-        parent_id TEXT DEFAULT NULL
+        parent_id TEXT DEFAULT NULL,
+        archive_id TEXT DEFAULT NULL,
+        archive_digest TEXT DEFAULT NULL,
+        subject_id TEXT DEFAULT NULL,
+        archive_meta TEXT DEFAULT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
       CREATE INDEX IF NOT EXISTS idx_memories_topic ON memories(topic);
@@ -151,6 +174,26 @@ export class MemoryStore {
       CREATE INDEX IF NOT EXISTS idx_triples_predicate ON triples(predicate);
       CREATE INDEX IF NOT EXISTS idx_triples_valid ON triples(valid_from, valid_to);
       CREATE INDEX IF NOT EXISTS idx_triples_project ON triples(project);
+
+      CREATE TABLE IF NOT EXISTS knowledge_commits (
+        knowledge_id TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        commit_key TEXT NOT NULL,
+        digest TEXT NOT NULL,
+        state TEXT NOT NULL,
+        asset_scope TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        ops TEXT NOT NULL,
+        effects TEXT NOT NULL,
+        inverse TEXT NOT NULL,
+        checks TEXT NOT NULL,
+        provenance TEXT NOT NULL,
+        restores_revision INTEGER,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (knowledge_id, revision)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_commits_key ON knowledge_commits(commit_key);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_commits_state ON knowledge_commits(knowledge_id, state);
     `)
 
     try {
@@ -168,6 +211,25 @@ export class MemoryStore {
     ]) {
       try { this.db.exec(sql) } catch { /* column already exists */ }
     }
+  }
+
+  /**
+   * Archive ledger columns. The unique index is what makes a double submit impossible instead of
+   * merely unlikely, so index creation is never swallowed.
+   */
+  #migrateArchiveColumns() {
+    for (const sql of [
+      'ALTER TABLE memories ADD COLUMN archive_id TEXT DEFAULT NULL',
+      'ALTER TABLE memories ADD COLUMN archive_digest TEXT DEFAULT NULL',
+      'ALTER TABLE memories ADD COLUMN subject_id TEXT DEFAULT NULL',
+      'ALTER TABLE memories ADD COLUMN archive_meta TEXT DEFAULT NULL',
+    ]) {
+      try { this.db.exec(sql) } catch { /* column already exists */ }
+    }
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_memories_archive_id ON memories(archive_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_archive_chunk ON memories(archive_id, chunk_index) WHERE archive_id IS NOT NULL;
+    `)
   }
 
   #prepareFts() {
@@ -205,6 +267,11 @@ export class MemoryStore {
     `)
     this.stmts.insertVec = db.prepare('INSERT INTO vec_memories (rowid, embedding) VALUES (?, ?)')
     this.stmts.deleteVec = db.prepare('DELETE FROM vec_memories WHERE rowid = ?')
+    this.stmts.insertArchiveMemory = db.prepare(`
+      INSERT INTO memories (id, content, content_hash, project, topic, source, timestamp, session_id, importance, chunk_index, parent_id, embedded, archive_id, archive_digest, subject_id, archive_meta)
+      VALUES (@id, @content, @content_hash, @project, @topic, @source, @timestamp, @session_id, @importance, @chunk_index, @parent_id, @embedded, @archive_id, @archive_digest, @subject_id, @archive_meta)
+    `)
+    this.stmts.findArchiveRows = db.prepare('SELECT id, archive_digest, subject_id, archive_meta FROM memories WHERE archive_id = ? ORDER BY chunk_index')
     this.stmts.findByHash = db.prepare('SELECT id FROM memories WHERE content_hash = ?')
     this.stmts.findById = db.prepare('SELECT * FROM memories WHERE id = ?')
     this.stmts.deleteMemory = db.prepare('DELETE FROM memories WHERE id = ?')
@@ -263,7 +330,7 @@ export class MemoryStore {
     if (!content) throw new Error('Empty content')
     const project = String(input.project || 'general')
     const topic = String(input.topic || 'general')
-    const source = String(input.source || 'auto-capture')
+    const source = String(input.source || 'manual')
     const timestamp = input.timestamp || new Date().toISOString()
     const sessionId = String(input.session_id || '')
     const importance = clamp(input.importance, 0, 1, 0.5)
@@ -344,6 +411,85 @@ export class MemoryStore {
       else duplicates += 1
     }
     return { stored, duplicates, results }
+  }
+
+  /**
+   * Writes one delivered archive as chunked `memories` rows tagged with the sender's archive_id.
+   * Ids and content hashes are archive-scoped so the same text may also exist as a legacy auto-captured memory,
+   * and every chunk lands in a single transaction so a half-written archive cannot survive a crash.
+   */
+  async insertArchive(item) {
+    const content = String(item?.content ?? '').trim()
+    const archiveId = String(item?.archive_id ?? '')
+    if (!archiveId) throw new Error('dsh-mempalace: archive_id is required')
+    if (!content) throw new Error(`dsh-mempalace: archive ${archiveId} has no content`)
+    const digest = String(item?.digest ?? '')
+    const meta = item.meta && typeof item.meta === 'object' ? item.meta : {}
+    const base = `arc_${contentHash(archiveId)}`
+    const chunks = chunkText(content, {
+      chunkSize: this.chunkSize,
+      chunkOverlap: this.chunkOverlap,
+      minChunkSize: this.minChunkSize,
+    })
+    const parentId = chunks.length > 1 ? `${base}_c0` : null
+    const rows = []
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index]
+      const { vector, embedded } = await this.#embeddingFor(chunk)
+      rows.push({
+        id: `${base}_c${index}`,
+        content: chunk,
+        content_hash: contentHash(`${archiveId}\n${chunk}`),
+        project: String(meta.project || 'general'),
+        topic: String(meta.topic || 'general'),
+        source: String(item.source || 'actmem-archive'),
+        timestamp: String(meta.timestamp || item.received_at || new Date().toISOString()),
+        session_id: String(meta.session_id || ''),
+        importance: clamp(meta.importance, 0, 1, 0.5),
+        chunk_index: index,
+        parent_id: index === 0 ? null : parentId,
+        embedded,
+        embedding: vector,
+        archive_id: archiveId,
+        archive_digest: digest,
+        subject_id: String(item.subject_id || ''),
+        archive_meta: JSON.stringify({ ...meta, received_at: item.received_at ?? null }),
+      })
+    }
+    const write = this.db.transaction(() => {
+      const memoryIds = []
+      for (const row of rows) {
+        const info = this.stmts.insertArchiveMemory.run(row)
+        this.stmts.insertVec.run(BigInt(Number(info.lastInsertRowid)), row.embedding)
+        memoryIds.push(row.id)
+      }
+      return memoryIds
+    })
+    const memory_ids = write()
+    this.#invalidateL1()
+    return { archive_id: archiveId, digest, memory_ids, chunks: memory_ids.length }
+  }
+
+  /** Ledger read used by reconciliation; inconsistent digests surface as a conflict instead of a receipt. */
+  findArchiveById(archiveId) {
+    const key = String(archiveId ?? '')
+    if (!key) return null
+    const rows = this.stmts.findArchiveRows.all(key)
+    if (!rows.length) return null
+    const digests = [...new Set(rows.map(row => row.archive_digest))]
+    if (digests.length > 1) return { archive_id: key, conflict: true, digests }
+    let receivedAt = null
+    try {
+      receivedAt = JSON.parse(rows[0].archive_meta ?? '{}')?.received_at ?? null
+    } catch { /* unreadable meta keeps the receipt but loses the timestamp */ }
+    return {
+      archive_id: key,
+      digest: digests[0],
+      subject_id: rows[0].subject_id || null,
+      memory_ids: rows.map(row => row.id),
+      chunks: rows.length,
+      received_at: receivedAt,
+    }
   }
 
   async search(query, options = {}) {
@@ -548,13 +694,7 @@ export class MemoryStore {
     const cached = this.l1Cache.get(key)
     if (cached) return cached
 
-    const parts = []
-    if (fs.existsSync(this.identityPath)) {
-      const identity = fs.readFileSync(this.identityPath, 'utf-8').trim()
-      if (identity) parts.push(`## Identity\n${identity.slice(0, Math.min(2000, maxChars))}`)
-    }
-    parts.push(this.#generateL1(project, maxChars))
-    const text = parts.join('\n').slice(0, maxChars)
+    const text = this.#generateL1(project, maxChars).slice(0, maxChars)
     const result = { text, token_estimate: estimateTokens(text) }
     this.l1Cache.set(key, result)
     return result
@@ -602,7 +742,6 @@ export class MemoryStore {
     return {
       memory_dir: this.memoryDir,
       store_path: this.dbPath,
-      identity_exists: fs.existsSync(this.identityPath),
       total_memories: this.countAll(),
       projects,
       storage_size_kb: this.getStorageSizeKb(),
@@ -910,6 +1049,230 @@ export class MemoryStore {
       .run(validTo || new Date().toISOString(), id)
     if (info.changes === 0) throw new Error(`Triple not found: ${id}`)
     return { status: 'invalidated', id }
+  }
+
+  /** Sets a triple's validity directly; used only to replay a commit's inverse. */
+  setTripleValidity(tripleId, validTo) {
+    const id = Number(tripleId)
+    if (!Number.isInteger(id)) throw new Error('triple id must be an integer')
+    const info = this.db.prepare('UPDATE triples SET valid_to = ? WHERE id = ?').run(validTo ?? null, id)
+    if (info.changes === 0) throw new Error(`Triple not found: ${id}`)
+    return { status: 'updated', id }
+  }
+
+  commitKnowledge(input = {}) {
+    const subjectId = String(input.subjectId ?? '').trim()
+    const assetScope = String(input.assetScope ?? '').trim()
+    const commitKey = String(input.commitKey ?? '').trim()
+    if (!subjectId || !assetScope) throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', 'subjectId and assetScope are required')
+    if (!commitKey) throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', 'commitKey is required')
+    const checks = input.checks ?? {}
+    for (const name of KNOWLEDGE_CHECKS) {
+      if (checks[name] !== true) throw knowledgeError('MEMPALACE_KNOWLEDGE_CHECKS', `check ${name} must pass before a knowledge commit`)
+    }
+    // An omitted anchor defaults to the live head (CAS); an explicit anchor is compared strictly below.
+    const expectedRevision = input.expectedRevision === undefined
+      ? this.knowledgeHeadRevision({ subjectId, assetScope })
+      : Number(input.expectedRevision)
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', `expectedRevision must be a non-negative integer, got ${JSON.stringify(input.expectedRevision)}`)
+    }
+    const knowledgeId = knowledgeIdOf(subjectId, assetScope)
+    const existing = this.db.prepare('SELECT * FROM knowledge_commits WHERE commit_key = ?').get(commitKey)
+    if (existing) {
+      if (existing.knowledge_id !== knowledgeId) {
+        throw knowledgeError('MEMPALACE_KNOWLEDGE_CONFLICT', `commitKey ${commitKey} belongs to another knowledge asset`)
+      }
+      // A replay returns the first revision; reusing the key for another payload is a conflict, not a write.
+      if (Array.isArray(input.ops) && existing.digest !== knowledgeDigest(assetScope, input.ops, checks)) {
+        throw knowledgeError('MEMPALACE_KNOWLEDGE_CONFLICT', `commitKey ${commitKey} was already used for different knowledge content`)
+      }
+      return this.#knowledgeView(existing, { withOps: true })
+    }
+    const ops = input.ops
+    if (!Array.isArray(ops) || ops.length === 0) throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', 'ops must be a non-empty array')
+    const head = this.db.prepare("SELECT * FROM knowledge_commits WHERE knowledge_id = ? AND state = 'live' ORDER BY revision DESC LIMIT 1").get(knowledgeId)
+    const currentRevision = head ? Number(head.revision) : 0
+    if (expectedRevision !== currentRevision) {
+      throw knowledgeError('MEMPALACE_KNOWLEDGE_REVISION', `expected revision ${expectedRevision}, current ${currentRevision}`)
+    }
+    const digest = knowledgeDigest(assetScope, ops, checks)
+    const revision = currentRevision + 1
+    const now = new Date().toISOString()
+    const run = this.db.transaction(() => {
+      if (head) this.db.prepare("UPDATE knowledge_commits SET state = 'superseded' WHERE knowledge_id = ? AND revision = ?").run(knowledgeId, head.revision)
+      const effects = ops.map(op => this.#applyKnowledgeOp(op, assetScope, now))
+      const inverse = effects.slice().reverse()
+      this.db.prepare(`INSERT INTO knowledge_commits
+        (knowledge_id, revision, commit_key, digest, state, asset_scope, subject_id, ops, effects, inverse, checks, provenance, restores_revision, created_at)
+        VALUES (?, ?, ?, ?, 'live', ?, ?, ?, ?, ?, ?, ?, NULL, ?)`).run(
+        knowledgeId, revision, commitKey, digest, assetScope, subjectId, JSON.stringify(ops), JSON.stringify(effects),
+        JSON.stringify(inverse), JSON.stringify(checks), JSON.stringify(input.provenance ?? {}), now)
+      return this.db.prepare('SELECT * FROM knowledge_commits WHERE knowledge_id = ? AND revision = ?').get(knowledgeId, revision)
+    })
+    return this.#knowledgeView(run(), { withOps: true })
+  }
+
+  /** The live head revision for one asset, or 0 when it has never been committed. */
+  knowledgeHeadRevision(input = {}) {
+    const subjectId = String(input.subjectId ?? '').trim()
+    const assetScope = String(input.assetScope ?? '').trim()
+    if (!subjectId || !assetScope) throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', 'subjectId and assetScope are required')
+    const head = this.db.prepare("SELECT revision FROM knowledge_commits WHERE knowledge_id = ? AND state = 'live' ORDER BY revision DESC LIMIT 1")
+      .get(knowledgeIdOf(subjectId, assetScope))
+    return head ? Number(head.revision) : 0
+  }
+
+  rollbackKnowledge(input = {}) {
+    const subjectId = String(input.subjectId ?? '').trim()
+    const assetScope = String(input.assetScope ?? '').trim()
+    const commitKey = String(input.commitKey ?? '').trim()
+    const targetRevision = Number(input.targetRevision)
+    if (!subjectId || !assetScope || !commitKey || !Number.isInteger(targetRevision) || targetRevision < 0) {
+      throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', 'subjectId, assetScope, commitKey and a non-negative targetRevision are required')
+    }
+    const knowledgeId = knowledgeIdOf(subjectId, assetScope)
+    const existing = this.db.prepare('SELECT * FROM knowledge_commits WHERE commit_key = ?').get(commitKey)
+    if (existing) {
+      if (existing.knowledge_id !== knowledgeId) throw knowledgeError('MEMPALACE_KNOWLEDGE_CONFLICT', `commitKey ${commitKey} belongs to another knowledge asset`)
+      // Only the same rollback replays; the same key pointed at another target would restore the wrong revision.
+      if (existing.restores_revision === null || Number(existing.restores_revision) !== targetRevision) {
+        throw knowledgeError('MEMPALACE_KNOWLEDGE_CONFLICT', `commitKey ${commitKey} was already used for a rollback to revision ${existing.restores_revision ?? 'a normal commit'}`)
+      }
+      return this.#knowledgeView(existing)
+    }
+    const head = this.db.prepare("SELECT * FROM knowledge_commits WHERE knowledge_id = ? AND state = 'live' ORDER BY revision DESC LIMIT 1").get(knowledgeId)
+    if (!head) throw knowledgeError('MEMPALACE_KNOWLEDGE_TARGET', `knowledge ${knowledgeId} has no live revision`)
+    const current = Number(head.revision)
+    if (targetRevision >= current) throw knowledgeError('MEMPALACE_KNOWLEDGE_TARGET', `target revision ${targetRevision} is not older than ${current}`)
+    const range = this.db.prepare(`SELECT * FROM knowledge_commits
+      WHERE knowledge_id = ? AND revision > ? AND revision <= ? ORDER BY revision DESC`).all(knowledgeId, targetRevision, current)
+    if (range.some(commit => commit.restores_revision !== null)) {
+      throw knowledgeError('MEMPALACE_KNOWLEDGE_TARGET', 'cannot roll back across a rollback revision; choose that rollback revision or a later normal commit')
+    }
+    const now = new Date().toISOString()
+    const revision = current + 1
+    const run = this.db.transaction(() => {
+      this.db.prepare("UPDATE knowledge_commits SET state = 'rolled_back' WHERE knowledge_id = ? AND revision = ?").run(knowledgeId, current)
+      const ops = range.flatMap(commit => JSON.parse(commit.inverse))
+      const effects = ops.map(op => this.#applyKnowledgeOp(op, assetScope, now))
+      this.db.prepare(`INSERT INTO knowledge_commits
+        (knowledge_id, revision, commit_key, digest, state, asset_scope, subject_id, ops, effects, inverse, checks, provenance, restores_revision, created_at)
+        VALUES (?, ?, ?, ?, 'live', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        knowledgeId, revision, commitKey,
+        knowledgeDigest(assetScope, ops, {}),
+        assetScope, subjectId, JSON.stringify(ops), JSON.stringify(effects), JSON.stringify(effects.slice().reverse()),
+        JSON.stringify({}), JSON.stringify(input.provenance ?? {}), targetRevision, now)
+      return this.db.prepare('SELECT * FROM knowledge_commits WHERE knowledge_id = ? AND revision = ?').get(knowledgeId, revision)
+    })
+    return this.#knowledgeView(run())
+  }
+
+  knowledgeStatus(input = {}) {
+    const { knowledgeId, subjectId, assetScope, commitKeys } = input
+    if (Array.isArray(commitKeys)) {
+      if (commitKeys.length === 0) return { commits: [] }
+      const rows = this.db.prepare(`SELECT * FROM knowledge_commits WHERE commit_key IN (${commitKeys.map(() => '?').join(',')}) ORDER BY created_at`).all(...commitKeys)
+      return { commits: rows.map(row => this.#knowledgeView(row)) }
+    }
+    const id = knowledgeId ?? (subjectId && assetScope ? knowledgeIdOf(subjectId, assetScope) : undefined)
+    if (!id) throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', 'knowledgeId or subjectId + assetScope is required')
+    const rows = this.db.prepare('SELECT * FROM knowledge_commits WHERE knowledge_id = ? ORDER BY revision').all(id)
+    return { commits: rows.map(row => this.#knowledgeView(row)) }
+  }
+
+  /** Read-only ledger listing for one subject, newest first; it never writes a revision. */
+  listKnowledgeCommits(input = {}) {
+    const subjectId = String(input.subjectId ?? '').trim()
+    if (!subjectId) throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', 'subjectId is required')
+    const assetScope = String(input.assetScope ?? '').trim()
+    const limit = clamp(input.limit, 1, 200, 50)
+    const rows = assetScope
+      ? this.db.prepare(`SELECT * FROM knowledge_commits
+          WHERE subject_id = ? AND asset_scope = ?
+          ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(subjectId, assetScope, limit)
+      : this.db.prepare(`SELECT * FROM knowledge_commits
+          WHERE subject_id = ?
+          ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(subjectId, limit)
+    return { commits: rows.map(row => this.#knowledgeView(row)) }
+  }
+
+  #knowledgeView(row, options = {}) {
+    const view = {
+      knowledgeId: row.knowledge_id,
+      revision: Number(row.revision),
+      commitKey: row.commit_key,
+      digest: row.digest,
+      state: row.state,
+      assetScope: row.asset_scope,
+      restoresRevision: row.restores_revision === null ? null : Number(row.restores_revision),
+      createdAt: row.created_at,
+    }
+    // Fresh commits and their replays both expose the applied ops so a write can report its own effect.
+    if (options.withOps) {
+      view.ops = JSON.parse(row.ops)
+      view.effects = JSON.parse(row.effects)
+      view.inverse = JSON.parse(row.inverse)
+    }
+    return view
+  }
+
+  #applyKnowledgeOp(op, assetScope, now) {
+    if (op?.op === 'upsert_entity') {
+      const id = op.entityId || `ent_${contentHash(String(op.name ?? '').toLowerCase())}`
+      const existing = this.db.prepare('SELECT id FROM entities WHERE id = ?').get(id)
+      this.addEntity({ id, name: op.name, entity_type: op.entity_type ?? op.type, properties: op.properties })
+      return { op: 'restore_entity', entityId: id, existed: Boolean(existing) }
+    }
+    if (op?.op === 'set_entity') {
+      const id = op.entityId || `ent_${contentHash(String(op.name ?? '').toLowerCase())}`
+      const existing = this.db.prepare('SELECT * FROM entities WHERE id = ?').get(id)
+      if (!existing) throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', `entity ${id} was not found`)
+      if (op.name !== undefined || op.entity_type !== undefined || op.properties !== undefined) {
+        this.addEntity({
+          id,
+          name: op.name ?? existing.name,
+          entity_type: op.entity_type ?? existing.entity_type,
+          properties: op.properties,
+        })
+      }
+      return {
+        op: 'restore_entity',
+        entityId: id,
+        existed: true,
+        name: existing.name,
+        entity_type: existing.entity_type,
+        properties: JSON.parse(existing.properties || '{}'),
+      }
+    }
+    if (op?.op === 'restore_entity') {
+      const id = op.entityId
+      if (op.existed === false) {
+        this.db.prepare('DELETE FROM entities WHERE id = ?').run(id)
+        return { op: 'upsert_entity', entityId: id, existed: false }
+      }
+      if (op.name !== undefined || op.entity_type !== undefined || op.properties !== undefined) {
+        this.addEntity({ id, name: op.name, entity_type: op.entity_type, properties: op.properties })
+      }
+      return { op: 'upsert_entity', entityId: id, existed: true }
+    }
+    if (op?.op === 'upsert_triple') {
+      const written = this.addTriple({ ...op, project: op.project ?? assetScope })
+      return { op: 'set_validity', tripleId: written.id, validTo: now }
+    }
+    if (op?.op === 'invalidate_triple') {
+      const existing = this.db.prepare('SELECT valid_to FROM triples WHERE id = ?').get(Number(op.tripleId))
+      if (!existing) throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', `triple ${op.tripleId} was not found`)
+      this.invalidateTriple(op.tripleId, op.validTo)
+      return { op: 'set_validity', tripleId: Number(op.tripleId), validTo: existing.valid_to ?? null }
+    }
+    if (op?.op === 'set_validity') {
+      const existing = this.db.prepare('SELECT valid_to FROM triples WHERE id = ?').get(Number(op.tripleId))
+      if (!existing) throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', `triple ${op.tripleId} was not found`)
+      this.setTripleValidity(op.tripleId, op.validTo)
+      return { op: 'set_validity', tripleId: Number(op.tripleId), validTo: existing.valid_to ?? null }
+    }
+    throw knowledgeError('MEMPALACE_KNOWLEDGE_INVALID', `unknown knowledge op ${JSON.stringify(op?.op)}`)
   }
 
   knowledgeStats() {

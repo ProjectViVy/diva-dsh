@@ -1,0 +1,763 @@
+diff --git a/src/app/http.ts b/src/app/http.ts
+index 13c0115..1414b47 100644
+--- a/src/app/http.ts
++++ b/src/app/http.ts
+@@ -98,7 +98,10 @@ function setupView(runtime: HttpHost) {
+   const resolved = runtime.configured() ? runtime.deployment : undefined
+   return {
+     machine: machineView(runtime.machine), problem: runtime.setupProblem ?? null, feishuProblem: runtime.feishuProblem ?? null,
+-    accounts: resolved ? { repository: resolved.repository, agent: resolved.github.login, feishu: resolved.feishu ? { appId: resolved.feishu.appId, brand: resolved.feishu.brand, botId: resolved.feishu.botId, name: resolved.feishu.name } : null } : null,
++    accounts: resolved ? { mode: resolved.mode,
++      repository: resolved.mode === 'github' ? resolved.repository : null,
++      agent: resolved.mode === 'github' ? resolved.github.login : null,
++      feishu: resolved.feishu ? { appId: resolved.feishu.appId, brand: resolved.feishu.brand, botId: resolved.feishu.botId, name: resolved.feishu.name } : null } : null,
+   }
+ }
+ /** Build the `/orchestrator/api/state` response consumed by the management panel and `scripts/dsh-superagent status` (`docs/006-deployment.md`). */
+diff --git a/src/app/runtime.ts b/src/app/runtime.ts
+index a8cfe52..644aefe 100644
+--- a/src/app/runtime.ts
++++ b/src/app/runtime.ts
+@@ -146,9 +146,10 @@ export class Runtime extends Service implements SourceHost {
+           if (followup) sessions.relay(followup.id, followup.text)
+           // Notify the ticket's conversations whenever it ends via a pull request.
+           const ended = event.type === 'ticket.ended' ? store.tickets.get(event.data.ticketId) : undefined
+-          if (ended && setup.configured()) {
++          const deployment = ended && setup.configured() ? setup.deployment : undefined
++          if (ended && deployment?.mode === 'github') {
+             const request = store.triggers.get(ended.origin.triggerId)?.text ?? ''
+-            for (const message of pullEndNotices(ended, request, setup.deployment.repository)) outbox.send(message)
++            for (const message of pullEndNotices(ended, request, deployment.repository)) outbox.send(message)
+           }
+         } })
+       // Update the `evals` health entry on every pass if an evaluation failed as unavailable within the last hour.
+@@ -182,7 +183,7 @@ export class Runtime extends Service implements SourceHost {
+   get feishuProblem(): SetupProblem | undefined { return this.setup.feishuProblem }
+   links(): LinkTarget {
+     const resolved = this.setup.configured() ? this.setup.deployment : undefined
+-    const links = resolved ? { repository: resolved.repository, ...(resolved.feishu ? { feishu: resolved.feishu } : {}) } : {}
++    const links = resolved ? { ...(resolved.mode === 'github' ? { repository: resolved.repository } : {}), ...(resolved.feishu ? { feishu: resolved.feishu } : {}) } : {}
+     return channel => this.sources.link(channel, links)
+   }
+   ticketEnvironment(ticket: Ticket): Variable[] {
+diff --git a/src/app/tools/executor.ts b/src/app/tools/executor.ts
+index b1a6099..b90bde4 100644
+--- a/src/app/tools/executor.ts
++++ b/src/app/tools/executor.ts
+@@ -22,6 +22,8 @@ export interface ExecutorToolsHost {
+ 
+ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
+   const ticketId = ticket.id
++  const deployment = host.github.deployment
++  const githubAccount = deployment.mode === 'github' ? deployment.github.login : undefined
+   return [
+     readTool('Read one page of a resource of this ticket that the resource parameter lists. Follow next_offset, and next_resource where a page names one.',
+       true, (resource, offset, limit, signal) => readResource(host.resources, resource, offset, limit, ticketId, signal)),
+@@ -79,7 +81,9 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
+         summary: z.string().min(1),
+         human_action: z.string().trim().min(1).max(1000).nullish().describe('One concrete question for a person, also with state=progress; omit to keep the pending one, null to clear it.'),
+         question_for_trigger_id: z.string().optional().describe('With human_action: the human message that raised the question, which is asked where that person wrote.'),
+-        pr_number: z.number().int().positive().nullish().describe(`The ticket's PR: its source PR, or one by ${host.github.deployment.github.login} from a branch named after this ticket (DSH_SUPERAGENT_NAME).`),
++        pr_number: z.number().int().positive().nullish().describe(githubAccount
++          ? `The ticket's PR: its source PR, or one by ${githubAccount} from a branch named after this ticket (DSH_SUPERAGENT_NAME).`
++          : 'The ticket\'s PR: its source PR. GitHub is not configured in this deployment, so no PR can be named.'),
+         reply_to_trigger_id: z.string().optional().describe('The explicit human question this report answers; never for ordinary progress.'),
+       }).strict(),
+       execute: async (args, signal) => {
+diff --git a/src/app/views/settings.ts b/src/app/views/settings.ts
+index bc138d1..4ebafb6 100644
+--- a/src/app/views/settings.ts
++++ b/src/app/views/settings.ts
+@@ -30,7 +30,7 @@ export function settingsView(store: Store, sources: SourceRegistry, health: Heal
+     sources: sources.instances(settings).map(instance => {
+       const kind = sources.kind(instance.kind)
+       const problem = problemOf(instance.id, setup)
+-      const { id, title } = sourceHealth(sources, instance, health)
++      const { id, title } = sourceHealth(sources, instance, health, setup.deployment)
+       return { id, kind: instance.kind, title, description: kind?.description ?? { zh: '', en: '' }, installed: instance.installed,
+         value: { enabled: instance.enabled, config: instance.config }, revision: store.blockRevision(`source:${instance.id}`),
+         restarts: SETUP_FIELDS[instance.id] ?? [], fields: kind?.fields ?? [], facts: kind?.facts?.(setup.deployment) ?? {},
+diff --git a/src/app/views/sources.ts b/src/app/views/sources.ts
+index 08c9728..1d50210 100644
+--- a/src/app/views/sources.ts
++++ b/src/app/views/sources.ts
+@@ -10,12 +10,13 @@ import { preview } from './text.ts'
+ 
+ export type HealthMap = Record<string, Health>
+ /** Resolves health entries for a Source instance, treating stale `sourceOff` entries on an enabled Source as `starting`. */
+-export function sourceHealth(sources: SourceRegistry, instance: SourceInstance, health: HealthMap) {
++export function sourceHealth(sources: SourceRegistry, instance: SourceInstance, health: HealthMap, deployment?: Deployment) {
+   const kind = sources.kind(instance.kind)
++  const available = !deployment || kind?.available?.(deployment) !== false
+   const starting: Health = { state: 'starting', detail: '' }
+   const parts = (kind?.health ?? []).map(name => {
+     const entry = health[name]
+-    return { name, ...(!entry || (instance.enabled && entry.code === 'sourceOff') ? starting : entry) }
++    return { name, ...(!entry || (instance.enabled && available && entry.code === 'sourceOff') ? starting : entry) }
+   })
+   return { id: instance.id, title: kind?.title ?? { zh: instance.id, en: instance.id }, health: parts }
+ }
+@@ -30,9 +31,11 @@ export interface SetupState {
+ export const problemOf = (id: string, setup: SetupState) => [setup.problem, setup.feishuProblem].find(problem => problem?.place === id)
+ /** Source lifecycle state in priority order: missing kind, disabled, setup/part error, blocked on global setup, starting, paused, or ready. */
+ export type SourceState = 'missing' | 'off' | 'error' | 'setup' | 'starting' | 'paused' | 'ready'
+-function sourceState(instance: SourceInstance & { installed: boolean }, parts: { state: string }[], setup: SetupState): SourceState {
++function sourceState(instance: SourceInstance & { installed: boolean }, parts: { state: string }[], setup: SetupState,
++  available = true): SourceState {
+   if (!instance.installed) return 'missing'
+   if (!instance.enabled) return 'off'
++  if (!available) return 'off'
+   if (problemOf(instance.id, setup) || parts.some(part => part.state === 'error')) return 'error'
+   if (setup.problem) return 'setup'
+   if (parts.some(part => part.state === 'starting')) return 'starting'
+@@ -48,9 +51,11 @@ export function sourcesStatus(host: ViewHost, health: HealthMap, setup: SetupSta
+       reason: store.triggers.disposition(trigger.id)?.filtered }))
+   const dropped = droppedReplies(host)
+   return sources.instances().map(instance => {
+-    const { health: parts, ...named } = sourceHealth(sources, instance, health)
++    const kind = sources.kind(instance.kind)
++    const available = !setup.deployment || kind?.available?.(setup.deployment) !== false
++    const { health: parts, ...named } = sourceHealth(sources, instance, health, setup.deployment)
+     const problem = problemOf(instance.id, setup)
+-    return { ...named, installed: instance.installed, enabled: instance.enabled, state: sourceState(instance, parts, setup), health: parts,
++    return { ...named, installed: instance.installed, enabled: instance.enabled, state: sourceState(instance, parts, setup, available), health: parts,
+       ...problem ? { problem } : {}, stats: stats[instance.id] ?? { received: 0, filtered: 0, lastAt: '' }, filtered: filtered(instance.id),
+       dropped: dropped.filter(item => item.channel.source === instance.id) }
+   })
+diff --git a/src/client/deployment.tsx b/src/client/deployment.tsx
+index a345811..75b7ee0 100644
+--- a/src/client/deployment.tsx
++++ b/src/client/deployment.tsx
+@@ -62,8 +62,12 @@ export function DeploymentPage({ setup, form, accounts: showAccounts }: { setup:
+         <p className="dt-error" role="status"><SetupMessage problem={setup.problem} lead /></p><CheckSetupButton />
+       </div>}
+       {showAccounts && <Section title={t('deploymentDerived')} hint={t('deploymentDerivedHint')}>
+-        <KeyValues rows={[[t('deploymentRepository'), accounts?.repository ?? '—'],
+-          [t('deploymentAgent'), accounts ? `@${accounts.agent}` : '—'], [t('deploymentFeishu'), feishu]]} />
++        <KeyValues rows={[
++          [t('deploymentMode'), accounts?.mode === 'personal' ? t('deploymentPersonal') : accounts?.mode === 'github' ? t('deploymentGithub') : '—'],
++          [t('deploymentRepository'), accounts?.repository ?? '—'],
++          [t('deploymentAgent'), accounts?.agent ? `@${accounts.agent}` : '—'],
++          [t('deploymentFeishu'), feishu],
++        ]} />
+         <Hint>{t('deploymentAccountsWhere')}</Hint>
+       </Section>}
+       <Section title={t('deploymentMachine')}>
+diff --git a/src/client/locales.ts b/src/client/locales.ts
+index d81d0d4..cc125a0 100644
+--- a/src/client/locales.ts
++++ b/src/client/locales.ts
+@@ -544,6 +544,9 @@ const TEXT = {
+   deploymentUnavailable: ['dsh-superagent 启动完成后才能修改这些值。', 'These values can be changed once dsh-superagent has started.'],
+   deploymentDerived: ['仓库与账号', 'Repository and accounts'],
+   deploymentDerivedHint: ['由来源设置里的仓库和 CLI 得出。', 'Derived from the repository and the CLIs in the Source settings.'],
++  deploymentMode: ['运行模式', 'Mode'],
++  deploymentPersonal: ['个人模式', 'Personal'],
++  deploymentGithub: ['GitHub 模式', 'GitHub'],
+   deploymentRepository: ['仓库', 'Repository'],
+   deploymentAgent: ['智能体账号', 'Agent account'],
+   deploymentFeishu: ['飞书机器人', 'Feishu bot'],
+diff --git a/src/deployment.ts b/src/deployment.ts
+index 76340cb..315c605 100644
+--- a/src/deployment.ts
++++ b/src/deployment.ts
+@@ -50,12 +50,21 @@ export const FeishuBotSchema = z.object({ cli: z.string().trim().default('') })
+ /** Source configuration keys that affect deployment setup and trigger a restart when changed. */
+ export const SETUP_FIELDS: Readonly<Record<string, readonly string[]>> = { github: Object.keys(GithubAccountsSchema.shape), feishu: Object.keys(FeishuBotSchema.shape) }
+ 
+-export interface Deployment extends Machine {
+-  repository: string
+-  github: { cli: string; login: string; noreply: string }
+-  feishu?: FeishuBot
+-}
+ export interface FeishuBot { cli: string; appId: string; brand: 'feishu' | 'lark'; botId: string; name: string }
++export interface GithubIdentity { cli: string; login: string; noreply: string }
++export interface DeploymentBase extends Machine { feishu?: FeishuBot }
++export interface PersonalDeployment extends DeploymentBase { mode: 'personal' }
++export interface GithubDeployment extends DeploymentBase { mode: 'github'; repository: string; github: GithubIdentity }
++export type Deployment = PersonalDeployment | GithubDeployment
++
++/** Thrown when a command needs GitHub but the deployment runs without it. */
++export class GithubUnavailableError extends Error {
++  constructor() { super('GitHub is not configured in this deployment; GitHub commands are unavailable') }
++}
++export function requireGithub(deployment: Deployment): GithubDeployment {
++  if (deployment.mode !== 'github') throw new GithubUnavailableError()
++  return deployment
++}
+ 
+ /** Resolve a command name or absolute path to an executable file, ignoring the worker shim directory. */
+ export function executable(name: string, path: string, exclude?: string): string {
+@@ -88,6 +97,7 @@ export async function resolveDeployment(machine: Machine, github: unknown, probe
+   const { stateDir } = machine
+   const accounts = GithubAccountsSchema.parse(github ?? {})
+   const remote = accounts.repository
++  if (!remote && !accounts.cli) return { ...machine, mode: 'personal' }
+   if (!remote) throw new SetupError('repositoryUnset')
+   if (!accounts.cli) throw new SetupError('agentCliUnset')
+   let cli: string
+@@ -102,7 +112,7 @@ export async function resolveDeployment(machine: Machine, github: unknown, probe
+   if (!access) throw new SetupError('repositoryUnreported', { repository: remote })
+   const repository = access.name
+   if (access.push !== true) throw new SetupError('repositoryReadOnly', { account: agent.login, repository })
+-  return { ...machine, repository, github: { cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` } }
++  return { ...machine, mode: 'github', repository, github: { cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` } }
+ }
+ 
+ const AuthStatus = z.object({ appId: z.string().regex(/^cli_[A-Za-z0-9]+$/), brand: z.enum(['feishu', 'lark']).default('feishu'), identities: z.object({ bot: z.object({ status: z.string() }) }) })
+diff --git a/src/infra/commands.ts b/src/infra/commands.ts
+index 120f5a4..49df514 100644
+--- a/src/infra/commands.ts
++++ b/src/infra/commands.ts
+@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
+ import { basename } from 'node:path'
+ import { promisify } from 'node:util'
+ import { z } from 'zod'
+-import type { Deployment } from '../deployment.ts'
++import { requireGithub, type Deployment, type GithubIdentity } from '../deployment.ts'
+ 
+ const exec = promisify(execFile)
+ const TIMEOUT_MS = 90_000
+@@ -63,7 +63,8 @@ export class Commands {
+    */
+   constructor(private readonly resolved: () => Deployment, private readonly environment: Record<string, string | undefined>, private readonly signal: AbortSignal) {}
+   get deployment(): Deployment { return this.resolved() }
+-  get repository(): string { return this.deployment.repository }
++  get github(): GithubIdentity { return requireGithub(this.deployment).github }
++  get repository(): string { return requireGithub(this.deployment).repository }
+   withSignal(signal?: AbortSignal): Commands { return signal ? new Commands(this.resolved, this.environment, AbortSignal.any([this.signal, signal])) : this }
+   async run(program: string, args: string[], cwd?: string): Promise<string> {
+     try {
+@@ -73,7 +74,7 @@ export class Commands {
+     } catch (error) { throw commandError(error, program) }
+   }
+   /** Runs the agent's GitHub CLI and parses its JSON output; callers should prefer `api`, which is restricted to the configured repository and validates output. */
+-  async gh<T>(args: string[]): Promise<T> { return JSON.parse(await this.run(this.deployment.github.cli, args)) as T }
++  async gh<T>(args: string[]): Promise<T> { return JSON.parse(await this.run(this.github.cli, args)) as T }
+   /**
+    * Calls the GitHub API on a path within the configured repository, validating JSON output when a schema is provided
+    * or returning raw CLI output (such as raw files or `--include` headers) when omitted.
+@@ -82,7 +83,7 @@ export class Commands {
+   async api<T>(schema: z.ZodType<T>, path: string, ...flags: string[]): Promise<T>
+   async api(path: string, ...flags: string[]): Promise<string>
+   async api<T>(schema: z.ZodType<T> | string, ...rest: string[]): Promise<T | string> {
+-    if (typeof schema === 'string') return this.run(this.deployment.github.cli, ['api', this.path(schema), ...rest])
++    if (typeof schema === 'string') return this.run(this.github.cli, ['api', this.path(schema), ...rest])
+     const [path = '', ...flags] = rest
+     return schema.parse(await this.gh(['api', this.path(path), ...flags]))
+   }
+diff --git a/src/infra/environment.ts b/src/infra/environment.ts
+index b6d92c3..6101b56 100644
+--- a/src/infra/environment.ts
++++ b/src/infra/environment.ts
+@@ -7,7 +7,7 @@ import { lstat, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node
+ import { realpathSync } from 'node:fs'
+ import { delimiter, join, resolve } from 'node:path'
+ import type { SubprocessOutputReader, SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+-import type { Deployment } from '../deployment.ts'
++import { requireGithub, type Deployment } from '../deployment.ts'
+ import { SetupError } from '../setup.ts'
+ import { CliError } from './commands.ts'
+ 
+@@ -76,8 +76,9 @@ async function own(file: string, text: string, mode = 0o644): Promise<void> {
+  * Atomically writes worker CLI shims and the isolated git configuration file into the state directory, refusing to overwrite foreign files.
+  * Each shim strips the shim directory from PATH before exec so wrapper scripts resolving `gh` or `lark-cli` by name reach the real binary.
+  */
+-export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' | 'repository' | 'github' | 'feishu'>, blockedCommands: readonly string[]): Promise<void> {
+-  const { stateDir, repository, github, feishu } = deployment
++export async function writeEnvironment(deployment: Deployment, blockedCommands: readonly string[]): Promise<void> {
++  const { stateDir, feishu } = deployment
++  const github = deployment.mode === 'github' ? deployment.github : undefined
+   const dir = workerBin(stateDir)
+   await mkdir(dir, { recursive: true })
+   const before = await readdir(dir)
+@@ -97,10 +98,10 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
+   ].join('\n')
+   const run = (program: string): string => `${withoutShims}\nexec ${shellQuote(program)} "$@"`
+   const fail = (message: string): string => `echo ${shellQuote(message)} >&2\nexit 1`
+-  await shim('gh', run(github.cli))
++  if (github) await shim('gh', run(github.cli))
+   await shim('lark-cli', feishu ? run(feishu.cli) : fail('lark-cli is unavailable: this installation has no Feishu bot.'))
+   for (const name of new Set(blockedCommands.filter(name => !WORKER_COMMANDS.includes(name)))) {
+-    await shim(name, fail(`${name} is blocked in this installation; use gh, which acts as ${github.login}.`))
++    await shim(name, fail(github ? `${name} is blocked in this installation; use gh, which acts as ${github.login}.` : `${name} is blocked in this installation.`))
+   }
+   for (const name of before) if (!kept.has(name)) await unlink(join(dir, name))
+   await own(workerGitConfig(stateDir), [
+@@ -108,8 +109,8 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
+     // Make git refuse to commit without an explicit identity set by the worker instead of guessing from the operator's OS user.
+     '[user]', '\tuseConfigOnly = true',
+     '[credential]', '\thelper =',
+-    '[credential "https://github.com"]', `\thelper = ${gitQuote(credentialHelper(github.cli))}`,
+-    '[url "https://github.com/"]', '\tinsteadOf = git@github.com:', '\tinsteadOf = ssh://git@github.com/',
++    ...github ? ['[credential "https://github.com"]', `\thelper = ${gitQuote(credentialHelper(github.cli))}`,
++      '[url "https://github.com/"]', '\tinsteadOf = git@github.com:', '\tinsteadOf = ssh://git@github.com/'] : [],
+     // Include Git LFS filters because the operator's global gitconfig (which usually holds them) is ignored.
+     '[filter "lfs"]', '\tclean = git-lfs clean -- %f', '\tsmudge = git-lfs smudge -- %f', '\tprocess = git-lfs filter-process', '\trequired = true',
+   ].join('\n') + '\n')
+@@ -135,7 +136,8 @@ export async function runAsWorker(subprocess: SubprocessRuntime, argv: string[],
+ }
+ 
+ /** Verifies that worker git invocations resolve the deployment's GitHub credential helper. */
+-export async function verifyEnvironment(deployment: Pick<Deployment, 'github' | 'stateDir'>, subprocess: SubprocessRuntime, signal: AbortSignal): Promise<void> {
++export async function verifyEnvironment(deployment: Deployment, subprocess: SubprocessRuntime, signal: AbortSignal): Promise<void> {
++  if (deployment.mode !== 'github') return
+   const { github, stateDir } = deployment
+   // `-z` separates fields with NUL and never quotes paths.
+   const helpers = (await runAsWorker(subprocess, ['git', 'config', '-z', '--show-origin', '--get-all', 'credential.https://github.com.helper'], stateDir, AbortSignal.any([signal, AbortSignal.timeout(60_000)])).catch(() => '')).split('\0')
+diff --git a/src/sources/github-channel.ts b/src/sources/github-channel.ts
+index 34c4aea..9f37c93 100644
+--- a/src/sources/github-channel.ts
++++ b/src/sources/github-channel.ts
+@@ -1,6 +1,7 @@
+ /** GitHub outbound channel: posts issue/PR comments and review thread replies under the agent account. */
+ import { z } from 'zod'
+ import type { OutboundMessage } from '../core/index.ts'
++import { requireGithub } from '../deployment.ts'
+ import { CliError } from '../infra/commands.ts'
+ import { sameName } from '../infra/text.ts'
+ import type { SourceContext } from './host.ts'
+@@ -17,7 +18,7 @@ const missing = (error: unknown): boolean => error instanceof CliError && (error
+ /** Posts a comment or review-thread reply with an embedded HTML marker so retries do not create duplicate comments. */
+ export async function sendGithub(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone'> {
+   const { commands } = host
+-  const { repository, github } = commands.deployment
++  const { repository, github } = requireGithub(commands.deployment)
+   const number = Number(message.channel.address.number)
+   if (!number) throw new Error('Missing GitHub reply target')
+   try {
+diff --git a/src/sources/github-pull.ts b/src/sources/github-pull.ts
+index 87976b5..e58b60b 100644
+--- a/src/sources/github-pull.ts
++++ b/src/sources/github-pull.ts
+@@ -1,7 +1,7 @@
+ /** Pull request binding, lifecycle observation, and terminal IM notification helpers. */
+ import { z } from 'zod'
+ import { key, liveTicket, type Follow, type OutboundMessage, type ThreadFact, type Ticket } from '../core/index.ts'
+-import type { Deployment } from '../deployment.ts'
++import { requireGithub, type Deployment } from '../deployment.ts'
+ import { sameName } from '../infra/text.ts'
+ import type { SourceContext } from './host.ts'
+ import { githubPage, SOURCE, UserSchema } from './github-trigger.ts'
+@@ -21,8 +21,9 @@ export const pullsOf = (ticket: Pick<Ticket, 'follows'>, open = false): number[]
+ export const pullOf = (ticket: Pick<Ticket, 'follows'>): number | undefined => pullsOf(ticket, true).at(-1) ?? pullsOf(ticket).at(-1)
+ /** True when the PR was opened by the agent account from a branch in the configured repository (not a fork). */
+ export const agentPull = (pr: { user: { login: string }; head?: { repo?: { full_name: string } | null } | null },
+-  deployment: Pick<Deployment, 'github' | 'repository'>): boolean =>
+-  sameName(pr.user.login, deployment.github.login) && sameName(pr.head?.repo?.full_name ?? '', deployment.repository)
++  deployment: Deployment): boolean =>
++  deployment.mode === 'github' && sameName(pr.user.login, deployment.github.login)
++  && sameName(pr.head?.repo?.full_name ?? '', deployment.repository)
+ /** True when a branch belongs to the ticket: its last path segment is the ticket's short name, such as `agent/<name>`. */
+ export const ticketBranch = (ticket: Pick<Ticket, 'execution'>, ref: string): boolean =>
+   !!ticket.execution?.name && ref.split('/').at(-1) === ticket.execution.name
+@@ -33,13 +34,14 @@ const AUTO_MERGE_ON: ThreadFact = { label: { zh: '自动合并', en: 'Auto-merge
+  * Returns an error message when binding is rejected, or undefined when the PR is bound or when the PR is not open (which is not an error).
+  */
+ export function claimPull(ctx: SourceContext, ticketId: string, pr: Pull): string | undefined {
++  const deployment = requireGithub(ctx.deployment)
+   const ticket = ctx.tickets.get(ticketId)
+   if (!ticket || !liveTicket(ticket)) return 'Ticket ended because its PR was closed'
+   const source = ctx.triggers.get(ticket.origin.triggerId)
+   const started = source?.source === SOURCE && source.meta.isPr === true && source.meta.number === pr.number
+-  const opened = agentPull(pr, ctx.deployment) && ticketBranch(ticket, pr.head.ref)
++  const opened = agentPull(pr, deployment) && ticketBranch(ticket, pr.head.ref)
+   if (!started && !opened) {
+-    const { login } = ctx.deployment.github
++    const { login } = deployment.github
+     return `PR does not belong to this ticket: use the source PR or a PR by ${login} from a branch whose last path segment is DSH_SUPERAGENT_NAME; omit pr_number when no PR exists`
+   }
+   const owner = ctx.tickets.open().find(item => pullsOf(item, true).includes(pr.number))
+diff --git a/src/sources/github.ts b/src/sources/github.ts
+index f9b80b6..37ba7cc 100644
+--- a/src/sources/github.ts
++++ b/src/sources/github.ts
+@@ -2,7 +2,7 @@
+ import type { Context } from '@deepseek-ai/cordis'
+ import { key, type Thread } from '../core/index.ts'
+ import { sameName } from '../infra/text.ts'
+-import { GithubAccountsSchema } from '../deployment.ts'
++import { GithubAccountsSchema, requireGithub } from '../deployment.ts'
+ import { CliError, validItems, type Tally } from '../infra/commands.ts'
+ import { ciCounts, ciFact, ciFailures, ciSummary, githubThreadContext, pullChecks } from './github-read.ts'
+ import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, githubAddress, issueTrigger, IssueSchema, pullTrigger, SOURCE }
+@@ -61,6 +61,7 @@ export const githubKind: SourceKind<GithubConfig> = {
+     return { listened: true, observed: row !== undefined && config[OBSERVED[row]], ...row ? { row } : {} }
+   },
+   health: ['github'],
++  available: deployment => deployment.mode === 'github',
+   channel: { send: sendGithub, link: githubLink },
+   threadContext: githubThreadContext,
+   // `#12`, `12`, or the page of an Issue or PR, of any repository, names Thread 12.
+@@ -97,13 +98,14 @@ export const githubKind: SourceKind<GithubConfig> = {
+       { key: 'DSH_SUPERAGENT_GITHUB_NUMBER', description: { zh: '接下工单的 Issue 或 PR 编号；工单不是从 GitHub 来的时为空', en: 'Number of the Issue or PR that started the ticket; empty when the ticket did not start on GitHub' } },
+       { key: 'DSH_SUPERAGENT_GITHUB_PR_HEAD', description: { zh: '接下工单的 PR 的 head 引用 refs/pull/<编号>/head；不是 PR 时为空', en: 'Head ref refs/pull/<number>/head of the PR that started the ticket; empty when it was not a PR' } },
+     ],
+-    values: ({ deployment, trigger }) => {
++    values: ({ deployment, trigger }): Record<string, string> => {
++      if (deployment.mode !== 'github') return {}
+       const number = trigger?.threads[0]?.source === SOURCE ? Number(trigger.meta.number) || 0 : 0
+       return { DSH_SUPERAGENT_GITHUB_REPOSITORY: deployment.repository, DSH_SUPERAGENT_GITHUB_ACCOUNT: deployment.github.login, DSH_SUPERAGENT_GITHUB_COMMIT_EMAIL: deployment.github.noreply, DSH_SUPERAGENT_GITHUB_NUMBER: number ? String(number) : '',
+         DSH_SUPERAGENT_GITHUB_PR_HEAD: number && trigger?.meta.isPr === true ? `refs/pull/${number}/head` : '' }
+     },
+   },
+-  facts: (deployment): Record<string, Localized | string> => deployment ? {
++  facts: (deployment): Record<string, Localized | string> => deployment?.mode === 'github' ? {
+     cli: { zh: `当前账号 @${deployment.github.login}`, en: `Current account @${deployment.github.login}` },
+   } : {},
+ }
+@@ -130,6 +132,8 @@ async function watch(ctx: SourceContext, signal: AbortSignal): Promise<void> {
+   await ctx.ready
+   // Setup restarts dsh-superagent once it resolves the accounts; until then nothing is polled.
+   if (!ctx.configured()) { ctx.report('github', health('paused', 'setupPending')); return }
++  // A personal deployment has no GitHub account to poll with; the panel shows the Source as off.
++  if (ctx.deployment.mode !== 'github') { ctx.report('github', health('paused', 'sourceOff')); return }
+   while (!signal.aborted) {
+     const config = ctx.config<GithubConfig>(SOURCE)
+     try {
+@@ -218,7 +222,7 @@ async function readStream(ctx: SourceContext, round: Round, id: string, path: st
+   }
+   const { headers, body } = included(raw)
+   const items = validItems(ListedSchema, z.array(z.unknown()).parse(JSON.parse(body)), round.tally)
+-  const { login } = ctx.deployment.github
++  const { login } = requireGithub(ctx.deployment).github
+   const fresh = (at: string | null | undefined, kind: string) =>
+     kind in started && Date.parse(at ?? '') >= Math.max(Date.parse(started[kind]!), horizon)
+   for (const item of items) {
+@@ -264,7 +268,7 @@ async function pollBranchCi(ctx: SourceContext, round: Round): Promise<void> {
+   if (known && JSON.stringify(now) !== JSON.stringify(known)) {
+     revision += 1
+     const summary = ciSummary(snapshot, branch, `github/commits/${head.sha}/checks`)
+-    const url = `https://github.com/${ctx.deployment.repository}/commit/${head.sha}`
++    const url = `https://github.com/${requireGithub(ctx.deployment).repository}/commit/${head.sha}`
+     await ctx.receive(branchCiTrigger(branch, head.sha, revision, summary, url))
+     ctx.threads.describe(`github:ci:${branch}`, { label: `CI on ${branch}`, facts: { ci: ciFact(counts) } })
+   }
+@@ -300,7 +304,7 @@ async function pollNotifications(ctx: SourceContext, round: Round): Promise<{ co
+   const commands = ctx.commands.withSignal(round.signal)
+   const since = state.get(KV.github.since) ?? round.started
+   if (state.get(KV.github.since) === undefined) state.set(KV.github.since, since)
+-  const { repository } = ctx.deployment
++  const { repository } = requireGithub(ctx.deployment)
+   const path = `notifications?all=true&per_page=50&since=${encodeURIComponent(since)}`
+   const raw = await commands.api(path, '--include')
+   const split = raw.search(/\r?\n\r?\n/)
+@@ -351,7 +355,7 @@ async function readNotified(ctx: SourceContext, round: Round, number: number, it
+     if (!isPr) {
+       // An Issue opened by someone other than the agent since the cursor brings its body so a mention in it reaches the gate.
+       // A mention added by a later edit to the body is not read: only the author can be the actor of the body.
+-      const { login } = ctx.deployment.github
++      const { login } = requireGithub(ctx.deployment).github
+       const opened = Date.parse(issue.created_at) >= Date.parse(since) && !sameName(issue.user.login, login)
+       if (opened) await ctx.receive(issueTrigger(issue, login))
+       await intakeComments(ctx, { number, isPr: false, url: issue.html_url }, since, round)
+@@ -361,7 +365,7 @@ async function readNotified(ctx: SourceContext, round: Round, number: number, it
+   if (isPr) {
+     const pr = await pull(ctx, round, number)
+     // Emit a PR description trigger for PRs opened since the cursor; its ID is the same as the one produced by the repository PR stream.
+-    const { login } = ctx.deployment.github
++    const { login } = requireGithub(ctx.deployment).github
+     if (pr.created_at && Date.parse(pr.created_at) >= Date.parse(since) && !sameName(pr.user.login, login)) {
+       const opened = { number, title: pr.title ?? '', body: pr.body, user: pr.user, created_at: pr.created_at, html_url: pr.html_url }
+       await ctx.receive(pullTrigger(opened, login))
+@@ -383,7 +387,7 @@ function pull(ctx: SourceContext, round: Round, number: number): Promise<Pull> {
+ }
+ async function intakeComments(ctx: SourceContext, ref: PullRef, since: string, round: Round): Promise<void> {
+   const commands = ctx.commands.withSignal(round.signal)
+-  const { login } = ctx.deployment.github
++  const { login } = requireGithub(ctx.deployment).github
+   const kinds = ref.isPr ? ['conversation', 'inline', 'review'] as const : ['conversation'] as const
+   for (const kind of kinds) {
+     const suffix = `&since=${encodeURIComponent(since)}`
+diff --git a/src/sources/kind.ts b/src/sources/kind.ts
+index 3a8b32e..e939d4e 100644
+--- a/src/sources/kind.ts
++++ b/src/sources/kind.ts
+@@ -2,7 +2,7 @@
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+ import type { z } from 'zod'
+ import type { OutboundMessage, ScopeResult, Trigger } from '../core/index.ts'
+-import type { Deployment } from '../deployment.ts'
++import type { Deployment, FeishuBot } from '../deployment.ts'
+ import type { Commands } from '../infra/commands.ts'
+ import type { SourceContext, SourceHost } from './host.ts'
+ 
+@@ -41,7 +41,8 @@ export interface SourcePolicyPart<P extends Record<string, unknown>> {
+ }
+ /** UI link for a channel address; `triggerId` names the Trigger whose own deep link is preferred when available. */
+ export interface ChannelLink { url: string; label: Localized; triggerId?: string }
+-export type ChannelLinks = Partial<Pick<Deployment, 'repository' | 'feishu'>>
++/** UI link inputs supplied by the deployment; each channel ignores fields it does not need. */
++export interface ChannelLinks { repository?: string; feishu?: FeishuBot }
+ /** Outbound messaging adapter for a source kind's threads. */
+ export interface SourceChannel<C> {
+   /** Whether a reply may still go to `address`; without it, every address may receive replies. */
+@@ -89,6 +90,8 @@ export interface SourceKind<C extends Record<string, unknown> = Record<string, u
+   description: Localized
+   /** Read-only status facts derived from `deployment` (undefined while waiting for setup), keyed by field key. */
+   facts?(deployment: Deployment | undefined): Record<string, Localized | string>
++  /** False when the deployment cannot use this Source, such as GitHub without GitHub configured; the panel shows it off. */
++  available?(deployment: Deployment): boolean
+   /** Validates stored and submitted configuration and fills defaults. */
+   schema: z.ZodType<C>
+   fields: FieldSpec[]
+diff --git a/tests/deployment.spec.ts b/tests/deployment.spec.ts
+index 532b40b..079cc3f 100644
+--- a/tests/deployment.spec.ts
++++ b/tests/deployment.spec.ts
+@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { promisify } from 'node:util'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+-import { Config, executable, machineOf, resolveDeployment, resolveFeishuBot, type Machine, type Probe } from '../src/deployment.ts'
++import { Config, executable, GithubUnavailableError, machineOf, requireGithub, resolveDeployment, resolveFeishuBot, type Machine, type Probe } from '../src/deployment.ts'
+ import { gitEnv } from './fixtures/git.ts'
+ 
+ const exec = promisify(execFile)
+@@ -57,13 +57,27 @@ describe('configuration schema', () => {
+ })
+ 
+ describe('setup', () => {
++  it('runs in personal mode when neither GitHub field is configured, and still refuses half a configuration', async () => {
++    const personal = await resolveDeployment(machine(), {}, probe, path)
++    expect(personal).toMatchObject({ mode: 'personal' })
++    expect(personal).not.toHaveProperty('repository')
++    expect(personal).not.toHaveProperty('github')
++    expect(() => requireGithub(personal)).toThrow(GithubUnavailableError)
++    await expect(resolveDeployment(machine(), { repository: 'acme/widgets' }, probe, path))
++      .rejects.toEqual(setupError('github', 'agentCliUnset', {}))
++    await expect(resolveDeployment(machine(), { cli: 'gh' }, probe, path))
++      .rejects.toEqual(setupError('github', 'repositoryUnset', {}))
++    const github = await resolveDeployment(machine(), { repository: 'acme/widgets', cli: 'gh' }, probe, path)
++    expect(github.mode).toBe('github')
++    expect(requireGithub(github)).toBe(github)
++  })
+   it('reads the repository from the GitHub Source and the accounts from their CLIs, skipping the worker shims', async () => {
+-    const deployment = await resolveDeployment(machine(), { repository: 'acme/widgets', cli: 'gh' }, probe, path)
+-    expect(deployment).toMatchObject({ repository: 'acme/widgets', github: { cli: join(dir, 'bin', 'gh'), login: 'Agent-Bot', noreply: '7+Agent-Bot@users.noreply.github.com' } })
++    const deployment = requireGithub(await resolveDeployment(machine(), { repository: 'acme/widgets', cli: 'gh' }, probe, path))
++    expect(deployment).toMatchObject({ mode: 'github', repository: 'acme/widgets', github: { cli: join(dir, 'bin', 'gh'), login: 'Agent-Bot', noreply: '7+Agent-Bot@users.noreply.github.com' } })
+     expect(deployment.github).toEqual({ cli: join(dir, 'bin', 'gh'), login: 'Agent-Bot', noreply: '7+Agent-Bot@users.noreply.github.com' })
+     expect(deployment).not.toHaveProperty('feishu')
+     // A renamed repository is still resolved by its old name; notifications carry GitHub's current full_name.
+-    expect((await resolveDeployment(machine(), { repository: 'acme/gadgets', cli: 'gh' }, probe, path)).repository).toBe('acme/widgets')
++    expect(requireGithub(await resolveDeployment(machine(), { repository: 'acme/gadgets', cli: 'gh' }, probe, path)).repository).toBe('acme/widgets')
+   })
+   it('names what setup needs and where it is set', async () => {
+     const needs = (place: string, code: string, values: Record<string, unknown>, github: unknown) =>
+diff --git a/tests/environment.spec.ts b/tests/environment.spec.ts
+index db2bf3e..cdd2df7 100644
+--- a/tests/environment.spec.ts
++++ b/tests/environment.spec.ts
+@@ -5,10 +5,10 @@ import { join } from 'node:path'
+ import { promisify } from 'node:util'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { SENSITIVE_ENV_PATTERN, type SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+-import { GIT_LOCATION, agentVariables, credentialHelper, runAsWorker, verifyDirectory, withoutDirectory, workerBin, workerGitConfig, writeEnvironment }
++import { GIT_LOCATION, agentVariables, credentialHelper, runAsWorker, verifyDirectory, verifyEnvironment, withoutDirectory, workerBin, workerGitConfig, writeEnvironment }
+   from '../src/infra/environment.ts'
+ import { CliError } from '../src/infra/commands.ts'
+-import { testDeployment } from './fixtures/deployment.ts'
++import { testDeployment, testPersonalDeployment } from './fixtures/deployment.ts'
+ import { gitEnv } from './fixtures/git.ts'
+ 
+ // Git and shell subprocesses can exceed the 5s default timeout when the test suite runs in parallel.
+@@ -38,6 +38,21 @@ describe('worker shims', () => {
+     await expect(exec(join(bin, 'lark-cli'), ['im', '+chat-list'])).rejects.toMatchObject({ code: 1, stderr: 'lark-cli is unavailable: this installation has no Feishu bot.\n' })
+     await expect(exec(join(bin, 'personal-gh'), [])).rejects.toMatchObject({ code: 1, stderr: 'personal-gh is blocked in this installation; use gh, which acts as agent-bot.\n' })
+   })
++  it('writes no GitHub shim or credential rewrite in personal mode, and skips the credential helper check', async () => {
++    // Write the GitHub environment first so the test also proves the old shims are removed.
++    await writeEnvironment(testDeployment({ stateDir: dir, feishu: undefined }), ['personal-gh'])
++    await writeEnvironment(testPersonalDeployment({ stateDir: dir }), ['personal-gh'])
++    const bin = workerBin(dir)
++    expect(readdirSync(bin).sort()).toEqual(['lark-cli', 'personal-gh'])
++    const config = readFileSync(workerGitConfig(dir), 'utf8')
++    expect(config).not.toContain('credential "https://github.com"')
++    expect(config).not.toContain('insteadOf')
++    expect(readFileSync(join(bin, 'personal-gh'), 'utf8')).toContain('personal-gh is blocked in this installation.')
++    const spawn = vi.fn()
++    await expect(verifyEnvironment(testPersonalDeployment({ stateDir: dir }), { spawn } as unknown as SubprocessRuntime,
++      new AbortController().signal)).resolves.toBeUndefined()
++    expect(spawn).not.toHaveBeenCalled()
++  })
+   it('keep `gh` and `lark-cli` working, and shim no `git`, when the blocked commands name the commands workers need', async () => {
+     const gh = program(join(dir, 'gh-agent'), 'echo gh "$@"'), lark = program(join(dir, 'lark-bot'), 'echo lark "$@"')
+     const base = testDeployment()
+diff --git a/tests/fixtures/deployment.ts b/tests/fixtures/deployment.ts
+index f3d919a..c630712 100644
+--- a/tests/fixtures/deployment.ts
++++ b/tests/fixtures/deployment.ts
+@@ -1,6 +1,6 @@
+ /** Default deployment and machine fixtures for tests. */
+ import type { Volatile } from '@deepseek-ai/cordis'
+-import type { Deployment, Machine } from '../../src/deployment.ts'
++import type { GithubDeployment, Machine, PersonalDeployment } from '../../src/deployment.ts'
+ 
+ /** Mutable Volatile reference for simulating live configuration updates. */
+ export const reference = <T>(value: T): Volatile<T> & { set(next: T): void } => {
+@@ -11,9 +11,12 @@ export const testMachine = (overrides: Partial<Machine> = {}): Machine => ({
+   stateDir: '/tmp/dsh-superagent-test', promptMaxChars: reference(100000), admissionContextMaxPages: reference(10),
+   admissionContextTimeoutMs: reference(15000), ...overrides,
+ })
+-export const testDeployment = (overrides: Partial<Deployment> = {}): Deployment => ({
+-  ...testMachine(), repository: 'acme/widgets',
++export const testDeployment = (overrides: Partial<GithubDeployment> = {}): GithubDeployment => ({
++  ...testMachine(), mode: 'github', repository: 'acme/widgets',
+   github: { cli: '/bin/false', login: 'agent-bot', noreply: '7+agent-bot@users.noreply.github.com' },
+   feishu: { cli: '/bin/false', botId: 'ou_bot', appId: 'cli_bot', brand: 'feishu', name: 'Widgets Bot' },
+   ...overrides,
+ })
++export const testPersonalDeployment = (overrides: Partial<PersonalDeployment> = {}): PersonalDeployment => ({
++  ...testMachine(), mode: 'personal', ...overrides,
++})
+diff --git a/tests/fixtures/panel-server.ts b/tests/fixtures/panel-server.ts
+index 513d91a..bd39d68 100644
+--- a/tests/fixtures/panel-server.ts
++++ b/tests/fixtures/panel-server.ts
+@@ -21,7 +21,7 @@ import { feishuKind } from '../../src/sources/feishu.ts'
+ import { githubKind } from '../../src/sources/github.ts'
+ import type { Health } from '../../src/sources/host.ts'
+ import type { SourceKind } from '../../src/sources/kind.ts'
+-import { testDeployment } from './deployment.ts'
++import { testDeployment, testPersonalDeployment } from './deployment.ts'
+ 
+ export const MEMBER = 'ou_alice'
+ const ALLOWED: Record<string, { id: string; name?: string }[]> = { feishu: [{ id: MEMBER, name: 'Alice' }], github: [{ id: 'alice' }] }
+@@ -113,8 +113,10 @@ export let server: PanelServer
+ 
+ function resolved() {
+   const accounts = server.setup.accounts
+-  return accounts ? testDeployment({ repository: accounts.repository, github: { cli: '/bin/false', login: accounts.agent, noreply: '' },
+-    ...accounts.feishu ? { feishu: { cli: '/bin/false', ...accounts.feishu } } : { feishu: undefined } }) : undefined
++  if (!accounts) return undefined
++  if (accounts.mode === 'personal' || !accounts.repository || !accounts.agent) return testPersonalDeployment()
++  return testDeployment({ repository: accounts.repository, github: { cli: '/bin/false', login: accounts.agent, noreply: '' },
++    ...accounts.feishu ? { feishu: { cli: '/bin/false', ...accounts.feishu } } : { feishu: undefined } })
+ }
+ /** Default source health: paused during setup; Feishu defaults to `socket closed` unless overridden or paused by setup. */
+ function healthOf(name: string): Health {
+@@ -249,7 +251,7 @@ function initial(): PanelServer {
+   return {
+     health: {}, down: false, pending: 0, opened: [], requests: [], misuse: [], queued: new Set(), dropped: [], failing: [],
+     setup: { machine: MACHINE, problem: null, feishuProblem: null,
+-      accounts: { repository: 'acme/widgets', agent: 'agent-bot', feishu: { appId: 'cli_bot', brand: 'feishu', botId: 'ou_bot',
++      accounts: { mode: 'github', repository: 'acme/widgets', agent: 'agent-bot', feishu: { appId: 'cli_bot', brand: 'feishu', botId: 'ou_bot',
+         name: 'Widgets Bot' } } },
+     settings, revisions: { policy: 3, eval: 1, executor: 0 },
+     prompts: { masterId: 'master', sections: TEAM_SECTIONS, skillName: SKILL_NAME.source, builtin: ['feishu', 'github'],
+diff --git a/tests/panel-deployment.spec.tsx b/tests/panel-deployment.spec.tsx
+index 33348ba..fe72249 100644
+--- a/tests/panel-deployment.spec.tsx
++++ b/tests/panel-deployment.spec.tsx
+@@ -82,7 +82,7 @@ it('renders the Deployment page with the derived accounts in the Plugin Manager,
+   expect(container.textContent).toBe('')
+   server.form = fakeForm().form
+   await render('page')
+-  for (const fact of ['acme/widgets', '@agent-bot', 'Widgets Bot', '账号在 dsh-superagent 面板的来源设置里修改。']) expect(text()).toContain(fact)
++  for (const fact of [zh.deploymentGithub, 'acme/widgets', '@agent-bot', 'Widgets Bot', '账号在 dsh-superagent 面板的来源设置里修改。']) expect(text()).toContain(fact)
+   server.setup = { ...server.setup, problem: problemOf('repositoryUnset'), accounts: null }
+   await render('page')
+   expect(text()).toContain('部署检查未通过：GitHub 来源没有设置监听的仓库。')
+@@ -92,6 +92,23 @@ it('renders the Deployment page with the derived accounts in the Plugin Manager,
+   expect(text()).toContain(zh.hostNotRunning)
+ })
+ 
++it('shows personal mode without GitHub accounts', async () => {
++  server.setup = { ...server.setup, accounts: { mode: 'personal', repository: null, agent: null, feishu: null } }
++  const container = document.createElement('div')
++  document.body.append(container)
++  const root = createRoot(container)
++  onTestFinished(() => { act(() => { root.unmount() }); container.remove() })
++  const { form } = fakeForm()
++  await act(async () => { root.render(<PluginConfig t={translator(zh)} view="page" form={{ state: form.getSnapshot(),
++    mutate: form.mutate }} />) })
++  await settle()
++  expect(text()).toContain(zh.deploymentMode)
++  expect(text()).toContain(zh.deploymentPersonal)
++  expect(text()).toContain('—')
++  expect(text()).not.toContain('@null')
++  expect(text()).not.toContain('acme/widgets')
++})
++
+ it('tells a dsh-superagent that is starting from a browser that cannot write on the Deployment page', async () => {
+   const { form: shared, publish } = fakeForm()
+   server.form = shared
+diff --git a/tests/runtime.spec.ts b/tests/runtime.spec.ts
+index fd737f2..2a54659 100644
+--- a/tests/runtime.spec.ts
++++ b/tests/runtime.spec.ts
+@@ -93,13 +93,14 @@ const subprocess = { spawn: vi.fn((spec: { argv: readonly string[] }) => {
+   const reader = (text: string) => ({ readFrom: () => ({ text, nextOffset: text.length, lossy: false }) })
+   return { done: Promise.resolve({ exitCode: answer instanceof Error ? 1 : 0, signal: null }), collected: { stdout: reader(answer instanceof Error ? '' : answer), stderr: reader(answer instanceof Error ? answer.message : '') } }
+ }) }
+-/** Source account overrides for test setup; `feishu: null` disables the Feishu source. */
+-interface Accounts { github?: Record<string, unknown>; feishu?: Record<string, unknown> | null }
++/** Source account overrides for test setup; `null` disables that Source's configuration. */
++interface Accounts { github?: Record<string, unknown> | null; feishu?: Record<string, unknown> | null }
+ function seed(store: Store, accounts: Accounts = {}): void {
+   const settings = store.settings()
+-  const { feishu: _feishu, ...others } = settings.sources
++  const { feishu: _feishu, github: _github, ...others } = settings.sources
++  const github = accounts.github === null ? undefined : { enabled: true, config: { repository: 'acme/widgets', cli: AGENT(), ...accounts.github } }
+   const feishu = accounts.feishu === null ? undefined : { ...settings.sources.feishu?.config, cli: BOT(), ...accounts.feishu }
+-  store.saveSettings(SettingsSchema.parse({ ...settings, sources: { ...others, github: { enabled: true, config: { repository: 'acme/widgets', cli: AGENT(), ...accounts.github } }, ...feishu ? { feishu: { enabled: true, config: feishu } } : {} } }))
++  store.saveSettings(SettingsSchema.parse({ ...settings, sources: { ...others, ...github ? { github } : {}, ...feishu ? { feishu: { enabled: true, config: feishu } } : {} } }))
+ }
+ let restarts: ReturnType<typeof vi.fn<() => void>>
+ async function restart(machine: Partial<Machine> = {}, accounts: Accounts = {}): Promise<Runtime> {
+@@ -840,6 +841,28 @@ it('waits for setup without the agent\'s GitHub CLI: the panel works, and nothin
+   await vi.waitFor(() => expect(restarts).toHaveBeenCalledTimes(2))
+ })
+ 
++it('runs in personal mode without GitHub: setup completes, GitHub is off, and no PR can be reported', async () => {
++  const next = await restart({}, { github: null })
++  await next.ready
++  expect(next.configured()).toBe(true)
++  expect(next.deployment).toMatchObject({ mode: 'personal' })
++  expect(next.deployment).not.toHaveProperty('repository')
++  expect((await api('GET', 'state')).body).toMatchObject({ setup: { problem: null,
++    accounts: { mode: 'personal', repository: null, agent: null } } })
++  // Unit tests register kinds themselves and do not run the plugin's watch loop; report what that loop reports.
++  next.sources.register(feishuKind); next.sources.register(githubKind)
++  next.context(githubKind).report('github', { state: 'paused', detail: '', code: 'sourceOff' })
++  const sources = (await api('GET', 'sources')).body as { id: string; state: string; health: { code?: string }[] }[]
++  expect(sources.find(source => source.id === 'github')).toMatchObject({ state: 'off',
++    health: [expect.objectContaining({ code: 'sourceOff' })] })
++  expect(next.links()({ source: 'github', thread: 'github:1', address: {} }).url).toBe('')
++  expect(readdirSync(join(directory, 'worker-bin'))).not.toContain('gh')
++  expect(readFileSync(workerGitConfig(directory), 'utf8')).not.toContain('https://github.com')
++  const { sessionId } = await acceptedTicket()
++  await expect(runTool(sessionId, 'orchestrator_report', { state: 'progress', summary: 'working', pr_number: 1 }))
++    .rejects.toThrow('GitHub is not configured in this deployment; GitHub commands are unavailable')
++})
++
+ it('reports each setup problem where the operator fixes it, and checks the agent CLI the way worker shells run it', async () => {
+   const needs = async (place: string, code: string, values: Record<string, string>, accounts: Accounts = {}) => {
+     const next = await restart({}, accounts)
+diff --git a/tests/views.spec.ts b/tests/views.spec.ts
+index 8056e9e..1a2f71c 100644
+--- a/tests/views.spec.ts
++++ b/tests/views.spec.ts
+@@ -19,6 +19,7 @@ import { feishuLink } from '../src/sources/feishu-channel.ts'
+ import { feishuChannel, feishuTriggerId } from '../src/sources/feishu-trigger.ts'
+ import { githubLink } from '../src/sources/github-channel.ts'
+ import { githubChannel } from '../src/sources/github-trigger.ts'
++import { testPersonalDeployment } from './fixtures/deployment.ts'
+ import { followupOwners, type ChannelRef } from '../src/core/index.ts'
+ 
+ let directory: string
+@@ -112,6 +113,13 @@ it('states each Source by the first state that holds', () => {
+     .toEqual({ feishu: 'setup', github: 'setup' })
+ })
+ 
++it('shows a Source the deployment cannot use as off, without rewriting its sourceOff health', () => {
++  const host = views()
++  const rows = sourcesStatus(host, { github: { state: 'paused', detail: '', code: 'sourceOff' } }, { deployment: testPersonalDeployment() })
++  expect(Object.fromEntries(rows.map(source => [source.id, [source.state, source.health[0]?.code]])))
++    .toEqual({ feishu: ['starting', undefined], github: ['off', 'sourceOff'] })
++})
++
+ it('follows the Ticket\'s stage: a blocked Ticket a person answered since is working, with no retry, note or turn end', () => {
+   const host = views()
+   const blocked = { state: 'blocked' as const, summary: 'Needs the design file', at: '2026-09-22T00:01:00Z' }

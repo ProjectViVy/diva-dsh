@@ -3,29 +3,32 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A deployment-ready dsh-superagent template: patched source, pinned DeepSeek Harness release, and a tmux-free launcher that starts with one command.",
+  "description": "A project-local source checkout and launcher for DeepSeek Harness and dsh-superagent.",
   "license": "MIT",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "setup:surfcore": "node scripts/setup-surfcore.mjs",
+    "setup:components": "node scripts/setup-components.mjs",
+    "setup:mempalace": "node scripts/setup-mempalace.mjs",
+    "setup:continual-harness": "node scripts/setup-continual-harness.mjs",
+    "setup:laputa": "node scripts/setup-laputa.mjs",
+    "setup:vivy-tone": "node scripts/setup-vivy-tone.mjs",
+    "setup:surfcore-adapter": "node scripts/setup-surfcore-adapter.mjs",
     "start": "node scripts/vivy-dsh.mjs start",
     "stop": "node scripts/vivy-dsh.mjs stop",
     "restart": "node scripts/vivy-dsh.mjs restart",
     "status": "node scripts/vivy-dsh.mjs status",
-    "build:bundle": "node scripts/build-bundle.mjs"
+    "proxy": "node scripts/vivy-dsh.mjs proxy",
+    "build:bundle": "node scripts/build-bundle.mjs",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.2.1-rc.5",
-    "@modelcontextprotocol/sdk": "1.25.1",
-    "semver": "^7.7.3"
-  },
-  "allowScripts": {
-    "@deepseek-ai/dsh-subprocess-local@0.2.1-rc.5": true,
-    "koffi@3.1.1": true,
-    "node-pty@1.2.0-beta.15": true,
-    "protobufjs@7.6.6": true,
-    "@google/genai@2.21.0": true
+    "smol-toml": "1.9.0",
+    "stream-chain": "4.4.1",
+    "stream-json": "3.8.0",
+    "tar": "7.5.22"
   }
 }

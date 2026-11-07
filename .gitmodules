@@ -1,3 +1,12 @@
-[submodule "upstream"]
-	path = upstream
+[submodule "superagent"]
+	path = superagent
 	url = https://github.com/deepseek-ai/dsh-superagent-prototype
+	shallow = true
+[submodule "deepseek-harness"]
+	path = deepseek-harness
+	url = https://github.com/deepseek-ai/deepseek-harness.git
+	shallow = true
+[submodule "surfcore"]
+	path = plugins/surfcore
+	url = https://github.com/Mieksido/surfcore.git
+	shallow = true

@@ -1,0 +1,497 @@
+diff --git a/docs/006-deployment.md b/docs/006-deployment.md
+index d4e810f..4635bc2 100644
+--- a/docs/006-deployment.md
++++ b/docs/006-deployment.md
+@@ -168,7 +168,9 @@ Agents may rely on these routes and fields. The other routes in `src/app/api.ts`
+ 
+ | Request | Answer |
+ | --- | --- |
+-| `GET state` | What every page reads: `setup`, with `problem` and `feishuProblem`, each `null` or a setup problem with `place`, `code`, `values` and `detail`, and `accounts` once setup resolved them; `health`, an entry per part, below, with `state` (`starting`, `ready`, `paused` or `error`), `detail` and `at`; `load`, the Executor Sessions `running`, the Tickets `queued` and `maxWorkers`; `paused`; and `masterId` |
++| `GET state` | What every page reads: `setup`, with `problem` and `feishuProblem`, each `null` or a setup problem with `place`, `code`, `values` and `detail`, and `accounts` once setup resolved them; `health`, an entry per part, below, with `state` (`starting`, `ready`, `paused` or `error`), `detail` and `at`; `load`, the Executor Sessions `running`, the Tickets `queued` and `maxWorkers`; `paused`; `masterId`; and `subject`, the installation's binding (`subjectId`, `displayName`, `createdAt`, `schemaVersion`) |
++| `GET subject` | The installation's subject binding: `subjectId`, `displayName`, `createdAt`, and `schemaVersion`. `subjectId` never changes. |
++| `PUT subject` with `{"displayName": …}` | Renames the subject: the binding with the new `displayName`; the ID, creation time and schema version stay unchanged. Only `displayName`, 1 to 80 characters, may be sent. |
+ | `GET settings` | `blocks`: `policy`, `eval` and `executor`, each with its `value` and its `revision`; `sources`: the Source instances, each with `id`, `kind`, `installed`, its block's `value`, `{"enabled": …, "config": {…}}`, and `revision`, its kind's form, and its setup `problem` when it has one; `policyVersion`; and `environment`, the execution environment's `root` and `variables` |
+ | `GET sources` | Each Source's status: `state` (`missing`, `off`, `error`, `setup`, `starting`, `paused` or `ready`), the `health` of its parts, its setup `problem`, the last day's `stats`, the Triggers it `filtered` in that day, and the messages it `dropped` in that day, newest drop first, each with its `channel`, `preview`, `ticket` (`id` and `title`) when it was for one, its `thread` when the store has it, and `dropped.at` and `dropped.reason`, `channelGone` or `channelIgnored` |
+ | `PUT settings/<block>` with `{"value": …, "revision": n}` | Saves one block: `saved`, the block's new `revision`, `policy_changed` and `restarting`. `value` is the whole block, as `GET settings` holds it; a missing key takes its default |
+diff --git a/docs/007-architecture.md b/docs/007-architecture.md
+index 184ea54..8181e5b 100644
+--- a/docs/007-architecture.md
++++ b/docs/007-architecture.md
+@@ -314,6 +314,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/core/memory.ts` | `MemoryRepositories`: the Store's repositories in memory, in the Store's order and with its nested rollback, for domain tests |
+ | `src/core/index.ts` | The core's exports |
+ | `src/app/runtime.ts` | The Runtime, the composition root, with its start and stop |
++| `src/app/subject.ts` | The subject binding: one stable `subject_<uuid>` per installation, created once in the Store, with its display-name rename |
+ | `src/app/setup.ts` | Setup, and `setupChanged`, whether a save changes a field setup reads |
+ | `src/app/passes.ts` | Passes, the pass scheduler |
+ | `src/app/outbox.ts` | The Outbox: the Engine's `Outbox` port, the receipts and the `reply` effects that send them |
+@@ -427,6 +428,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `tests/tools.spec.ts` | The Sessions' tools: what `orchestrator_read` reads for each role, and the shapes and checks of the other main Session tools |
+ | `tests/runtime-concurrency.spec.ts` | Work that overlaps: Triggers during a pass, Tickets that change during deliveries and launches |
+ | `tests/http.spec.ts` | The same-origin and loopback checks, the status of each kind of failure, the body limit, path parameters and queries |
++| `tests/subject.spec.ts` | The subject binding: one ID across restarts and connections, no regeneration of a tampered binding, and display-name changes |
+ | `tests/settings.spec.ts` | Settings saves that race a model or account check, a Policy sync that a save outran, and the refusals of the pause, a sync and a block |
+ | `tests/views.spec.ts` | What the management views derive from the Store, such as the Thread a dropped message belongs to |
+ | `tests/timeline.spec.ts` | A Thread's pages and a Trigger's neighbours by time and then id, with every received Trigger's time in one form |
+diff --git a/src/app/api.ts b/src/app/api.ts
+index bc71d62..5a5446a 100644
+--- a/src/app/api.ts
++++ b/src/app/api.ts
+@@ -1,5 +1,6 @@
+ /** Type-only management API contract between the web panel and host routes, imported by the panel without bundling host code. */
+ import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
++import type { SubjectBinding } from '../core/model.ts'
+ import type { PromptConfig, Prompts } from './prompts.ts'
+ import type { PromptsView, StateView, TicketPageView } from './http.ts'
+ import type { HistoryView } from './settings-history.ts'
+@@ -19,6 +20,8 @@ type Delivery = 'injected' | 'pending'
+ 
+ export interface Api {
+   'GET state': { response: StateView }
++  'GET subject': { response: SubjectBinding }
++  'PUT subject': { body: { displayName: string }; response: SubjectBinding }
+   'GET overview': { response: OverviewView }
+   'GET search': { query: { q: string }; response: SearchView }
+   'GET sources': { response: SourceStatusView[] }
+diff --git a/src/app/http.ts b/src/app/http.ts
+index 1414b47..ec16715 100644
+--- a/src/app/http.ts
++++ b/src/app/http.ts
+@@ -18,6 +18,7 @@ import type { Health } from '../sources/host.ts'
+ import type { SourceRegistry } from '../sources/registry.ts'
+ import type { Sessions } from './sessions.ts'
+ import type { Store } from './store.ts'
++import type { Subject } from './subject.ts'
+ import type { TextCache } from './cache.ts'
+ import type { LinkTarget, ViewHost } from './views/records.ts'
+ import type { Variable } from './execution-environment.ts'
+@@ -41,6 +42,7 @@ export interface HttpHost {
+   readonly health: Record<string, Health>
+   readonly machine: Machine
+   readonly masterId: string
++  readonly subject: Pick<Subject, 'binding' | 'rename'>
+   /** Resolves once startup finishes or setup determines what is still missing. */
+   readonly ready: Promise<void>
+   /** Resolved deployment; throws if read while waiting for setup (`!configured()`). */
+@@ -109,7 +111,7 @@ export function stateView(runtime: HttpHost) {
+   const settings = runtime.store.settings()
+   return { setup: setupView(runtime), load: { ...executorLoad(runtime.store, runtime.executor.activeCount()),
+     maxWorkers: settings.executor.maxWorkers },
+-    masterId: runtime.masterId, paused: settings.paused, health: runtime.health }
++    masterId: runtime.masterId, paused: settings.paused, health: runtime.health, subject: runtime.subject.binding }
+ }
+ const views = (runtime: HttpHost): ViewHost => ({ store: runtime.store, sources: runtime.sources, links: runtime.links() })
+ const setupState = (runtime: HttpHost): SetupState => ({ deployment: runtime.configured() ? runtime.deployment : undefined,
+@@ -147,6 +149,7 @@ const DecisionsQuery = z.object({ kind: z.string().default(''), window: z.litera
+   limit: limit(30, 200) })
+ const count = z.coerce.number().int().nonnegative()
+ const PromptsQuery = z.object({ revision: count.optional(), offset: count.default(0) })
++const SubjectRename = z.object({ displayName: z.string().trim().min(1).max(80) }).strict()
+ const SourceBlock = z.templateLiteral(['source:', z.string().regex(/^[a-z][a-z0-9-]*$/)])
+ const SettingsBlockSchema = z.union([z.enum(['policy', 'eval', 'executor']), SourceBlock])
+ const SaveRequest = z.object({ value: z.unknown(), revision: z.number().int().nonnegative() })
+@@ -157,6 +160,12 @@ function routes(runtime: HttpHost): Routes {
+   const promptBody = (input: { body: (maxBytes?: number) => Promise<unknown> }) => input.body(4 * runtime.machine.promptMaxChars.get() + 4096)
+   return {
+     'GET state': () => stateView(runtime),
++    'GET subject': () => runtime.subject.binding,
++    'PUT subject': async ({ body }) => {
++      const parsed = SubjectRename.safeParse(await body())
++      if (!parsed.success) throw new RouteError(400, 'Invalid subject: only displayName, 1 to 80 characters, may be set')
++      return runtime.subject.rename(parsed.data.displayName)
++    },
+     'GET overview': () => overview(views(runtime), runtime.health, policyVersion(store.settings()),
+       executorLoad(store, runtime.executor.activeCount()), runtime.setupProblem ?? runtime.feishuProblem),
+     'GET search': ({ query }) => search(views(runtime), query.q ?? '', runtime.sourceLinks),
+diff --git a/src/app/runtime.ts b/src/app/runtime.ts
+index 644aefe..6104c5b 100644
+--- a/src/app/runtime.ts
++++ b/src/app/runtime.ts
+@@ -30,6 +30,7 @@ import { TextCache } from './cache.ts'
+ import { Effects } from './effects.ts'
+ import { Prompts } from './prompts.ts'
+ import { registerHttp, type HttpHost } from './http.ts'
++import { Subject } from './subject.ts'
+ import type { LinkTarget } from './views/records.ts'
+ import { candidateCard, repliedTo, sourceLink, type LinkHost } from './links.ts'
+ import { eventNotice, followupNotice } from './notices.ts'
+@@ -74,6 +75,7 @@ export class Runtime extends Service implements SourceHost {
+   private readonly board = new HealthBoard()
+   private readonly runtimeHealth = this.board.claim('runtime', { state: 'starting', detail: '' })
+   readonly masterId: string
++  readonly subject: Subject
+   private readonly sourceLinks = new TextCache(200_000)
+   private readonly stopped = new AbortController()
+   private readonly disposers: (() => void)[] = []
+@@ -103,6 +105,7 @@ export class Runtime extends Service implements SourceHost {
+       const prompts = this.prompts = new Prompts(store, () => machine.promptMaxChars.get(), deployed, feishu)
+       const masterId = this.masterId = store.get(KV.runtime.masterId) ?? `orchestrator-${key(machine.stateDir)}`
+       store.set(KV.runtime.masterId, masterId)
++      const subject = this.subject = Subject.open(store)
+       const commands = this.commands = new Commands(() => setup.deployment, setup.commandEnvironment, this.lifetime)
+       const board = this.board
+       const effects = this.effects = new Effects(store, board)
+@@ -219,8 +222,8 @@ export class Runtime extends Service implements SourceHost {
+   }
+   private httpHost(): HttpHost {
+     const runtime = this
+-    const { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, setup, passes } = this
+-    return { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks,
++    const { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, setup, passes, subject } = this
++    return { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, subject,
+       get deployment() { return setup.deployment },
+       get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem },
+       configured: () => setup.configured(), links: () => runtime.links(), ticketEnvironment: ticket => runtime.ticketEnvironment(ticket),
+diff --git a/src/app/subject.ts b/src/app/subject.ts
+new file mode 100644
+index 0000000..c37380a
+--- /dev/null
++++ b/src/app/subject.ts
+@@ -0,0 +1,58 @@
++/** The installation's subject binding, created once in the Store and never regenerated. */
++import { randomUUID } from 'node:crypto'
++import { z } from 'zod'
++import { SUBJECT_SCHEMA_VERSION, type SubjectBinding } from '../core/model.ts'
++import { KV } from '../kv.ts'
++import type { Store } from './store.ts'
++
++/** The display name a new subject gets until a person renames it. */
++export const DEFAULT_SUBJECT_NAME = 'Vivy'
++/** Mirrors the subject ID pattern in `plugins/_shared/contracts.mjs`; dsh-superagent does not import plugin source. */
++const SUBJECT_ID = /^subject_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
++const SubjectBindingSchema = z.object({
++  subjectId: z.string().regex(SUBJECT_ID),
++  displayName: z.string().min(1),
++  createdAt: z.string(),
++  schemaVersion: z.literal(SUBJECT_SCHEMA_VERSION),
++}).strict()
++
++const invalid = (detail: string): Error =>
++  new Error(`The stored subject binding is invalid; restore it from a backup instead of creating a new subject: ${detail}`)
++function readBinding(store: Store): SubjectBinding | undefined {
++  let stored: unknown
++  try { stored = store.get(KV.subject.binding) } catch (error) { throw invalid(String(error)) }
++  if (stored === undefined) return undefined
++  const parsed = SubjectBindingSchema.safeParse(stored)
++  if (!parsed.success) throw invalid(parsed.error.message)
++  return parsed.data
++}
++
++/**
++ * Owns the installation's stable subject identity: one `subject_<uuid>` created on first start, kept in the Store's KV area,
++ * and never replaced. Renaming changes only the display name; a malformed stored binding fails instead of generating a new ID.
++ * The state directory lock guarantees one process performs the first write.
++ */
++export class Subject {
++  private constructor(private readonly store: Store, private current: SubjectBinding) {}
++  static open(store: Store, generate: () => string = randomUUID, now: () => string = () => new Date().toISOString()): Subject {
++    const binding = store.atomic(() => {
++      const existing = readBinding(store)
++      if (existing) return existing
++      const created: SubjectBinding = { subjectId: `subject_${generate()}`, displayName: DEFAULT_SUBJECT_NAME, createdAt: now(),
++        schemaVersion: SUBJECT_SCHEMA_VERSION }
++      store.set(KV.subject.binding, created)
++      return created
++    })
++    return new Subject(store, binding)
++  }
++  get binding(): SubjectBinding { return this.current }
++  rename(displayName: string): SubjectBinding {
++    return this.store.atomic(() => {
++      const current = readBinding(this.store)
++      if (!current) throw new Error('The subject binding is missing; start dsh-superagent with its state directory intact')
++      const next = SubjectBindingSchema.parse({ ...current, displayName })
++      this.store.set(KV.subject.binding, next)
++      return this.current = next
++    })
++  }
++}
+diff --git a/src/client/deployment.tsx b/src/client/deployment.tsx
+index 75b7ee0..64ed5fd 100644
+--- a/src/client/deployment.tsx
++++ b/src/client/deployment.tsx
+@@ -6,13 +6,13 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react'
+ import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+ import type { ConfigPageForm } from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
+ import { LIMITS } from '../limits.ts'
+-import type { SetupView } from './api.ts'
++import type { SetupView, StateView } from './api.ts'
+ import { InfoTip, Input } from './controls.tsx'
+ import { SaveBar, useDraft } from './draft.tsx'
+ import { PanelProvider, usePanel, usePanelData } from './provider.tsx'
+ import { Field, Fields } from './settings-kit.tsx'
+ import { setupText, type T } from './text.ts'
+-import { CheckSetupButton, Hint, KeyValues, Section, SetupMessage } from './widgets.tsx'
++import { CheckSetupButton, Hint, KeyValues, Section, SetupMessage, When } from './widgets.tsx'
+ 
+ export type DeploymentForm = ConfigPageForm | undefined
+ type Op = Parameters<ConfigPageForm['mutate']>[0][number]
+@@ -30,7 +30,9 @@ export function usePageForm(form: ConfigForm<Record<string, unknown>> | undefine
+ }
+ 
+ /** Deployment configuration form; falls back to read-only display when DSH config forms are unavailable or read-only. */
+-export function DeploymentPage({ setup, form, accounts: showAccounts }: { setup: SetupView; form: DeploymentForm; accounts?: boolean }) {
++export function DeploymentPage({ setup, form, subject, accounts: showAccounts }: {
++  setup: SetupView; form: DeploymentForm; subject: StateView['subject']; accounts?: boolean
++}) {
+   const { t, notify } = usePanel()
+   const snapshot = form?.state
+   const editable = snapshot?.status === 'ready' && snapshot.writable
+@@ -70,6 +72,10 @@ export function DeploymentPage({ setup, form, accounts: showAccounts }: { setup:
+         ]} />
+         <Hint>{t('deploymentAccountsWhere')}</Hint>
+       </Section>}
++      <Section title={t('deploymentSubject')} hint={t('deploymentSubjectHint')}>
++        <KeyValues rows={[[t('deploymentSubjectId'), <span className="dt-mono">{subject.subjectId}</span>],
++          [t('deploymentSubjectName'), subject.displayName], [t('deploymentSubjectCreated'), <When at={subject.createdAt} />]]} />
++      </Section>
+       <Section title={t('deploymentMachine')}>
+         {readOnlyHint && <Hint>{readOnlyHint}</Hint>}
+         <div className="dt-field">
+@@ -92,7 +98,7 @@ function PluginPage({ form }: { form: DeploymentForm }) {
+   const { t } = usePanel()
+   const { state, error } = usePanelData()
+   return <div className="dt-embedded">
+-    {state ? <DeploymentPage setup={state.setup} form={form} accounts />
++    {state ? <DeploymentPage setup={state.setup} subject={state.subject} form={form} accounts />
+       : error ? <p className="dt-error" role="alert">{error.message}</p> : <p className="dt-hint">{t('loading')}</p>}
+   </div>
+ }
+diff --git a/src/client/locales.ts b/src/client/locales.ts
+index cc125a0..6f21200 100644
+--- a/src/client/locales.ts
++++ b/src/client/locales.ts
+@@ -547,6 +547,11 @@ const TEXT = {
+   deploymentMode: ['运行模式', 'Mode'],
+   deploymentPersonal: ['个人模式', 'Personal'],
+   deploymentGithub: ['GitHub 模式', 'GitHub'],
++  deploymentSubject: ['主体', 'Subject'],
++  deploymentSubjectHint: ['这个安装的唯一主体身份，跨域记录用它关联到同一个个人 Agent；ID 创建后不可更改。', 'This installation\'s stable subject identity; cross-domain records use it to refer to the same personal agent. The ID never changes after it is created.'],
++  deploymentSubjectId: ['主体 ID', 'Subject ID'],
++  deploymentSubjectName: ['显示名称', 'Display name'],
++  deploymentSubjectCreated: ['创建时间', 'Created'],
+   deploymentRepository: ['仓库', 'Repository'],
+   deploymentAgent: ['智能体账号', 'Agent account'],
+   deploymentFeishu: ['飞书机器人', 'Feishu bot'],
+diff --git a/src/client/settings.tsx b/src/client/settings.tsx
+index bad58c3..7bdfef5 100644
+--- a/src/client/settings.tsx
++++ b/src/client/settings.tsx
+@@ -20,7 +20,7 @@ export function SettingsPage({ group, query, state, deploymentForm }: {
+       case 'eval': return <SettingsProvider><EvalSettings version={query.version} /></SettingsProvider>
+       case 'execution': return <SettingsProvider><ExecutionSettings /></SettingsProvider>
+       case 'prompts': return <PromptsPage />
+-      case 'deployment': return <DeploymentPage setup={state.setup} form={deploymentForm} />
++      case 'deployment': return <DeploymentPage setup={state.setup} subject={state.subject} form={deploymentForm} />
+     }
+   })()
+   return <div className="dt-settings">
+diff --git a/src/core/model.ts b/src/core/model.ts
+index 5778312..c9e687a 100644
+--- a/src/core/model.ts
++++ b/src/core/model.ts
+@@ -19,6 +19,19 @@ export function isoTime(value: string): string {
+   return Number.isFinite(time) ? new Date(time).toISOString() : value
+ }
+ 
++/**
++ * The installation's stable identity in the personal-agent ecosystem: `subjectId` never changes, `displayName` may, and
++ * `schemaVersion` is the cross-domain record version the binding conforms to.
++ */
++export interface SubjectBinding {
++  subjectId: string
++  displayName: string
++  createdAt: string
++  schemaVersion: number
++}
++/** The cross-domain subject binding version, mirrored from `plugins/_shared/contracts.mjs`. */
++export const SUBJECT_SCHEMA_VERSION = 1
++
+ /** One immutable event produced by a source. `text` and `meta` are untrusted external data. */
+ export interface Trigger {
+   id: string
+diff --git a/src/kv.ts b/src/kv.ts
+index e7ed695..234d891 100644
+--- a/src/kv.ts
++++ b/src/kv.ts
+@@ -2,6 +2,7 @@
+  * Typed key-value store keys and key families grouped by the single component that owns and writes each family.
+  * Readers and writers refer to a record by its entry here so each key is spelled once with its value type.
+  */
++import type { SubjectBinding } from './core/model.ts'
+ import type { PromptVersion } from './app/prompts.ts'
+ import type { SettingsVersion } from './app/store.ts'
+ import type { SettingsSave } from './policy.ts'
+@@ -31,6 +32,8 @@ export const KV = {
+     builtIn: family<string, [base: string]>('prompt-built-in:') },
+   /** Runtime: the main Session's ID. */
+   runtime: { masterId: record<string>('master-id') },
++  /** Subject: the installation's stable subject binding, written once by `Subject.open`. */
++  subject: { binding: record<SubjectBinding>('subject-binding') },
+   /** Sessions: prompt revisions each Session has worked under, ordered oldest first; the last entry (`.at(-1)`) is its active revision. */
+   sessions: { prompts: family<number[], [session: string]>('session-prompts:') },
+   /** Schema 11 migration: legacy main-Session queues imported into the effect table. */
+diff --git a/tests/fixtures/panel-server.ts b/tests/fixtures/panel-server.ts
+index bd39d68..b2bf420 100644
+--- a/tests/fixtures/panel-server.ts
++++ b/tests/fixtures/panel-server.ts
+@@ -99,6 +99,7 @@ export interface PanelServer {
+   queued: Set<string>
+   searching?: (query: string) => Promise<void>
+   setup: SetupView
++  subject: StateView['subject']
+   health: Record<string, Health>
+   /** When true, all API requests return an empty 404 to simulate the host plugin being stopped. */
+   down: boolean
+@@ -161,7 +162,7 @@ function sourceStatuses(): SourceStatusRow[] {
+ }
+ const stateView = (): StateView => ({
+   setup: server.setup, load: { running: server.setup.problem ? 0 : 2, queued: 0, maxWorkers: server.settings.executor.maxWorkers },
+-  masterId: 'master', paused: server.settings.paused,
++  masterId: 'master', paused: server.settings.paused, subject: server.subject,
+   // The panel does not read health; the service script does.
+   health: {},
+ })
+@@ -253,6 +254,8 @@ function initial(): PanelServer {
+     setup: { machine: MACHINE, problem: null, feishuProblem: null,
+       accounts: { mode: 'github', repository: 'acme/widgets', agent: 'agent-bot', feishu: { appId: 'cli_bot', brand: 'feishu', botId: 'ou_bot',
+         name: 'Widgets Bot' } } },
++    subject: { subjectId: 'subject_11111111-1111-4111-8111-111111111111', displayName: 'Vivy',
++      createdAt: '2026-11-03T00:00:00.000Z', schemaVersion: 1 },
+     settings, revisions: { policy: 3, eval: 1, executor: 0 },
+     prompts: { masterId: 'master', sections: TEAM_SECTIONS, skillName: SKILL_NAME.source, builtin: ['feishu', 'github'],
+       skillPrefix: SKILL_PREFIX, revision: 0, current: { ...defaults, config: defaultPrompts() },
+@@ -294,6 +297,14 @@ const SourceSave = z.object({ enabled: z.boolean(), config: z.unknown() })
+ 
+ const ROUTES: { [K in keyof Api]: Route<K> } = {
+   'GET state': { answer: stateView },
++  'GET subject': { answer: () => server.subject },
++  'PUT subject': { body: true, answer: ({ body }) => {
++    const value = body as Record<string, unknown>
++    const displayName = typeof value.displayName === 'string' ? value.displayName.trim() : ''
++    if (!displayName || displayName.length > 80 || Object.keys(value).length !== 1) return refuse(400, 'Invalid subject')
++    server.subject = { ...server.subject, displayName }
++    return server.subject
++  } },
+   'GET overview': { answer: overviewView },
+   'GET search': { query: ['q'], answer: async ({ query }) => {
+     const q = query.q ?? ''
+diff --git a/tests/http.spec.ts b/tests/http.spec.ts
+index 19086c5..41d27c5 100644
+--- a/tests/http.spec.ts
++++ b/tests/http.spec.ts
+@@ -96,3 +96,22 @@ it('answers a prompt save that lost a race with 409, and a settings body over 12
+     body: { error: `Request exceeds ${128 * 1024} bytes` } })
+   expect(saves).toEqual([])
+ })
++
++it('serves the subject binding and lets a person change only its display name', async () => {
++  const binding = { subjectId: 'subject_11111111-1111-4111-8111-111111111111', displayName: 'Vivy',
++    createdAt: '2026-11-03T00:00:00.000Z', schemaVersion: 1 }
++  const names: string[] = []
++  const call = serve({ subject: { binding, rename: (name: string) => { names.push(name); return { ...binding, displayName: name } } } })
++  expect(await call('GET', 'subject')).toEqual({ status: 200, body: binding })
++  expect(await call('PUT', 'subject', { displayName: '  Vivy 本体  ' }))
++    .toEqual({ status: 200, body: { ...binding, displayName: 'Vivy 本体' } })
++  expect(names).toEqual(['Vivy 本体'])
++  // Only the display name may change, and it must be 1 to 80 characters.
++  expect(await call('PUT', 'subject', { displayName: 'ok', subjectId: 'subject_22222222-2222-4222-8222-222222222222' }))
++    .toMatchObject({ status: 400 })
++  expect(await call('PUT', 'subject', { displayName: '' })).toMatchObject({ status: 400 })
++  expect(await call('DELETE', 'subject')).toEqual({ status: 404, body: { error: 'Unknown operation' } })
++  // The subject is a same-origin management route like every other.
++  expect(await call('GET', 'subject', undefined, { 'x-orchestrator-request': undefined }))
++    .toEqual({ status: 403, body: { error: 'Same-origin management request required' } })
++})
+diff --git a/tests/panel-deployment.spec.tsx b/tests/panel-deployment.spec.tsx
+index fe72249..57652ed 100644
+--- a/tests/panel-deployment.spec.tsx
++++ b/tests/panel-deployment.spec.tsx
+@@ -167,3 +167,11 @@ it('ends a restart that never stopped answering after half a minute, and reads t
+   await advance(2_000)
+   expect(reads()).toBe(ended + 1)
+ })
++
++it('shows the installation\'s subject binding on the Deployment page', async () => {
++  at({ page: 'settings', query: { group: 'deployment' } })
++  await mount()
++  expect(text()).toContain(zh.deploymentSubject)
++  expect(text()).toContain(server.subject.subjectId)
++  expect(text()).toContain(server.subject.displayName)
++})
+diff --git a/tests/runtime.spec.ts b/tests/runtime.spec.ts
+index 2a54659..daf32f5 100644
+--- a/tests/runtime.spec.ts
++++ b/tests/runtime.spec.ts
+@@ -863,6 +863,16 @@ it('runs in personal mode without GitHub: setup completes, GitHub is off, and no
+     .rejects.toThrow('GitHub is not configured in this deployment; GitHub commands are unavailable')
+ })
+ 
++it('keeps one subject across restarts and serves it from GET subject and GET state', async () => {
++  const first = (await api('GET', 'subject')).body as { subjectId: string }
++  expect(first).toMatchObject({ displayName: 'Vivy', schemaVersion: 1 })
++  expect(first.subjectId).toMatch(/^subject_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
++  expect((await api('GET', 'state')).body).toMatchObject({ subject: first })
++  const next = await restart()
++  await next.ready
++  expect((await api('GET', 'subject')).body).toEqual(first)
++})
++
+ it('reports each setup problem where the operator fixes it, and checks the agent CLI the way worker shells run it', async () => {
+   const needs = async (place: string, code: string, values: Record<string, string>, accounts: Accounts = {}) => {
+     const next = await restart({}, accounts)
+diff --git a/tests/subject.spec.ts b/tests/subject.spec.ts
+new file mode 100644
+index 0000000..84e96a0
+--- /dev/null
++++ b/tests/subject.spec.ts
+@@ -0,0 +1,49 @@
++import { mkdtempSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { expect, it } from 'vitest'
++import { Store } from '../src/app/store.ts'
++import { DEFAULT_SUBJECT_NAME, Subject } from '../src/app/subject.ts'
++import { SUBJECT_SCHEMA_VERSION } from '../src/core/model.ts'
++import { KV } from '../src/kv.ts'
++
++const ID = /^subject_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
++const path = () => join(mkdtempSync(join(tmpdir(), 'orchestrator-subject-')), 'orchestrator.sqlite')
++
++it('creates one subject on first open and keeps it across restarts', () => {
++  const file = path()
++  const first = new Store(file)
++  const subject = Subject.open(first)
++  expect(subject.binding).toMatchObject({ displayName: DEFAULT_SUBJECT_NAME, schemaVersion: SUBJECT_SCHEMA_VERSION })
++  expect(subject.binding.subjectId).toMatch(ID)
++  expect(new Date(subject.binding.createdAt).toISOString()).toBe(subject.binding.createdAt)
++  first.close()
++  const second = new Store(file)
++  expect(Subject.open(second).binding).toEqual(subject.binding)
++  second.close()
++})
++
++it('generates no second ID when another connection opens the same state, and refuses a tampered binding', () => {
++  const file = path()
++  const one = new Store(file), two = new Store(file)
++  let generated = 0
++  const subject = Subject.open(one, () => { generated++; return '11111111-1111-4111-8111-111111111111' })
++  const other = Subject.open(two, () => { generated++; return '22222222-2222-4222-8222-222222222222' })
++  expect(other.binding.subjectId).toBe(subject.binding.subjectId)
++  expect(generated).toBe(1)
++  // A malformed stored binding must fail startup, not become a new identity.
++  one.set(KV.subject.binding, { ...subject.binding, subjectId: 'not-a-subject' })
++  expect(() => Subject.open(two)).toThrow(/subject binding/)
++  expect(two.get(KV.subject.binding)).toMatchObject({ subjectId: 'not-a-subject' })
++  one.close(); two.close()
++})
++
++it('renames the display name and keeps the identity fields', () => {
++  const store = new Store(path())
++  const subject = Subject.open(store)
++  const created = subject.binding
++  expect(subject.rename('Vivy 本体')).toEqual({ ...created, displayName: 'Vivy 本体' })
++  expect(subject.binding.displayName).toBe('Vivy 本体')
++  expect(Subject.open(store).binding).toEqual(subject.binding)
++  store.close()
++})

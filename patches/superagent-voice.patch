@@ -1,0 +1,385 @@
+diff --git a/docs/007-architecture.md b/docs/007-architecture.md
+index 6e29b15..031c571 100644
+--- a/docs/007-architecture.md
++++ b/docs/007-architecture.md
+@@ -335,6 +335,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `src/app/store-read.ts` | `storeReads`: the Store's read queries for the views, the tools and the Sources' polls, which never write |
+ | `src/app/migration.ts` | The schema 12 migration: steps from schema 10 and 11 that write every stored record in its current shape and backfill the effect's correlation columns |
+ | `src/app/effects.ts` | Effects |
++| `src/app/voice-effects.ts` | `VoiceEffects`: the `voice` effects a bridge sends through, with one delivery per send token and no automatic retry of an unknown outcome |
+ | `src/app/versions.ts` | `Versions`: a record kept as numbered snapshots with a pointer to the current one, for the settings and the prompts |
+ | `src/app/cache.ts` | `TextCache`: texts kept in memory within a size, the least recently used dropped first |
+ | `src/app/settings.ts` | Settings |
+@@ -429,6 +430,7 @@ Some generic modules still refer directly to GitHub or Feishu:
+ | `tests/background.spec.ts` | Waiting for a worker's shell jobs and subagents: an end that woke it, and a host that stops |
+ | `tests/bundle-patch.spec.ts` | The bundle's patch, read as DeepSeek Harness reads it, and the agent preset of Executor Sessions it defines |
+ | `tests/effects.spec.ts` | The effect queue: coalescing, limits, retries with backoff, health and shutdown |
++| `tests/voice-effects.spec.ts` | `VoiceEffects`: one delivery per send token, external receipts, and no retry of an unknown send |
+ | `tests/passes.spec.ts` | Passes: one at a time, the ones asked for during a pass run as one after it, and the runtime health a failed pass reports |
+ | `tests/outbox.spec.ts` | The Outbox on a running Runtime: messages wait while processing is paused or their Source is not installed |
+ | `tests/cache.spec.ts` | `TextCache` |
+diff --git a/src/app/effects.ts b/src/app/effects.ts
+index 000104f..4d75b81 100644
+--- a/src/app/effects.ts
++++ b/src/app/effects.ts
+@@ -15,6 +15,7 @@ export const FAILURES_BEFORE_ERROR = 3
+ import type { EffectState } from '../core/index.ts'
+ import type { HealthBoard, HealthEntry } from '../infra/health.ts'
+ import type { Store } from './store.ts'
++import type { VoiceEffectPayload } from '../sources/host.ts'
+ 
+ export interface EffectPayloads {
+   /** Build an Eval's candidate card and relay it to the main Session; the key is the Eval ID. */
+@@ -27,6 +28,8 @@ export interface EffectPayloads {
+   relay: { text: string }
+   /** Inject a notice into the main Session without waking it; the key names what it reports, such as `prompts`. */
+   notice: { value: Record<string, unknown>; summary: string }
++  /** Send a voice message through the operator's bridge; the key is the send token. */
++  voice: VoiceEffectPayload
+   /** Send a message for a Channel through its Source; the key is the message ID, whose receipt the Outbox keeps. */
+   reply: Record<string, never>
+ }
+@@ -67,8 +70,10 @@ interface Handler<K extends EffectKind> {
+   record: boolean
+   /** How a row interrupted by shutdown is recovered: `retry` runs it again, `unknown` asks the channel before retrying. */
+   interrupted: 'retry' | 'unknown'
++  /** Whether rows with an unknown outcome are dispatched again; a voice send disables this to avoid sending twice. */
++  retryUnknown: boolean
+ }
+-type Options<K extends EffectKind> = Partial<Pick<Handler<K>, 'limit' | 'retry' | 'ordered' | 'quiet' | 'record' | 'interrupted'>>
++type Options<K extends EffectKind> = Partial<Pick<Handler<K>, 'limit' | 'retry' | 'ordered' | 'quiet' | 'record' | 'interrupted' | 'retryUnknown'>>
+ /** `seq` preserves the row's queue position; `generation` increments on payload updates so a running attempt does not overwrite a newer payload. */
+ interface Row { key: string; value: string; seq: number; generation: number; attempts: number; due: number; state: EffectState }
+ type StoredRow = Row & {
+@@ -114,8 +119,10 @@ export class Effects {
+   handle<K extends EffectKind>(kind: K, run: Handler<K>['run'], options: Options<K> = {}): void {
+     if (this.handlers.has(kind)) throw new Error(`The ${kind} effects already have a handler`)
+     this.health.set(kind, this.board.claim(kind))
+-    const { limit = () => 1, retry = [2000, 60_000], ordered = false, quiet = false, record = false, interrupted = 'retry' } = options
+-    this.handlers.set(kind, { run, limit: ordered ? () => Math.min(1, limit()) : limit, retry, ordered, quiet, record, interrupted } as unknown as Handler<never>)
++    const { limit = () => 1, retry = [2000, 60_000], ordered = false, quiet = false, record = false, interrupted = 'retry',
++      retryUnknown = true } = options
++    this.handlers.set(kind, { run, limit: ordered ? () => Math.min(1, limit()) : limit, retry, ordered, quiet, record, interrupted,
++      retryUnknown } as unknown as Handler<never>)
+     if (this.started) this.recover(kind)
+     this.report(kind)
+     this.kick()
+@@ -146,6 +153,8 @@ export class Effects {
+     for (const kind of this.handlers.keys()) this.recover(kind)
+     this.kick()
+   }
++  /** Whether dispatch has started, so a caller can tell whether a queued row will run. */
++  get isStarted(): boolean { return this.started }
+   kick(): void {
+     if (this.scheduled) return
+     this.scheduled = true
+@@ -171,12 +180,14 @@ export class Effects {
+       try {
+         const running = new Set([...this.tasks].filter(task => task.kind === kind).map(task => task.key))
+         // Terminal rows are kept by recording kinds but must not block later rows, so only active states are dispatched.
++        // A handler that cannot safely repeat an unknown outcome dispatches pending rows only.
++        const active = handler.retryUnknown ? "state IN ('pending', 'unknown')" : "state = 'pending'"
+         // Ordered kinds block behind their oldest row even when it is not yet due; limit() is queried only after ready rows exist.
+         const rows = (handler.ordered
+           ? this.store.db.prepare(`SELECT key, value, seq, generation, attempts, due, state FROM effect
+-              WHERE kind = ? AND state IN ('pending', 'unknown') AND in_flight = 0 ORDER BY seq LIMIT 1`).all(kind)
++              WHERE kind = ? AND ${active} AND in_flight = 0 ORDER BY seq LIMIT 1`).all(kind)
+           : this.store.db.prepare(`SELECT key, value, seq, generation, attempts, due, state FROM effect
+-              WHERE kind = ? AND state IN ('pending', 'unknown') AND in_flight = 0 AND due <= ? ORDER BY seq LIMIT ?`)
++              WHERE kind = ? AND ${active} AND in_flight = 0 AND due <= ? ORDER BY seq LIMIT ?`)
+             .all(kind, this.now(), 16 + running.size)) as unknown as Row[]
+         const ready = handler.ordered && running.size ? [] : rows.filter(row => row.due <= this.now() && !running.has(row.key))
+         let room = ready.length ? handler.limit() - running.size : 0
+diff --git a/src/app/runtime.ts b/src/app/runtime.ts
+index cc75600..05ef045 100644
+--- a/src/app/runtime.ts
++++ b/src/app/runtime.ts
+@@ -28,6 +28,7 @@ import { Store } from './store.ts'
+ import { evalsHealth } from './views/overview.ts'
+ import { TextCache } from './cache.ts'
+ import { Effects } from './effects.ts'
++import { VoiceEffects } from './voice-effects.ts'
+ import { Prompts } from './prompts.ts'
+ import { registerHttp, type HttpHost } from './http.ts'
+ import { Inputs } from './input.ts'
+@@ -64,6 +65,8 @@ export class Runtime extends Service implements SourceHost {
+   readonly setup: Setup
+   readonly prompts: Prompts
+   readonly effects: Effects
++  /** Effect-backed voice sends; the bridge plugin commits through this host. */
++  readonly voice: VoiceEffects
+   readonly sources: SourceRegistry
+   readonly commands: Commands
+   readonly sessions: Sessions
+@@ -112,6 +115,7 @@ export class Runtime extends Service implements SourceHost {
+       const commands = this.commands = new Commands(() => setup.deployment, setup.commandEnvironment, this.lifetime)
+       const board = this.board
+       const effects = this.effects = new Effects(store, board)
++      this.voice = new VoiceEffects(effects)
+       const sources = this.sources = new SourceRegistry(() => store.settings(), board, kind => {
+         // Sync source member lists once startup completes when a source plugin loads dynamically.
+         if (kind.policy?.sync) void this.ready?.then(() => this.settings.syncable().includes(kind.kind) ? this.settings.sync(kind.kind) : undefined)
+diff --git a/after2/src/app/voice-effects.ts b/src/app/voice-effects.ts
+new file mode 100644
+index 0000000..c105d7e
+--- /dev/null
++++ b/src/app/voice-effects.ts
+@@ -0,0 +1,87 @@
++import { Failed, Unknown, type EffectRecord, type EffectResult, type Effects } from './effects.ts'
++import type { VoiceEffectHost, VoiceEffectPayload, VoiceEffectResult } from '../sources/host.ts'
++
++const POLL_MS = 100
++const DELIVERY_TIMEOUT_MS = 135_000
++
++/**
++ * Exposes voice sends as `voice` effects, so a bridge delivery is recorded once and can be traced after a crash.
++ * A send whose outcome is unknown is never dispatched again; the caller checks the bridge before retrying.
++ */
++export class VoiceEffects implements VoiceEffectHost {
++  private readonly deliverers = new Map<string, () => Promise<VoiceEffectResult>>()
++  private readonly waiting = new Map<string, Promise<VoiceEffectResult & { ok: true }>>()
++  private readonly cancelled = new Set<string>()
++  private readonly results = new Map<string, VoiceEffectResult>()
++
++  constructor(private readonly effects: Effects) {
++    effects.handle('voice', (payload, key) => this.run(payload, key), {
++      record: true, interrupted: 'unknown', retryUnknown: false, retry: [2_000, 30_000],
++    })
++  }
++
++  private async run(payload: VoiceEffectPayload, key: string): Promise<EffectResult> {
++    if (payload.external) return payload.external.messageId ? { externalId: payload.external.messageId } : {}
++    const deliver = this.deliverers.get(key)
++    if (!deliver) throw new Failed(`No voice deliverer is registered for ${key}`)
++    try {
++      const result = await deliver()
++      this.results.set(key, result)
++      return result.messageId ? { externalId: String(result.messageId) } : {}
++    } catch (error) {
++      // The bridge may have accepted the message before failing; retrying could send it twice.
++      throw new Unknown(String(error))
++    } finally { this.deliverers.delete(key) }
++  }
++
++  async commit(payload: VoiceEffectPayload, options: { key: string; deliver?: () => Promise<VoiceEffectResult>; timeoutMs?: number }): Promise<VoiceEffectResult & { ok: true }> {
++    const key = options.key
++    const pending = this.waiting.get(key)
++    if (pending) return pending
++    const existing = this.effects.get('voice', key)
++    if (existing?.state === 'sent') return { ok: true, ...(existing.externalId ? { messageId: existing.externalId } : {}) }
++    if (existing) throw new Error(`voice effect ${key} is ${existing.state}${existing.inFlight ? ' (in flight)' : ''}; check the bridge before retrying`)
++    if (!this.effects.isStarted) {
++      if (!payload.external) throw new Error('voice effects have not started; the message was not sent')
++      this.effects.enqueue('voice', key, payload, { idempotencyKey: key })
++      return { ok: true, ...payload.external }
++    }
++    if (options.deliver) this.deliverers.set(key, options.deliver)
++    const promise = (async () => {
++      this.effects.enqueue('voice', key, payload, { idempotencyKey: key })
++      const record = await this.wait(key, options.timeoutMs ?? DELIVERY_TIMEOUT_MS)
++      if (record.state !== 'sent') throw new Error(`voice effect ${key} is ${record.state}`)
++      return { ok: true as const, ...(this.results.get(key) ?? {}), ...(record.externalId ? { messageId: record.externalId } : {}) }
++    })()
++    this.waiting.set(key, promise)
++    try { return await promise } finally {
++      this.waiting.delete(key); this.deliverers.delete(key); this.cancelled.delete(key); this.results.delete(key)
++    }
++  }
++
++  cancel(key: string) {
++    const record = this.effects.get('voice', key)
++    if (!record) return { cancelled: false }
++    if (record.inFlight || record.state !== 'pending') return { cancelled: false, state: record.state, inFlight: record.inFlight }
++    this.effects.cancel('voice', key)
++    this.deliverers.delete(key)
++    if (this.waiting.has(key)) this.cancelled.add(key)
++    return { cancelled: true, state: record.state, inFlight: false }
++  }
++
++  status(key: string) {
++    const record = this.effects.get('voice', key)
++    return record ? { state: record.state, inFlight: record.inFlight, externalId: record.externalId } : undefined
++  }
++
++  private async wait(key: string, timeoutMs: number): Promise<EffectRecord> {
++    const deadline = Date.now() + timeoutMs
++    for (;;) {
++      if (this.cancelled.has(key)) throw new Error(`voice effect ${key} was cancelled`)
++      const record = this.effects.get('voice', key)
++      if (record && (record.state === 'sent' || record.state === 'failed' || record.state === 'unknown')) return record
++      if (Date.now() >= deadline) { if (record) return record; throw new Error(`voice effect ${key} did not start`) }
++      await new Promise(resolve => setTimeout(resolve, POLL_MS))
++    }
++  }
++}
+diff --git a/src/client/locales.ts b/src/client/locales.ts
+index 7916fda..ea88b50 100644
+--- a/src/client/locales.ts
++++ b/src/client/locales.ts
+@@ -43,6 +43,7 @@ const TEXT = {
+   'health.relay': ['转达给主 Session 的消息', 'Relays to the main Session'],
+   'health.notice': ['给主 Session 的通知', 'Notices to the main Session'],
+   'health.reply': ['发往渠道的消息', 'Messages to Channels'],
++  'health.voice': ['语音发送', 'Voice sends'],
+   'health.worker': ['执行器事件处理', 'Executor event handling'],
+   'health.evals': ['未完成的评估', 'Unavailable Evals'],
+   none: ['暂无。', 'None.'],
+diff --git a/src/sources/host.ts b/src/sources/host.ts
+index 20f2088..fd65c37 100644
+--- a/src/sources/host.ts
++++ b/src/sources/host.ts
+@@ -20,10 +20,35 @@ export type Health = { state: 'starting' | 'ready' | 'paused' | 'error'; detail:
+ export function health(state: Health['state'], code: HealthCode, values: Record<string, string> = {}): Health {
+   return { state, detail: fill(HEALTH_TEXT[code], values), code, ...Object.keys(values).length ? { values } : {} }
+ }
++/** A voice send as the Effect queue records it; it names the file instead of carrying the message text, so no transcript is persisted. */
++export interface VoiceEffectPayload {
++  /** The operator or agent address the bridge sends to. */
++  target: string
++  action: 'text' | 'voice'
++  /** Base name of the staged audio file, when the send has one. */
++  file?: string
++  channel: 'operator' | 'agent'
++  detail?: string
++  /** A bridge receipt for a send this host did not perform; its presence makes the payload a receipt rather than a request. */
++  external?: { messageId?: string; verified?: boolean; duration?: number }
++}
++/** What a voice send produced, where the bridge reports it. */
++export interface VoiceEffectResult { messageId?: string; verified?: boolean; duration?: number }
++/** The Effect-backed voice send service: commit records a send once, cancel and status report whether one still runs. */
++export interface VoiceEffectHost {
++  /** Records and runs a send under `key`; `deliver` performs the bridge call, and the resolved value carries the receipt. */
++  commit(payload: VoiceEffectPayload, options: { key: string; deliver?: () => Promise<VoiceEffectResult>; timeoutMs?: number }): Promise<VoiceEffectResult & { ok: true }>
++  /** Drops a queued send; a running or terminal row is reported instead of cancelled. */
++  cancel(key: string): { cancelled: boolean; state?: string; inFlight?: boolean }
++  /** Reads a send's state without changing it. */
++  status(key: string): { state?: string; inFlight?: boolean; externalId?: string } | undefined
++}
+ export interface SourceHost {
+   readonly sources: SourceRegistry
+   /** Returns the context for one Source kind; its `report` writes only the health entries declared by the kind. */
+   context(kind: { kind: string; health: readonly string[] }): SourceContext
++  /** Effect-backed voice sends, present when the runtime wired a voice host. */
++  readonly voice?: VoiceEffectHost
+ }
+ /** Display label, URL, and facts (`null` removes a fact) that a Source publishes on a Thread. */
+ export interface ThreadDescription { label?: string; url?: string; facts?: Record<string, ThreadFact | null> }
+diff --git a/tests/locales.spec.ts b/tests/locales.spec.ts
+index 8938581..92a014f 100644
+--- a/tests/locales.spec.ts
++++ b/tests/locales.spec.ts
+@@ -27,7 +27,7 @@ it('words a reason by its code with its values, each of a batch, and words a per
+ it('names every health entry of dsh-superagent itself, which the overview shows when it fails', () => {
+   // Each entry by its writer: dsh-superagent, the model budget retries, every kind of the effect queue, Channel messages, the
+   // Executor and the unavailable Evals of the last hour.
+-  const entries = { runtime: 0, models: 0, reply: 0, worker: 0, assessment: 0, launch: 0, delivery: 0, relay: 0,
++  const entries = { runtime: 0, models: 0, reply: 0, voice: 0, worker: 0, assessment: 0, launch: 0, delivery: 0, relay: 0,
+     notice: 0, evals: 0 } satisfies Record<EffectKind | 'runtime' | 'models' | 'reply' | 'worker' | 'evals', 0>
+   expect(Object.keys(entries).filter(name => !(`health.${name}` in zh))).toEqual([])
+ })
+diff --git a/after2/tests/voice-effects.spec.ts b/tests/voice-effects.spec.ts
+new file mode 100644
+index 0000000..9e1ba12
+--- /dev/null
++++ b/tests/voice-effects.spec.ts
+@@ -0,0 +1,100 @@
++/** Voice sends as `voice` effects: a single delivery per key, external receipts, and no automatic retry of an unknown send. */
++import { mkdtempSync, rmSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { afterEach, beforeEach, expect, it } from 'vitest'
++import { Effects } from '../src/app/effects.ts'
++import { VoiceEffects } from '../src/app/voice-effects.ts'
++import { Store } from '../src/app/store.ts'
++import { HealthBoard } from '../src/infra/health.ts'
++import { deferred, waitUntil } from './fixtures/async.ts'
++
++let directory: string
++let store: Store
++let clock: number
++let effects: Effects
++let voice: VoiceEffects
++beforeEach(() => {
++  directory = mkdtempSync(join(tmpdir(), 'voice-effects-'))
++  store = new Store(join(directory, 'db.sqlite'))
++  clock = Date.parse('2026-09-09T00:00:00Z')
++  effects = new Effects(store, new HealthBoard(), () => clock)
++  effects.start()
++  voice = new VoiceEffects(effects)
++})
++afterEach(() => { store.close(); rmSync(directory, { recursive: true, force: true }) })
++
++const send = { target: 'qq:group:1', action: 'voice' as const, file: 'clip.wav', channel: 'operator' as const }
++
++it('reports whether dispatch started', () => {
++  expect(effects.isStarted).toBe(true)
++})
++
++it('delivers once and keeps the receipt on the sent row', async () => {
++  let calls = 0
++  const result = await voice.commit(send, {
++    key: 's1',
++    deliver: async () => { calls += 1; return { messageId: 'm1', verified: true } },
++  })
++  expect(calls).toBe(1)
++  expect(result).toMatchObject({ ok: true, messageId: 'm1', verified: true })
++  expect(effects.get('voice', 's1')).toMatchObject({ state: 'sent', externalId: 'm1', inFlight: false })
++})
++
++it('coalesces concurrent commits of one key into a single delivery', async () => {
++  let calls = 0
++  const deliver = async () => { calls += 1; return { messageId: 'm2' } }
++  const [first, second] = await Promise.all([
++    voice.commit(send, { key: 's2', deliver }),
++    voice.commit(send, { key: 's2', deliver }),
++  ])
++  expect(calls).toBe(1)
++  expect(first).toEqual(second)
++  expect(effects.get('voice', 's2')).toMatchObject({ state: 'sent', externalId: 'm2' })
++})
++
++it('records an external receipt without a deliverer', async () => {
++  const result = await voice.commit({ ...send, external: { messageId: 'far-1', verified: true } }, { key: 's3' })
++  expect(result).toMatchObject({ ok: true, messageId: 'far-1' })
++  expect(effects.get('voice', 's3')).toMatchObject({ state: 'sent', externalId: 'far-1' })
++})
++
++it('leaves a failed delivery unknown and does not deliver again after the clock advances', async () => {
++  let calls = 0
++  await expect(voice.commit(send, {
++    key: 's4',
++    deliver: async () => { calls += 1; throw new Error('bridge timeout') },
++  })).rejects.toThrow()
++  expect(calls).toBe(1)
++  expect(effects.get('voice', 's4')).toMatchObject({ state: 'unknown', inFlight: false })
++  clock += 60_000
++  effects.kick()
++  await effects.idle()
++  expect(calls).toBe(1)
++  expect(effects.get('voice', 's4')).toMatchObject({ state: 'unknown' })
++})
++
++it('refuses to cancel an in-flight or terminal send', async () => {
++  const gate = deferred<{ messageId: string }>()
++  const sending = voice.commit(send, { key: 's5', deliver: () => gate.promise })
++  await waitUntil(() => effects.get('voice', 's5')?.inFlight === true)
++  expect(voice.cancel('s5')).toMatchObject({ cancelled: false, inFlight: true })
++  gate.resolve({ messageId: 'm5' })
++  await sending
++  expect(voice.cancel('s5')).toMatchObject({ cancelled: false, state: 'sent' })
++  expect(effects.get('voice', 's5')).toMatchObject({ state: 'sent' })
++})
++
++it('cancels a queued commit and rejects its waiter', async () => {
++  const gate = deferred<{ messageId: string }>()
++  const first = voice.commit(send, { key: 's6a', deliver: () => gate.promise })
++  await waitUntil(() => effects.get('voice', 's6a')?.inFlight === true)
++  // The kind runs one send at a time, so this row waits in the queue.
++  const queued = voice.commit(send, { key: 's6b', deliver: async () => ({ messageId: 'm6b' }) })
++  await waitUntil(() => effects.get('voice', 's6b')?.state === 'pending')
++  expect(voice.cancel('s6b')).toMatchObject({ cancelled: true, state: 'pending' })
++  await expect(queued).rejects.toThrow('was cancelled')
++  expect(effects.get('voice', 's6b')).toBeUndefined()
++  gate.resolve({ messageId: 'm6a' })
++  await first
++})

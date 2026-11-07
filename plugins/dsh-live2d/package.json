@@ -1,0 +1,17 @@
+{
+  "name": "dsh-live2d",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Live2D stage tool bridge: forwards l2d_* tool calls to the standalone stage process (stage-app/). No rendering, no UI, no model assets here.",
+  "license": "MIT",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

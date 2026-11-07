@@ -1,0 +1,156 @@
+diff --git a/docs/006-deployment.md b/docs/006-deployment.md
+index 25dd1ee..58ff32b 100644
+--- a/docs/006-deployment.md
++++ b/docs/006-deployment.md
+@@ -171,7 +171,7 @@ Agents may rely on these routes and fields. The other routes in `src/app/api.ts`
+ | `GET state` | What every page reads: `setup`, with `problem` and `feishuProblem`, each `null` or a setup problem with `place`, `code`, `values` and `detail`, and `accounts` once setup resolved them; `health`, an entry per part, below, with `state` (`starting`, `ready`, `paused` or `error`), `detail` and `at`; `load`, the Executor Sessions `running`, the Tickets `queued` and `maxWorkers`; `paused`; `masterId`; and `subject`, the installation's binding (`subjectId`, `displayName`, `createdAt`, `schemaVersion`) |
+ | `GET subject` | The installation's subject binding: `subjectId`, `displayName`, `createdAt`, and `schemaVersion`. `subjectId` never changes. |
+ | `PUT subject` with `{"displayName": …}` | Renames the subject: the binding with the new `displayName`; the ID, creation time and schema version stay unchanged. Only `displayName`, 1 to 80 characters, may be sent. |
+-| `POST inputs` with an InputEnvelope | Submits one input to the `local` Source: `triggerId` and `outcome` (`stored`, `duplicate` or `filtered`). The body holds `subjectId`, `sourceId` (`local` only), `externalEventId`, `dedupeKey`, `payload` (`text`, optional `url`), optional `layer` (`person`, `platform`, `schedule`, `wake` or `evolution`, default `person`), optional `human`, and optional `provenance` (`actor`, `note`). It creates a Trigger (and at most an Eval), never a Ticket; a repeated `dedupeKey` returns `duplicate` with the first `triggerId`. 400 for an invalid, oversized or unowned input; 503 while stopping |
++| `POST inputs` with an InputEnvelope | Submits one input to a trusted Source: `triggerId` and `outcome` (`stored`, `duplicate` or `filtered`). The body holds `subjectId`, `sourceId` (a kind declaring `trusted`: the built-in `local`, or a Source plugin such as `surfcore`), `externalEventId`, `dedupeKey`, `payload` (`text`, optional `url`), optional `layer` (`person`, `platform`, `schedule`, `wake` or `evolution`, default `person`), optional `human`, optional `provenance` (`actor`, `note`), and optional `channel` (`source`, `thread`, `address`) naming where a reply goes back to; `channel.source` must equal `sourceId`, and the Trigger keeps the channel so its answers have a target. It creates a Trigger (and at most an Eval), never a Ticket; a repeated `dedupeKey` returns `duplicate` with the first `triggerId`. 400 for an invalid, oversized, mis-channelled or unowned input; 503 while stopping |
+ | `GET settings` | `blocks`: `policy`, `eval` and `executor`, each with its `value` and its `revision`; `sources`: the Source instances, each with `id`, `kind`, `installed`, its block's `value`, `{"enabled": …, "config": {…}}`, and `revision`, its kind's form, and its setup `problem` when it has one; `policyVersion`; and `environment`, the execution environment's `root` and `variables` |
+ | `GET sources` | Each Source's status: `state` (`missing`, `off`, `error`, `setup`, `starting`, `paused` or `ready`), the `health` of its parts, its setup `problem`, the last day's `stats`, the Triggers it `filtered` in that day, and the messages it `dropped` in that day, newest drop first, each with its `channel`, `preview`, `ticket` (`id` and `title`) when it was for one, its `thread` when the store has it, and `dropped.at` and `dropped.reason`, `channelGone` or `channelIgnored` |
+ | `GET effects` | Stored external side effects, newest first, filtered by `ticket`, `state` (`pending`, `sent`, `unknown` or `failed`) and `kind`, with `offset` and `limit`: `items`, `total`, and `next_offset`. Each item has `effectId`, `kind`, `key`, `state`, `ticketId`, `receiptId`, `externalId`, `attempts`, `error`, `inFlight`, `confirmedAt`, `lastAttemptAt` and `since`; terminal `reply` rows stay so a Ticket can be reconciled with its Receipt and the remote message |
+diff --git a/docs/007-architecture.md b/docs/007-architecture.md
+index 43dab12..6e29b15 100644
+--- a/docs/007-architecture.md
++++ b/docs/007-architecture.md
+@@ -201,7 +201,7 @@ Generic code accesses Source behavior through the registry. `send(message, comma
+ 
+ Plugins receive `SourceHost`: the registry and `context(kind)`. The kind itself uses a narrower `SourceContext`, built by `sourceContextOf` in `src/app/source-context.ts`.
+ 
+-The built-in `local` kind (`src/sources/local.ts`) is the local input Source: it polls nothing and has no channel, and declares `trusted`, so the Policy admits its inputs without sender lists (`SourceScope.trusted`). Inputs reach it through `POST inputs`, whose `Inputs` service (`src/app/input.ts`) stores an `InputEnvelope` and its dedupe receipt, then hands the Trigger to the Engine; it never creates a Ticket.
++The built-in `local` kind (`src/sources/local.ts`) is the local input Source: it polls nothing and has no channel, and declares `trusted`, so the Policy admits its inputs without sender lists (`SourceScope.trusted`). Inputs reach it through `POST inputs`, whose `Inputs` service (`src/app/input.ts`) stores an `InputEnvelope` and its dedupe receipt, then hands the Trigger to the Engine; it never creates a Ticket. A submission may carry a `channel` (`source`, `thread`, `address`) when the delivering Source can also be written back to — a trusted kind that declares a Channel, such as an edge adapter for a chat platform; `Inputs` copies it onto the Trigger, which is what gives the replies a target, and refuses a channel whose `source` is not the submitting `sourceId`.
+ 
+ That context supplies deployment and commands, setup readiness (`ready`, `configured`, `problem`), configuration, `receive`, `atomic`, and typed `state`. It also exposes Thread reads and metadata writes, Ticket reads and binding/closure commands, Trigger reads, `notify` through Outbox, and `report` for declared health entries.
+ 
+diff --git a/src/app/input.ts b/src/app/input.ts
+index 003311d..496d947 100644
+--- a/src/app/input.ts
++++ b/src/app/input.ts
+@@ -17,6 +17,14 @@ export class InputError extends Error {
+   }
+ }
+ 
++/** A Channel a trusted Source declares for writes back to where the input came from; the core never reads `address` keys. */
++const SubmissionChannel = z.object({
++  source: z.string().regex(/^[a-z][a-z0-9-]*$/),
++  thread: z.string().trim().min(1).max(200),
++  address: z.record(z.string().trim().min(1).max(100), z.string().trim().min(1).max(500))
++    .refine(entries => Object.keys(entries).length <= 16, 'A Channel address holds at most 16 entries'),
++}).strict()
++
+ const SubmissionSchema = z.object({
+   subjectId: z.string().trim().min(1).max(200),
+   sourceId: z.string().regex(/^[a-z][a-z0-9-]*$/),
+@@ -28,6 +36,7 @@ const SubmissionSchema = z.object({
+     url: z.url().refine(value => value.length <= 2000, 'URL exceeds 2000 characters').optional() }).strict(),
+   provenance: z.object({ actor: z.string().trim().min(1).max(200).optional(),
+     note: z.string().trim().min(1).max(500).optional() }).strict().optional(),
++  channel: SubmissionChannel.optional(),
+ }).strict()
+ 
+ /** What `Inputs` uses from the Runtime; `receive` is the Engine's trigger intake, never a Ticket command. */
+@@ -45,7 +54,8 @@ export interface InputsHost {
+ /**
+  * Accepts InputEnvelopes for trusted Sources. Each submission becomes at most one Trigger, deduped by the Trigger ID
+  * derived from `sourceId` and `dedupeKey`; the envelope and its receipt are stored in the same transaction as intake,
+- * and the pass is requested only after that transaction commits. It never creates a Ticket.
++ * and the pass is requested only after that transaction commits. A submitted `channel` is copied onto the Trigger, which
++ * is what lets a reply go back to the conversation the input came from. It never creates a Ticket.
+  */
+ export class Inputs {
+   constructor(private readonly host: InputsHost) {}
+@@ -64,6 +74,11 @@ export class Inputs {
+     if (!this.host.trusted(input.sourceId)) {
+       throw new InputError('source_not_trusted', `Only a trusted local source may submit inputs; ${input.sourceId} cannot`)
+     }
++    // A Channel routes replies, so only the submitting Source may name one: another Source's address would let this
++    // trusted input write into a conversation its own Source never produced.
++    if (input.channel && input.channel.source !== input.sourceId) {
++      throw new InputError('invalid', `The channel names ${input.channel.source}, but only ${input.sourceId} may write back to it`)
++    }
+     const triggerId = key('input', input.sourceId, input.dedupeKey)
+     return this.host.store.atomic(() => {
+       const existing = this.host.store.get(KV.input.records(triggerId))
+@@ -77,11 +92,12 @@ export class Inputs {
+       const envelope: InputEnvelope = { subjectId, sourceId: input.sourceId, externalEventId: input.externalEventId,
+         dedupeKey: input.dedupeKey, layer: input.layer, human, payload: input.payload, receivedAt,
+         provenance: { source: input.sourceId, at: receivedAt, externalId: input.externalEventId,
+-          ...input.provenance?.actor ? { actor: input.provenance.actor } : {}, ...input.provenance?.note ? { note: input.provenance.note } : {} } }
++          ...input.provenance?.actor ? { actor: input.provenance.actor } : {}, ...input.provenance?.note ? { note: input.provenance.note } : {} },
++        ...input.channel ? { channel: input.channel } : {} }
+       const trigger: Trigger = { id: triggerId, source: input.sourceId, threads: [{ source: input.sourceId, id: subjectId }],
+         actor: { source: input.sourceId, id: subjectId }, human, addressed: 'direct', at: receivedAt, text: input.payload.text,
+         meta: { subjectId, input: { externalEventId: input.externalEventId, dedupeKey: input.dedupeKey, layer: input.layer } },
+-        ...input.payload.url ? { url: input.payload.url } : {} }
++        ...input.channel ? { channel: input.channel } : {}, ...input.payload.url ? { url: input.payload.url } : {} }
+       const outcome = this.host.receive(trigger)
+       // `filtered` keeps its receipt too, so a redelivery is a duplicate rather than a second filtered Trigger.
+       this.host.store.set(KV.input.records(triggerId), { envelope, outcome } satisfies InputRecord)
+diff --git a/src/core/model.ts b/src/core/model.ts
+index 8a652f2..9f2cb6a 100644
+--- a/src/core/model.ts
++++ b/src/core/model.ts
+@@ -40,6 +40,8 @@ export interface InputEnvelope {
+   payload: InputPayload
+   receivedAt: string
+   provenance: InputProvenance
++  /** The Channel a reply to this input goes back to, already in the delivering Source's own address format. */
++  channel?: ChannelRef
+ }
+ /** What a delivery submits; the orchestrator owns `receivedAt` and completes `provenance`. */
+ export interface InputSubmission {
+@@ -51,6 +53,8 @@ export interface InputSubmission {
+   human?: boolean
+   payload: InputPayload
+   provenance?: { actor?: string; note?: string }
++  /** Where the outside world can be written back to; its `source` must be the submitting `sourceId`. */
++  channel?: ChannelRef
+ }
+ export type InputOutcome = 'stored' | 'duplicate' | 'filtered'
+ /** What a submission answered: the Trigger its dedupe key names, and what happened this time. */
+diff --git a/tests/input.spec.ts b/tests/input.spec.ts
+index daf213e..1ca3cac 100644
+--- a/tests/input.spec.ts
++++ b/tests/input.spec.ts
+@@ -75,6 +75,39 @@ it('carries the layer, human flag, URL and submitter provenance into the envelop
+   store.close()
+ })
+ 
++it('copies a submitted channel onto the Trigger and its envelope, which is what gives replies a target', () => {
++  const channel = { source: 'local', thread: 'local:qq:123', address: { platform: 'qq', kind: 'group', target: '123' } }
++  const { store, inputs, received } = setup()
++  const receipt = inputs.submit({ ...submission, layer: 'platform', human: true, channel })
++  expect(received[0]!.channel).toEqual(channel)
++  expect(store.get(KV.input.records(receipt.triggerId))).toMatchObject({ envelope: { channel } })
++  store.close()
++})
++
++it('leaves a channel-less input without a channel, as before a Source could declare one', () => {
++  const { store, inputs, received } = setup()
++  inputs.submit(submission)
++  expect('channel' in received[0]!).toBe(false)
++  store.close()
++})
++
++it('refuses a channel naming another Source, an unknown channel key, and an address past its bounds', () => {
++  const { store, inputs, received } = setup()
++  const channel = { source: 'local', thread: 'local:qq:123', address: { platform: 'qq', target: '123' } }
++  const code = (value: unknown) => { try { inputs.submit(value) } catch (error) { return (error as InputError).code } }
++  // `channel.source` must be the submitting Source, whatever kind it is: another Source's address would let a trusted
++  // input write into a conversation its own Source never produced.
++  expect(code({ ...submission, channel: { ...channel, source: 'surfcore' } })).toBe('invalid')
++  expect(code({ ...submission, channel: { ...channel, conversation: 'c1' } })).toBe('invalid')
++  expect(code({ ...submission, channel: { ...channel, thread: '' } })).toBe('invalid')
++  expect(code({ ...submission, channel: { ...channel, address: Object.fromEntries(
++    Array.from({ length: 17 }, (_, index) => [`key${index}`, 'v'])) } })).toBe('invalid')
++  expect(code({ ...submission, channel: { ...channel, address: { target: 'x'.repeat(501) } } })).toBe('invalid')
++  expect(received).toHaveLength(0)
++  expect(store.keys(KV.input.records)).toEqual([])
++  store.close()
++})
++
+ it('refuses an invalid payload, a foreign subject, an untrusted Source and a stopping orchestrator', () => {
+   const { store, inputs, received } = setup()
+   const code = (value: unknown) => { try { inputs.submit(value) } catch (error) { return (error as InputError).code } }

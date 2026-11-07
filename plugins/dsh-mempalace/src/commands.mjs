@@ -5,9 +5,7 @@ const USAGE = [
   '用法：',
   '  /mempalace status               查看记忆宫殿状态',
   '  /mempalace search <关键词>       语义或关键字搜索',
-  '  /mempalace save <内容>           手动保存一条记忆',
   '  /mempalace stats                统计信息',
-  '  /mempalace on | off             开启/关闭当前会话的自动捕获',
   '  /mempalace project [名称]        查看或设置当前项目标签',
   '  /mempalace export               导出全部数据到状态目录',
 ].join('\n')
@@ -36,7 +34,6 @@ function statusText(snapshot) {
     `- 会话数：${stats.sessions}`,
     `- 向量模型：${snapshot.models.embedding}`,
     `- 关键字索引：${snapshot.fts.enabled ? '启用' : '未启用'}`,
-    `- 自动捕获：${snapshot.config.autoCapture ? '开启' : '关闭'}`,
     `- 状态目录：${snapshot.paths.stateDir}`,
   )
   const projects = Object.entries(stats.projects).sort((a, b) => b[1] - a[1]).slice(0, 8)
@@ -76,8 +73,8 @@ function statsText(stats) {
 export function applyCommands(ctx, service) {
   ctx.commands.register({
     name: 'mempalace',
-    description: '管理记忆宫殿：状态、搜索、保存、项目标签与自动捕获',
-    input: { hint: '[status|search <q>|save <text>|stats|on|off|project [name]|export]' },
+    description: '管理记忆宫殿：状态、搜索、项目标签与导出',
+    input: { hint: '[status|search <q>|stats|project [name]|export]' },
     async handler(invocation) {
       const session = invocation.agent.session
       const input = String(invocation.rawInput ?? '').trim()
@@ -96,32 +93,8 @@ export function applyCommands(ctx, service) {
             })
             return { kind: 'success', text: searchText(searched) }
           }
-          case 'save': {
-            if (!argument) return { kind: 'error', text: `请提供要保存的内容。\n${USAGE}` }
-            const saved = await service.saveMemory({
-              content: argument,
-              project: service.getSessionProject(session),
-              source: 'manual-save',
-              importance: 0.8,
-              session_id: String(session.id ?? ''),
-            })
-            return saved.status === 'duplicate'
-              ? { kind: 'success', text: `这条记忆已存在（${saved.id}）。` }
-              : { kind: 'success', text: `已保存记忆（${saved.id}）。` }
-          }
           case 'stats':
             return { kind: 'success', text: statsText(await service.stats()) }
-          case 'on':
-            service.setSessionCaptureEnabled(session, true)
-            return {
-              kind: 'success',
-              text: service.config.autoCapture
-                ? '当前会话的自动捕获已开启。'
-                : '当前会话已开启，但插件级 autoCapture 处于关闭状态；请在面板设置中打开。',
-            }
-          case 'off':
-            service.setSessionCaptureEnabled(session, false)
-            return { kind: 'success', text: '当前会话的自动捕获已关闭。' }
           case 'project': {
             if (!argument) {
               return {

@@ -1,0 +1,23 @@
+--- a/src/deployment.ts
++++ b/src/deployment.ts
+@@ -12,3 +12,8 @@
+ const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
+-const absolute = (description: string) => s.string().pattern(/^\//).description(`${description} Absolute path.`)
++/**
++ * A path that is absolute on either platform. Upstream requires a leading `/`, which
++ * Windows paths never have; vivy-dsh accepts drive-absolute paths (`C:/…`) as well.
++ */
++const ABSOLUTE = /^(\/|[A-Za-z]:[\\/])/
++const absolute = (description: string) => s.string().pattern(ABSOLUTE).description(`${description} Absolute path.`)
+ /** Plugin configuration of the dsh-superagent entry. Volatile fields apply without a restart because dsh-superagent reads them on each use; changing `stateDir` remounts the plugin. */
+--- a/src/policy.ts
++++ b/src/policy.ts
+@@ -5,2 +5,3 @@
+ import { LIMITS } from './limits.ts'
++import { isAbsolute } from 'node:path'
+ import { z } from 'zod'
+@@ -93,3 +94,3 @@
+   maxWorkers: z.number().int().min(LIMITS.maxWorkers.min).max(LIMITS.maxWorkers.max).default(3),
+-  directory: z.string().trim().refine(path => path === '' || path.startsWith('/'), 'An absolute path, or empty for <stateDir>/work').default(''),
++  directory: z.string().trim().refine(path => path === '' || isAbsolute(path), 'An absolute path, or empty for <stateDir>/work').default(''),
+   prepare: z.string().max(LIMITS.prepareCommand).default(''),

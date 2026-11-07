@@ -1,0 +1,3035 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-07T03:45:47.134Z",
+  "model": "DeepSeek",
+  "knowledge": "/Users/mastwet-macmini/Desktop/dsh-superagent-template/plugins/dsh-live2d/data/knowledge/deepseek.json",
+  "parameterCount": 509,
+  "poolCounts": {
+    "eligible-continuous": 125,
+    "eligible-switch": 89,
+    "physics-output": 292,
+    "mouth-lipsync": 1,
+    "hand-switch": 2,
+    "eligibleSwitch": 89,
+    "eligibleContinuous": 125
+  },
+  "effectivePools": {
+    "switches": 77,
+    "continuous": 88,
+    "excluded": 49
+  },
+  "gearHealth": {
+    "continuous": 125,
+    "bothSides": 106,
+    "oneSided": 19,
+    "noGear": 0,
+    "minSmallPctOfSpan": 17.5,
+    "maxSmallPctOfSpan": 35,
+    "minSmallPctOfSpanLegacyLadder": 10,
+    "maxSmallPctOfSpanLegacyLadder": 20,
+    "ladder": [
+      "smallNegative 35%",
+      "mediumNegative 65%",
+      "largeNegative 90%",
+      "smallPositive 35%",
+      "mediumPositive 65%",
+      "largePositive 90%"
+    ]
+  },
+  "soullinkDetectedHandSwitches": [
+    "Param38",
+    "Param40"
+  ],
+  "gestureJoints": [
+    "Param62",
+    "Param59",
+    "Param60",
+    "Param61",
+    "Param36",
+    "Param39",
+    "Param41",
+    "Param42",
+    "Param43"
+  ],
+  "continuous": [
+    {
+      "id": "Paramshuiyin7",
+      "name": "-----下面是按键-----",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Paramshuiyin8",
+      "name": "-----按键到此结束-----",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param2",
+      "name": "辅助参数",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "AngleXbs3",
+      "name": "角度 Xbs +15",
+      "min": -30,
+      "max": 30,
+      "default": 30,
+      "sides": "negativeOnly",
+      "gears": {
+        "neutral": 30,
+        "smallNegative": 9,
+        "mediumNegative": -9,
+        "largeNegative": -24
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "AngleXbs2",
+      "name": "角度 Xbs -15",
+      "min": -30,
+      "max": 30,
+      "default": -30,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": -30,
+        "smallPositive": -9,
+        "mediumPositive": 9,
+        "largePositive": 24
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "AngleYbs2",
+      "name": "角度 Ybs",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "ShoulderX",
+      "name": "肩膀X",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "ShoulderYy",
+      "name": "肩头Y",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Divider19",
+      "name": "■■■■■身体物理■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "HipAngleXq",
+      "name": "盆骨Xq",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "ParamBodyAngleRY",
+      "name": "身体位移RY",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "ParamBodyAngleRZ",
+      "name": "身体位移RZ",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "AngleX",
+      "name": "OX",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "AngleY",
+      "name": "OY",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "AngleZ",
+      "name": "OZ",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "PositionX",
+      "name": "OPX",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "PositionY",
+      "name": "OPY",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "PositionZ",
+      "name": "OPYZ",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LeanInput",
+      "name": "Lean Input",
+      "min": -30,
+      "max": 30,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -10.5,
+        "mediumNegative": -19.5,
+        "largeNegative": -27,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "EyeSmile",
+      "name": "微笑",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "ParamEyeBallX",
+      "name": "眼珠 X",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "ParamEyeBallY",
+      "name": "眼珠 Y",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "BrowInnerUp",
+      "name": "BrowInnerUp",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "Divider4",
+      "name": "■■■■■■■■右眼■■■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "ParamEyeROpen",
+      "name": "右眼  开闭",
+      "min": 0,
+      "max": 1.5,
+      "default": 1,
+      "sides": "both",
+      "gears": {
+        "neutral": 1,
+        "smallNegative": 0.65,
+        "mediumNegative": 0.35,
+        "largeNegative": 0.09999999999999998,
+        "smallPositive": 1.175,
+        "mediumPositive": 1.325,
+        "largePositive": 1.45
+      },
+      "smallPctOfSpan": 23.33,
+      "smallPctOfSpanLegacyLadder": 13.33,
+      "excluded": false
+    },
+    {
+      "id": "ParamBrowRY",
+      "name": "右眉上下",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "REyeSquint",
+      "name": "R-Eye Squint",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "Divider5",
+      "name": "■■■■■■■■左眼■■■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "LParamGlowC",
+      "name": ">光效C",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "ParamEyeLOpen",
+      "name": "左眼　开闭",
+      "min": 0,
+      "max": 1.5,
+      "default": 1,
+      "sides": "both",
+      "gears": {
+        "neutral": 1,
+        "smallNegative": 0.65,
+        "mediumNegative": 0.35,
+        "largeNegative": 0.09999999999999998,
+        "smallPositive": 1.175,
+        "mediumPositive": 1.325,
+        "largePositive": 1.45
+      },
+      "smallPctOfSpan": 23.33,
+      "smallPctOfSpanLegacyLadder": 13.33,
+      "excluded": false
+    },
+    {
+      "id": "ParamBrowLY",
+      "name": "左眉上下",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LEyeSquint",
+      "name": "L-Eye Squint",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "Divider8",
+      "name": "■■■■■■■■嘴■■■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "ParamMouthForm",
+      "name": "嘴　变形",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "JawOpen",
+      "name": "下巴开闭",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "TongueOut",
+      "name": "伸舌头",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "Divider31",
+      "name": "■■■■■■■■VB■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "MouthX",
+      "name": "MouthX",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "MouthSmile_L",
+      "name": "MouthSmile_L",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "MouthSmile_R",
+      "name": "MouthSmile_R",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "Mouthpucker",
+      "name": "撅嘴",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "MouthFunnel",
+      "name": "漏斗嘴",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "MouthPuckerWiden",
+      "name": "嘴宽窄",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "CheeckPuff",
+      "name": "鼓脸",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "MouthPressLipOpen",
+      "name": "MouthPressLipOpen",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "MouthRollUpper",
+      "name": "MouthRollUpper",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": true
+    },
+    {
+      "id": "MouthRollLower",
+      "name": "MouthRollLower",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": true
+    },
+    {
+      "id": "NoseNeer",
+      "name": "NosePositionY",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": true
+    },
+    {
+      "id": "Divider6",
+      "name": "<<<<<<物理■■■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider7",
+      "name": "■■■■■■物理>>>>>>",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider15",
+      "name": "■■■ 口物理 ■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider11",
+      "name": "■■■■■■■■头发物理■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "FrontHairZ",
+      "name": "前发Z",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LateSideHairXBS",
+      "name": "后侧发XBS",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LateSideHairYbs",
+      "name": "后侧发Ybs",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Divider9",
+      "name": "■■■■■■■■左手臂■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "LRibbonY1",
+      "name": "左飘带Y1",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LRibbonY2",
+      "name": "左飘带Y2",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LRibbonY3",
+      "name": "左飘带Y3",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LRibbonY4",
+      "name": "左飘带Y4",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Divider10",
+      "name": "■■■■■■■■右手臂■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "RSleeveX4",
+      "name": "右袖子X4",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "RRibbonY1",
+      "name": "右飘带Y1",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "RRibbonY2",
+      "name": "右飘带Y2",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "RRibbonY3",
+      "name": "右飘带Y3",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "RRibbonY4",
+      "name": "右飘带Y4",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Divider18",
+      "name": "■■■■■■■■胸■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider12",
+      "name": "■■■■■■■■头配饰■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider23",
+      "name": "■■■■■■■■■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider20",
+      "name": "■■■■■■■■裙子■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "SkirtLayerY6",
+      "name": "裙子层级Y6",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Divider14",
+      "name": "■■■■■■■■上衣■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider13",
+      "name": "■■■■■■■■兽耳■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider33",
+      "name": "■■■■■■■■动画■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param11",
+      "name": "呆滞",
+      "min": 0,
+      "max": 8,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 2.8,
+        "mediumPositive": 5.2,
+        "largePositive": 7.2
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "WingOpenClose",
+      "name": "翅膀开合",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "WingSpread",
+      "name": "翅膀舒展",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "FeatherPhysics1",
+      "name": "羽毛物理1",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "FeatherPhysics2",
+      "name": "羽毛物理2",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "WingRotation",
+      "name": "翅膀旋转",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "WingOpenClose2",
+      "name": "翅膀开合",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "WingSpread2",
+      "name": "翅膀舒展",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "FeatherPhysics3",
+      "name": "羽毛物理1",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "FeatherPhysics4",
+      "name": "羽毛物理2",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "WingRotation2",
+      "name": "翅膀旋转",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param138",
+      "name": "身体抖动",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "SHOCKEYE",
+      "name": "SHOCK EYE",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param135",
+      "name": "爱心UD",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param6",
+      "name": "爱心弹1",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param7",
+      "name": "爱心弹2",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param132",
+      "name": "泪花 A",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param133",
+      "name": "泪花 B",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "AniEyerolling",
+      "name": "蚊香眼",
+      "min": 0,
+      "max": 30,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 10.5,
+        "mediumPositive": 19.5,
+        "largePositive": 27
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    },
+    {
+      "id": "Ani1",
+      "name": "动画1",
+      "min": -1,
+      "max": 1,
+      "default": -1,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": -1,
+        "smallPositive": -0.30000000000000004,
+        "mediumPositive": 0.30000000000000004,
+        "largePositive": 0.8
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": true
+    },
+    {
+      "id": "Ani2",
+      "name": "动画2",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider24",
+      "name": "■■■■■■逸散的光点■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider25",
+      "name": "■■■■■■飘花特效■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "LittleFlower9",
+      "name": "小花左右",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower10",
+      "name": "小花左右",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower13",
+      "name": "花旋转",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower12",
+      "name": "花左右",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Divider28",
+      "name": "■■■■■■生气■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "AngryMove2",
+      "name": "生气伸缩",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "AngryMove4",
+      "name": "生气伸缩2",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "AngryMove6",
+      "name": "生气伸缩",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "AngryMove7",
+      "name": "生气伸缩2",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Divider16",
+      "name": "■■■■■■■■眼睛动画■■■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Divider22",
+      "name": "■■■■■■■■动画■■■■",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param31",
+      "name": "泪花闪烁",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param32",
+      "name": "高光闪烁",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param27",
+      "name": "< 流泪-膨胀",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param29",
+      "name": "> 流泪-膨胀",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Startwinkle",
+      "name": "星星闪烁",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Startwinkle2",
+      "name": "星星闪烁2",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param51",
+      "name": "草放大",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": false
+    },
+    {
+      "id": "Param36",
+      "name": "R大臂z",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param39",
+      "name": "大臂透视",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param41",
+      "name": "R小臂 Z",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param42",
+      "name": "R手腕 Z",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param43",
+      "name": "R 食指",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param62",
+      "name": "L 大臂z",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param59",
+      "name": "大臂透视",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param60",
+      "name": "L小臂 Z",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "Param61",
+      "name": "L手腕 Z",
+      "min": -1,
+      "max": 1,
+      "default": 0,
+      "sides": "both",
+      "gears": {
+        "neutral": 0,
+        "smallNegative": -0.35,
+        "mediumNegative": -0.65,
+        "largeNegative": -0.9,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 17.5,
+      "smallPctOfSpanLegacyLadder": 10,
+      "excluded": true
+    },
+    {
+      "id": "ParamBreath",
+      "name": "呼吸",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "sides": "positiveOnly",
+      "gears": {
+        "neutral": 0,
+        "smallPositive": 0.35,
+        "mediumPositive": 0.65,
+        "largePositive": 0.9
+      },
+      "smallPctOfSpan": 35,
+      "smallPctOfSpanLegacyLadder": 20,
+      "excluded": false
+    }
+  ],
+  "switches": [
+    {
+      "id": "key1",
+      "name": "1. 黑脸",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key2",
+      "name": "2. 落泪",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key3",
+      "name": "3. 圈圈眼",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key4",
+      "name": "4. 爱心眼",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key5",
+      "name": "5. > <眼",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key6",
+      "name": "6. 屑屑眼",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key7",
+      "name": "7. 脸红",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key8",
+      "name": "8. 加载",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key9",
+      "name": "9. 大牙",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key10",
+      "name": "10. 大钢盆",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key11",
+      "name": "11. 黑框眼镜",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key12",
+      "name": "12. 单片眼镜",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "key13",
+      "name": "13. 流冷汗",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Divider1",
+      "name": "■■■■■■■■■■■■■",
+      "default": 0,
+      "excluded": true
+    },
+    {
+      "id": "Movement1",
+      "name": "1. 狗尾草",
+      "default": 0,
+      "excluded": true
+    },
+    {
+      "id": "Movement2",
+      "name": "2. 抚胸",
+      "default": 0,
+      "excluded": true
+    },
+    {
+      "id": "Movement3",
+      "name": "3. 竖食指",
+      "default": 0,
+      "excluded": true
+    },
+    {
+      "id": "Divider3",
+      "name": "■■■■■■■■■■■■■",
+      "default": 0,
+      "excluded": true
+    },
+    {
+      "id": "Clothes1",
+      "name": "1. 长短裙切换",
+      "default": 1,
+      "excluded": true
+    },
+    {
+      "id": "Clothes2",
+      "name": "2. 大小变",
+      "default": 0,
+      "excluded": true
+    },
+    {
+      "id": "Clothes3",
+      "name": "3. 胸口衣服",
+      "default": 0,
+      "excluded": true
+    },
+    {
+      "id": "Clothes4",
+      "name": "4. 鞋子",
+      "default": 0,
+      "excluded": true
+    },
+    {
+      "id": "Clothes5",
+      "name": "5. 尾巴",
+      "default": 1,
+      "excluded": true
+    },
+    {
+      "id": "Param",
+      "name": "大小变位置",
+      "default": 1,
+      "excluded": true
+    },
+    {
+      "id": "IDLE",
+      "name": "IDLE",
+      "default": 0,
+      "excluded": true
+    },
+    {
+      "id": "ParamSilence",
+      "name": "ParamSilence",
+      "default": 1,
+      "excluded": false
+    },
+    {
+      "id": "ParamA",
+      "name": "A",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "ParamI",
+      "name": "I",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "ParamU",
+      "name": "U",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "ParamE",
+      "name": "E",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "ParamO",
+      "name": "O",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "RShiftbuffer",
+      "name": "<变化缓冲",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "RColorshift",
+      "name": "<眼睛颜色",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "MicroGlows",
+      "name": "话筒光",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "SweatBurst1",
+      "name": "冒汗1",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "SweatBurst2",
+      "name": "冒汗1 开关",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "SweatBurst3",
+      "name": "冒汗2",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "SweatBurst4",
+      "name": "冒汗2 开关",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "SweatBurst5",
+      "name": "冒汗3",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "SweatBurst6",
+      "name": "冒汗3 开关",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Sweat1",
+      "name": "流汗1",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Sweat2",
+      "name": "流汗2",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param140",
+      "name": "加载",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param137",
+      "name": "炸毛",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param139",
+      "name": "炸毛移动",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Angry",
+      "name": "生气",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param136",
+      "name": "钱",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Angry2",
+      "name": "生气",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Angry3",
+      "name": "生气",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "SWITCHA",
+      "name": "开关A",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param141",
+      "name": "闪光 1",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param142",
+      "name": "闪光 2",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "F1Anikey",
+      "name": "花1动画开关",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "F2Anikey",
+      "name": "花2动画开关",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "F3Anikey",
+      "name": "花3动画开关",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Colorflicker5",
+      "name": "1眼光显隐",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Glintshift5",
+      "name": "1眼光移动",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Colorflicker6",
+      "name": "2眼光显隐",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Glintshift6",
+      "name": "2眼光移动",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Colorflicker7",
+      "name": "3眼光显隐",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Glintshift8",
+      "name": "3眼光移动",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Colorflicker8",
+      "name": "4眼光显隐",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Glintshift7",
+      "name": "4眼光移动",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower1",
+      "name": "小花飘落1",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower2",
+      "name": "小花显隐1",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower3",
+      "name": "小花飘落2",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower4",
+      "name": "小花显隐2",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower5",
+      "name": "小花飘落3",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower6",
+      "name": "小花显隐3",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "LittleFlower11",
+      "name": "花形变",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param12",
+      "name": "生气1",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param13",
+      "name": "生气2",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "AngryMove",
+      "name": "生气移动",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "AngryMove3",
+      "name": "生气显隐",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "AngryMove5",
+      "name": "生气移动",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "AngryMove8",
+      "name": "生气显隐",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param28",
+      "name": "< 流泪-滴下1",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "RCry",
+      "name": "<落泪",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "RCryKey",
+      "name": "<落泪开关",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "RCry2",
+      "name": "<落泪 涌出",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param30",
+      "name": "> 流泪-滴下1",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "LCry",
+      "name": ">落泪",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "LCryKey",
+      "name": ">落泪开关",
+      "default": 1,
+      "excluded": false
+    },
+    {
+      "id": "LCry3",
+      "name": ">落泪 涌出",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param55",
+      "name": "光1",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param56",
+      "name": "光2",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param58",
+      "name": "光3",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param57",
+      "name": "光4",
+      "default": 0,
+      "excluded": false
+    },
+    {
+      "id": "Param37",
+      "name": "动画开关",
+      "default": 0,
+      "excluded": false
+    }
+  ]
+}

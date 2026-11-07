@@ -2,18 +2,12 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 export const DEFAULTS = Object.freeze({
-  autoCapture: true,
-  wakeUpEnabled: true,
   wakeUpMaxTokens: 800,
   topicInferenceEnabled: true,
   defaultProject: null,
-  captureMinChars: 20,
-  userMinChars: 10,
-  captureMaxChars: 2000,
   dedupeThreshold: 0.9,
   searchDefaultResults: 5,
   searchMaxResults: 20,
-  maxPendingCaptures: 8,
   chunkSize: 800,
   chunkOverlap: 100,
   minChunkSize: 50,
@@ -24,6 +18,10 @@ export const DEFAULTS = Object.freeze({
   hfEndpoint: '',
   modelLoadTimeoutMs: 60_000,
   keywordsFallback: true,
+  archiveMaxItems: 200,
+  archiveMaxBytes: 384 * 1024,
+  archiveMaxContentChars: 40_000,
+  archiveMaxStatusIds: 200,
 })
 
 export const CONFIG_FILE = 'config.json'
@@ -58,20 +56,14 @@ export function resolveConfig(pluginConfig = {}, persisted = {}) {
 export function validateConfig(input) {
   if (!input || typeof input !== 'object') fail('config must be an object')
   const config = {
-    autoCapture: boolean(input.autoCapture, 'autoCapture'),
-    wakeUpEnabled: boolean(input.wakeUpEnabled, 'wakeUpEnabled'),
     wakeUpMaxTokens: integer(input.wakeUpMaxTokens, 'wakeUpMaxTokens', 64, 8000, 800),
     topicInferenceEnabled: boolean(input.topicInferenceEnabled, 'topicInferenceEnabled'),
     defaultProject: input.defaultProject === null || input.defaultProject === undefined
       ? null
       : text(input.defaultProject, 'defaultProject'),
-    captureMinChars: integer(input.captureMinChars, 'captureMinChars', 0, 100000, 20),
-    userMinChars: integer(input.userMinChars, 'userMinChars', 0, 100000, 10),
-    captureMaxChars: integer(input.captureMaxChars, 'captureMaxChars', 100, 1000000, 2000),
     dedupeThreshold: Number(input.dedupeThreshold),
     searchDefaultResults: integer(input.searchDefaultResults, 'searchDefaultResults', 1, 20, 5),
     searchMaxResults: integer(input.searchMaxResults, 'searchMaxResults', 1, 50, 20),
-    maxPendingCaptures: integer(input.maxPendingCaptures, 'maxPendingCaptures', 1, 100, 8),
     chunkSize: integer(input.chunkSize, 'chunkSize', 100, 10000, 800),
     chunkOverlap: integer(input.chunkOverlap, 'chunkOverlap', 0, 9999, 100),
     minChunkSize: integer(input.minChunkSize, 'minChunkSize', 0, 10000, 50),
@@ -82,6 +74,10 @@ export function validateConfig(input) {
     hfEndpoint: text(input.hfEndpoint, 'hfEndpoint', { allowEmpty: true }),
     modelLoadTimeoutMs: integer(input.modelLoadTimeoutMs, 'modelLoadTimeoutMs', 10_000, 900_000),
     keywordsFallback: boolean(input.keywordsFallback, 'keywordsFallback'),
+    archiveMaxItems: integer(input.archiveMaxItems, 'archiveMaxItems', 1, 200, 200),
+    archiveMaxBytes: integer(input.archiveMaxBytes, 'archiveMaxBytes', 1024, 384 * 1024, 384 * 1024),
+    archiveMaxContentChars: integer(input.archiveMaxContentChars, 'archiveMaxContentChars', 100, 40_000, 40_000),
+    archiveMaxStatusIds: integer(input.archiveMaxStatusIds, 'archiveMaxStatusIds', 1, 200, 200),
   }
   if (!Number.isFinite(config.dedupeThreshold) || config.dedupeThreshold < 0 || config.dedupeThreshold > 1) {
     fail('dedupeThreshold must be between 0 and 1')
@@ -125,18 +121,5 @@ export function savePersistedConfig(stateDir, config) {
 }
 
 export function publicConfig(config) {
-  const {
-    captureMinChars, userMinChars, captureMaxChars, dedupeThreshold,
-    searchDefaultResults, searchMaxResults, maxPendingCaptures,
-    chunkSize, chunkOverlap, minChunkSize, embeddingDim, embeddingModel,
-    topicModel, modelCacheDir, hfEndpoint, modelLoadTimeoutMs, keywordsFallback,
-    autoCapture, wakeUpEnabled, wakeUpMaxTokens, topicInferenceEnabled, defaultProject,
-  } = config
-  return {
-    autoCapture, wakeUpEnabled, wakeUpMaxTokens, topicInferenceEnabled, defaultProject,
-    captureMinChars, userMinChars, captureMaxChars, dedupeThreshold,
-    searchDefaultResults, searchMaxResults, maxPendingCaptures,
-    chunkSize, chunkOverlap, minChunkSize, embeddingDim, embeddingModel,
-    topicModel, modelCacheDir, hfEndpoint, modelLoadTimeoutMs, keywordsFallback,
-  }
+  return { ...config }
 }

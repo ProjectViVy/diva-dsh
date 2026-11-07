@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-local-asr
+      name: dsh-local-asr
+      config: {}
