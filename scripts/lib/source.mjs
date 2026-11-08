@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 
@@ -40,7 +41,7 @@ export function sourceRuntimeInvocation(root, args) {
   const require = createRequire(join(harness, 'package.json'))
   return {
     cwd: project,
-    args: ['--import', require.resolve('tsx/esm'), join(harness, 'apps', 'cli', 'src', 'bin.ts'), ...args],
+    args: ['--import', pathToFileURL(require.resolve('tsx/esm')).href, join(harness, 'apps', 'cli', 'src', 'bin.ts'), ...args],
     env: { ...localEnvironment(project), TSX_TSCONFIG_PATH: join(harness, 'tsconfig.json') },
   }
 }
