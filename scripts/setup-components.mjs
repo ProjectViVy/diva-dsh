@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { ROOT, PROFILE, processes, profileDir, state } from './lib/vivy.mjs'
+import { ROOT, PROFILE, home, processes, profileDir, state } from './lib/vivy.mjs'
+import { activateDefaultPersona } from './lib/laputa.mjs'
 import { prepareLocalDirectories, sourceRuntimeInvocation, verifyPinnedSubmodule } from './lib/source.mjs'
 import { componentCutoverReady, componentPackages, inspectComponents, relocateProfileDependencies } from './lib/component-setup.mjs'
 import { migrateComponents } from './lib/component-migration.mjs'
@@ -23,5 +24,6 @@ if (before.missing.length) {
   if (result.status !== 0) throw new Error(`Component registration failed (${result.status ?? result.signal})`)
 }
 if (!componentCutoverReady(ROOT, profile, packages)) throw new Error('Component migration or profile registration is incomplete')
+if (activateDefaultPersona(profile, join(home(), 'laputa'))) console.log('Enabled the default persona; the first conversation will guide setup.')
 ensureSurfcoreAdapter(ROOT, join(ROOT, '.artifacts', 'surfcore-adapter'), { splitComponents: true })
-console.log('Voice, memory, mempalace, continual-harness, evolution, laputa and SurfCore adapter components are registered locally.')
+console.log('All local components are registered, including persona guidance, DIVA skins, skin manager and Chinese prompts.')

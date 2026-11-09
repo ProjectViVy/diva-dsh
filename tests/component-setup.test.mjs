@@ -7,6 +7,19 @@ import { spawnSync } from 'node:child_process'
 import * as componentSetup from '../scripts/lib/component-setup.mjs'
 const { inspectComponents, componentCutoverReady, componentMigrationReady } = componentSetup
 
+test('default registration includes every local plugin bundle', () => {
+  const root = resolve('.')
+  const registered = new Map(componentSetup.componentPackages(root))
+  for (const directory of readdirSync(join(root, 'plugins'), { withFileTypes: true })) {
+    if (!directory.isDirectory() || directory.name === 'surfcore') continue
+    const target = join(root, 'plugins', directory.name)
+    const manifestPath = join(target, 'package.json')
+    if (!fs.existsSync(manifestPath)) continue
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    if (manifest.dsh?.bundle) assert.equal(registered.get(manifest.name), target, `${manifest.name} must be registered by default`)
+  }
+})
+
 test('component registration is idempotent and refuses to replace unrelated dependencies', (t) => {
   const base = resolve('.artifacts/test-tmp'); mkdirSync(base, { recursive: true })
   const root = mkdtempSync(join(base, 'component-setup-'))

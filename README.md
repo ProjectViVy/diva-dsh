@@ -140,6 +140,8 @@ npm start
 
 `npm start` 在后台启动服务，将本项目根目录登记为 DSH 工作区，并输出带临时 token 的面板链接。默认面板地址为 `http://127.0.0.1:3082`；若需要找回链接，可查看 `.artifacts/` 下最新的 `vivy-dsh-superagent-local-*.log`。每次重启后请使用新的链接。已有工作区和会话会保留。
 
+自定义组件默认注册并启用，包括人格引导、记忆、语音、进化、Live2D 工具桥、皮肤和中文提示词。首次安装会创建并启用 `default` 空人格，首次对话引导填写；已有的人格配置与文件会保留。已有安装可在停服后运行 `npm run setup:components` 补齐。语音引擎、角色模型、QQ / B 站账号等仍按各自配置使用。
+
 首次启动时，Superagent 会等待配置，状态码为 `3`。打开面板左侧的 **Superagent**，填写 GitHub 仓库、允许发起工作的用户和执行目录；实际运行任务还需要配置模型及用于该仓库的 GitHub 账号。
 
 ## 日常命令
@@ -153,7 +155,7 @@ npm run proxy -- status     # 查看配置值、已启动值与是否需重启
 npm run stop              # 停止
 npm run restart           # 重启
 npm run setup:surfcore    # 服务停止时重新安装并注册 SurfCore
-npm run setup:components  # 服务停止时迁移并注册独立语音、记忆、记忆宫殿、持续进化与进化管理插件，生成 SurfCore 组件补丁
+npm run setup:components  # 服务停止时迁移并注册本地组件（含 DIVA 皮肤与皮肤管理），生成 SurfCore 组件补丁
 npm run setup:mempalace   # 安装并校验记忆宫殿的原生依赖
 npm run setup:mempalace -- --verify      # 只校验，不重新安装
 npm run setup:mempalace -- --warm-models # 额外下载向量模型（可选）
@@ -229,7 +231,7 @@ B站公开记忆可在记忆面板手动刷新；定期刷新默认关闭，只�
 
 **人格（`dsh-laputa`，Phase 1）** 把用户手写的人格文档注入系统提示词，并在人格为空时引导首次填写。数据默认位于 `.artifacts/dsh-home/laputa/<personaId>/`，包含六份 Markdown；`IDENTITY.MD` 与 `MISSION.MD` 都非空才算已初始化，`RELATIONSHIP.MD`、`REDLINE.MD`、`DREAM.MD`、`DARK.MD` 可为空。插件按固定顺序用空行拼接非空文件，并检查符号链接、硬链接、world-writable、UTF-8、单文件字节数和总字符数。编辑保存后发送下一轮即可生效；读取出错时保留上一份可用文本，不会把非法内容注入提示词。
 
-侧边栏中与 Superagent、语音、记忆、记忆宫殿同级的「人格」面板提供只读概览和六份文件编辑：概览显示启用/初始化状态、待填写文件、目录、字符数、指纹和最近错误；文件页一次保存一个文件，保存时校验预算并比对加载时的摘要，若文件已被其他方式修改会提示重新加载而不是覆盖。面板只编辑内容，不修改 profile；启用或切换人格仍使用 `npm run setup:laputa`。API 仅限本机回环、同源，并通过 DSH 会话校验，只接受六个固定文件名。
+侧边栏中与 Superagent、语音、记忆、记忆宫殿同级的「人格」面板提供只读概览和六份文件编辑：概览显示启用/初始化状态、待填写文件、目录、字符数、指纹和最近错误；文件页一次保存一个文件，保存时校验预算并比对加载时的摘要，若文件已被其他方式修改会提示重新加载而不是覆盖。人格启停可在“设置 → 人格 → 启用人格”中切换，自动保存并对下次请求生效；人格文件和版本历史会保留。切换人格仍使用 `npm run setup:laputa`。API 仅限本机回环、同源，并通过 DSH 会话校验，只接受六个固定文件名。
 
 未初始化时插件不会报错，而是在会话里或面板中引导回答两个问题：“我是谁？”（IDENTITY，可以是名字，也可以是名字之外的身份、语气、价值观）和“我的使命是什么？”（MISSION）。也可以选择高级初始化，补充 RELATIONSHIP 与 REDLINE，DREAM / DARK 由 agent 根据对话生成。模型只能通过 `laputa_init` 填充缺失或空白文件，已有非空内容不会被覆盖；工具不接受路径，且只对顶层 agent 开放。
 
@@ -239,7 +241,7 @@ npm run setup:laputa -- --init vivy   # 创建空模板并启用；首次对话�
 npm start
 ```
 
-之后在侧边栏「人格」面板直接查看和编辑，或在会话内使用 `/laputa status`、`/laputa validate`、`/laputa reload`、`/laputa init`。人格段与引导段只注入顶层 agent，子 agent 不包含；原文中的 `{{...}}` 保持字面量，且会附带“人格不改变工具权限、审批和安全规则”的固定说明。用 `--no-enable` 只创建文件不启用，或在 profile 的 `- id: laputa` 中把 `enabled` 改为 `false` 后重启。自动提案、改写已有内容的工具、SOUL.md、版本 pin、回滚、审批和面板内启停属于 Phase 2，当前不包含。详见 `plugins/dsh-laputa/README.md`。
+之后在侧边栏「人格」面板直接查看和编辑，或在会话内使用 `/laputa status`、`/laputa validate`、`/laputa reload`、`/laputa init`。人格段与引导段只注入顶层 agent，子 agent 不包含；原文中的 `{{...}}` 保持字面量，且会附带“人格不改变工具权限、审批和安全规则”的固定说明。用 `--no-enable` 只创建文件不启用，也可在“设置 → 人格”中随时启停，无需重启。自动提案、改写已有内容的工具、SOUL.md 与审批不在当前功能范围内。详见 `plugins/dsh-laputa/README.md`。
 
 SurfCore 上游主要面向 Windows，QQ 所需的 SnowLuma 和 B 站完整功能尚未在 macOS 上验证；现有语音包也只提供 Windows 启动脚本。插件可以按配置启动外部程序或访问网络；本项目不是操作系统沙箱，手动启用这些功能前请先检查其设置和路径。详见 `plugins/surfcore/README.md`。
 

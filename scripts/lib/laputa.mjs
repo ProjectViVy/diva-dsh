@@ -6,7 +6,8 @@
 // through the create-only laputa_init tool, or the user edits it directly.
 // It never writes a SOUL.md and never rewrites the source files.
 
-import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { isAbsolute, join, resolve } from 'node:path'
 
 /** Assembly order shared with the plugin. */
@@ -116,4 +117,29 @@ export function upsertLaputaProfileConfig(patchText, options) {
   if (next.length > 0) next.push('')
   next.push(...block)
   return `${next.join('\n')}\n`
+}
+
+/** Enable guided setup on first install, preserving an explicit persona configuration. */
+export function activateDefaultPersona(profile, dataRoot) {
+  const path = join(profile, 'cordis.patch.yml')
+  const before = readFileSync(path, 'utf8')
+  const backup = join(profile, 'cordis.patch.pre-default-persona.yml')
+  // The host removes an override when a setting matches its inherited default.
+  // A missing block after first activation can therefore mean an explicit off.
+  if (existsSync(backup)) return false
+  if (/^-\s+id:\s*['"]?laputa['"]?\s*(?:#.*)?$/m.test(before)) {
+    writeFileSync(backup, before, { flag: 'wx', mode: 0o600 })
+    return false
+  }
+  const next = upsertLaputaProfileConfig(before, { enabled: true, personaId: 'default' })
+  initPersonaFiles(dataRoot, 'default')
+  writeFileSync(backup, before, { flag: 'wx', mode: 0o600 })
+  const temporary = `${path}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporary, next, { flag: 'wx', mode: 0o600 })
+    renameSync(temporary, path)
+  } finally {
+    rmSync(temporary, { force: true })
+  }
+  return true
 }

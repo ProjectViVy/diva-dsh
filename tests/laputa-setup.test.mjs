@@ -7,6 +7,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { componentPackages } from '../scripts/lib/component-setup.mjs'
 import { PERSONA_FILES, initPersonaFiles, upsertLaputaProfileConfig } from '../scripts/lib/laputa.mjs'
+import * as laputaSetup from '../scripts/lib/laputa.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const POSIX = process.platform !== 'win32'
@@ -33,6 +34,40 @@ const PROFILE = [
   '    stateDir: /tmp/state',
   '',
 ].join('\n')
+
+test('default component activation enables an empty persona and is idempotent', () => {
+  const root = tempRoot()
+  const profile = join(root, 'profile')
+  mkdirSync(profile)
+  const patch = join(profile, 'cordis.patch.yml')
+  writeFileSync(patch, PROFILE)
+  assert.equal(typeof laputaSetup.activateDefaultPersona, 'function')
+  assert.equal(laputaSetup.activateDefaultPersona(profile, join(root, 'laputa')), true)
+  const activated = readFileSync(patch, 'utf8')
+  assert.ok(activated.includes('enabled: true'))
+  assert.ok(activated.includes('personaId: default'))
+  assert.equal(readFileSync(join(profile, 'cordis.patch.pre-default-persona.yml'), 'utf8'), PROFILE)
+  writeFileSync(join(root, 'laputa/default/IDENTITY.MD'), 'My identity')
+  assert.equal(laputaSetup.activateDefaultPersona(profile, join(root, 'laputa')), false)
+  assert.equal(readFileSync(patch, 'utf8'), activated)
+  assert.equal(readFileSync(join(root, 'laputa/default/IDENTITY.MD'), 'utf8'), 'My identity')
+  // Turning off in the host editor removes the now-redundant enabled override.
+  writeFileSync(patch, PROFILE)
+  assert.equal(laputaSetup.activateDefaultPersona(profile, join(root, 'laputa')), false)
+  assert.equal(readFileSync(patch, 'utf8'), PROFILE)
+})
+
+test('default component activation preserves an existing persona configuration', () => {
+  const root = tempRoot()
+  const selected = upsertLaputaProfileConfig(PROFILE, { enabled: false, personaId: 'custom', sourceDir: join(root, 'custom') })
+  writeFileSync(join(root, 'cordis.patch.yml'), selected)
+  assert.equal(typeof laputaSetup.activateDefaultPersona, 'function')
+  assert.equal(laputaSetup.activateDefaultPersona(root, join(root, 'laputa')), false)
+  assert.equal(readFileSync(join(root, 'cordis.patch.yml'), 'utf8'), selected)
+  writeFileSync(join(root, 'cordis.patch.yml'), PROFILE)
+  assert.equal(laputaSetup.activateDefaultPersona(root, join(root, 'laputa')), false)
+  assert.equal(readFileSync(join(root, 'cordis.patch.yml'), 'utf8'), PROFILE)
+})
 
 test('initPersonaFiles creates a restricted directory and six empty files', () => {
   const root = tempRoot()

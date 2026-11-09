@@ -122,5 +122,8 @@ export function componentPackages(root) {
     ['dsh-laputa', join(root, 'plugins', 'dsh-laputa')],
     ['dsh-actmem-recap', join(root, 'plugins', 'dsh-actmem-recap')],
     ['dsh-surfcore-adapter', join(root, 'plugins', 'dsh-surfcore-adapter')],
+    ['dsh-vivy-studio', join(root, 'plugins', 'dsh-vivy-studio')],
+    ['dsh-skin-manager', join(root, 'plugins', 'dsh-skin-manager')],
+    ['dsh-vivy-tone', join(root, 'plugins', 'dsh-vivy-tone')],
   ]
 }

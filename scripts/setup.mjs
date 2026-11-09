@@ -118,7 +118,7 @@ run(process.execPath, [join(ROOT, 'scripts', 'setup-surfcore-adapter.mjs')])
 step('Register dsh-vivy-tone (Superagent prompts in Chinese, on one switch)')
 run(process.execPath, [join(ROOT, 'scripts', 'setup-vivy-tone.mjs')])
 
-step('Migrate and register the local voice, memory, mempalace, continual-harness and laputa components')
+step('Migrate and register the local components, including the DIVA skins and skin manager')
 run(process.execPath, [join(ROOT, 'scripts', 'setup-components.mjs')])
 
 step('Done')
