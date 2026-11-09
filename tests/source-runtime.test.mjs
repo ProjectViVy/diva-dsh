@@ -22,6 +22,13 @@ import * as source from '../scripts/lib/source.mjs'
 
 const scratch = resolve('.artifacts', 'test-tmp')
 
+test('state directory parsing accepts YAML escaped line continuations emitted by plugin registration', () => {
+  for (const newline of ['\n', '\r\n']) {
+    const patch = `- id: dsh-superagent${newline}  config:${newline}    stateDir: "C:/project/state/su\\${newline}      peragent-local"${newline}`
+    assert.equal(source.configuredStateDirectory(patch), 'C:/project/state/superagent-local')
+  }
+})
+
 test('root npm commands use the project-local cache by default', (t) => {
   const { root } = fixture(t)
   const logs = join(root, 'logs')

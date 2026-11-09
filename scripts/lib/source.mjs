@@ -91,7 +91,9 @@ export function validateStateDirectory(root, target) {
 
 /** Read the stateDir value from a profile patch without changing its other settings. */
 export function configuredStateDirectory(patch) {
-  const match = /^\s*stateDir\s*:\s*(.+?)\s*$/m.exec(patch)
+  // The profile writer wraps long double-quoted YAML paths with escaped newlines.
+  const unfolded = patch.replace(/\\\r?\n[ \t]*/g, '')
+  const match = /^\s*stateDir\s*:\s*(.+?)\s*$/m.exec(unfolded)
   if (!match) return undefined
   const value = match[1].trim()
   if (value.startsWith('"')) return JSON.parse(value)
