@@ -15,7 +15,7 @@ import { resolveConfig } from '../plugins/dsh-vivy-tone/src/config.mjs'
 import { applyTranslations, removeTranslations, resolveStateDir, defaultStateDir } from '../plugins/dsh-vivy-tone/src/install.mjs'
 import { parseArgs } from '../plugins/dsh-vivy-tone/src/cli.mjs'
 import {
-  composeConfig, hashText, normalizeView, planParts, readState, stripConfig, writeState,
+  composeConfig, hashText, normalizeView, planParts, readPrompts, readState, stripConfig, writeState,
 } from '../plugins/dsh-vivy-tone/src/write.mjs'
 import { REQUIRED_PLACEHOLDERS, TRANSLATIONS, missingPlaceholders } from '../plugins/dsh-vivy-tone/src/zh.mjs'
 
@@ -27,6 +27,27 @@ const TEAM = Object.freeze({
 })
 
 const dirs = []
+
+it('waits for the prompt route during startup without retrying writes', async () => {
+  let calls = 0
+  const result = await readPrompts({ baseUrl: 'http://localhost', waitForReadyMs: 1000,
+    fetchImpl: async (_url, options) => {
+      assert.equal(options.method, 'GET')
+      calls += 1
+      return calls === 1 ? new Response('', { status: 404 }) : Response.json({ revision: 3, parts: [] })
+    },
+  })
+  assert.equal(calls, 2)
+  assert.equal(result.revision, 3)
+})
+
+it('does not retry a prompt permission failure during startup', async () => {
+  let calls = 0
+  await assert.rejects(readPrompts({ baseUrl: 'http://localhost', waitForReadyMs: 1000,
+    fetchImpl: async () => { calls += 1; return new Response('', { status: 403 }) },
+  }), /HTTP 403/)
+  assert.equal(calls, 1)
+})
 const tempDir = () => {
   const dir = mkdtempSync(join(tmpdir(), 'vivy-tone-'))
   dirs.push(dir)
