@@ -1,13 +1,13 @@
 {
   "patchVersion": 4,
-  "_temporaryPinNote": "2026-11-05 临时钉：src/bridge.js 的哈希取自**工作区**（含未提交的「入站语音条→文字」改动），目的是让 npm run start / setup:components 不被 SURFCORE_PATCH_DRIFT 挡住。这些改动提交后，请把本文件 submodule.commit 更新为新 HEAD（bridge.js 的哈希不变，因为提交不改字节）；在干净检出 59ec306 的环境里该条目会再次报漂移，属预期。",
+  "_temporaryPinNote": "Local installation: hashes verified against the recorded clean SurfCore commit; bridge.js no longer requires unpublished workspace changes.",
   "submodule": {
     "path": "plugins/surfcore",
     "commit": "59ec3066f7d42a0452fae01f170c9a8484d5dbe5",
     "tag": "v0.8.6"
   },
   "sources": {
-    "src/bridge.js": "f103e414767f3784c775ff1ac83912572a4300739806b93cf22a6634ea67df55",
+    "src/bridge.js": "d6a8a62c03774a1e555bc2847743d213faaaec7ea3d5dd0c71485515db79dafe",
     "src/bili-share-scheduler.js": "c0d6941c7b5fa6db5e96be6ae8f17bf4d95b6e85830d3132d75a15b5efc43a56",
     "src/character-persona.js": "0f22a5a3939b9c7de2a8f53282ad3df272b9af1302f953702fd8a4c0a31dabf7",
     "plugins/surfcore/lib/index.js": "644e927dbeb9bbaf09aa424fb4d25adf7040abb37dca86ecbe8e271ba95fb88c",
