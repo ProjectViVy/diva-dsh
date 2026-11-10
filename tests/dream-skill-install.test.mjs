@@ -11,7 +11,7 @@ test('Dream workflow installation is idempotent and preserves user-owned skills'
   const root = resolve('.')
   const file = installDreamSkill(root, home)
   const expected = readFileSync(file, 'utf8')
-  assert.match(expected, /real isolated execution/)
+  assert.match(expected, /approves or rejects them in|human approves or rejects/)
   assert.equal(installDreamSkill(root, home), file)
   assert.equal(readFileSync(file, 'utf8'), expected)
   writeFileSync(file, expected.replace(/\r?\n/g, '\r\n'))

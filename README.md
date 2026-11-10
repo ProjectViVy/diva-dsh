@@ -60,7 +60,7 @@ flowchart LR
 - **人格（Laputa）** —— 六份手写 Markdown 注入系统提示词（`MISSION` / `IDENTITY` / `RELATIONSHIP` / `REDLINE` / `DREAM` / `DARK`），带安全读取边界、版本历史与来源标注。
 - **分层记忆** —— 会话与社交记忆（记忆卡、衰减、QQ / B 站同步）与长期语义记忆（SQLite + sqlite-vec 向量检索、记忆宫殿、跨项目隧道、时序知识图谱、日记）分工明确，可分别停用。
 - **语音与识别** —— 本地 TTS、语音包安装与管理、带账本的发送编排（`prepare-send` / `commit-send` / `abort-send`），以及本地 SenseVoice 语音识别；界面统一收在「设置 → 语音」。
-- **自我进化** —— [AutoDream 与手动 refine](docs/autodream.md) 通过普通 Superagent Ticket 综合会话证据；人格变更等待用户批准，技能经可信隔离验证与 holdout 无回归后自动启用。进化面板展示启动门槛、候选、阻塞原因和发布回执。
+- **自我进化** —— [AutoDream 与手动 refine](docs/autodream.md) 由专用 [Dream 执行器](docs/dream-executor.md) 综合会话证据：该模式没有 shell 与文件工具，只用 `dream_refine` 工具分页读冻结材料、提交计划；人格变更与技能候选都在面板中等待用户明确批准后才生效，没有自动发布路径。进化面板展示启动门槛、候选正文、批准入口和发布回执。
 - **角色舞台** —— 独立的 Live2D 呈现进程：令牌鉴权、Kill Switch、审计，以及「点头 / 摸头 / 被拍 / 拖动缩放」的本地即时反应。
 - **皮肤与门面** —— `dsh-skin-manager` 在内置 diva / vivy 皮肤与四个上游配色之间切换；`dsh-vivy-studio` 提供 DIVA 身份与氟石配色。
 - **可验证** —— 根目录 `npm test` 覆盖本地路径、迁移、组件边界、补丁与插件行为。

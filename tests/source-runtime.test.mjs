@@ -397,11 +397,11 @@ test('the patch manifest accepts only flat patch names', (t) => {
   assert.throws(() => source.patchManifest(manifest), /patch/i)
 })
 
-test('the project patch manifest applies eleven patches in order', () => {
+test('the project patch manifest applies twelve patches in order', () => {
   const root = resolve(import.meta.dirname, '..')
   const names = source.patchManifest(join(root, 'patches', 'superagent-patches.json'))
   assert.deepEqual(names, ['superagent-windows.patch', 'superagent-personal.patch', 'superagent-subject.patch', 'superagent-input.patch',
     'superagent-effects.patch', 'superagent-surfcore.patch', 'superagent-voice.patch', 'superagent-context.patch',
-    'superagent-schedule.patch', 'superagent-schedule-panel.patch', 'superagent-voice-closeout.patch'])
+    'superagent-schedule.patch', 'superagent-schedule-panel.patch', 'superagent-voice-closeout.patch', 'superagent-dream.patch'])
   for (const name of names) assert.ok(existsSync(join(root, 'patches', name)), `${name} is missing`)
 })

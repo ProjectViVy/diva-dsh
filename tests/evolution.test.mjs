@@ -256,6 +256,14 @@ test('the evolution client registers a main panel, sidebar entry, and settings r
   assert.equal(typeof row.options.inject().openPanel, 'function')
 })
 
+test('the approval tab sits directly after 概览 and before AutoDream', () => {
+  const source = readFileSync(CLIENT, 'utf8')
+  const start = source.indexOf('const TABS = [')
+  const block = source.slice(start, start + 400)
+  const ids = [...block.matchAll(/\['([a-z]+)', '([^']+)'\]/g)].map(match => match[1])
+  assert.deepEqual(ids.slice(0, 3), ['overview', 'approval', 'dream'])
+})
+
 test('the evolution CSS keeps every selector prefixed and only animates evo-in', () => {
   const source = readFileSync(CLIENT, 'utf8')
   const start = source.indexOf('const EVO_CSS = `')

@@ -1,0 +1,38 @@
+--- a/src/app/sessions.ts
++++ b/src/app/sessions.ts
+@@ -6,7 +6,7 @@ import { scopeParentOf } from '@deepseek-ai/dsh-scope'
+ import type { SessionId } from '@deepseek-ai/dsh-session'
+ import { dirname } from 'node:path'
+ import { z } from 'zod'
+-import { key, liveTicket, type Ticket } from '../core/index.ts'
++import { key, liveTicket, type Ticket, type Trigger } from '../core/index.ts'
+ import { mandateInstructions, ticketOfSession } from '../executor/dsh.ts'
+ import type { HealthEntry } from '../infra/health.ts'
+ import { AgentDelivery, messageId } from './delivery.ts'
+@@ -63,6 +63,15 @@ declare module '@deepseek-ai/cordis' {
+  */
+ const WORK_TOOLS = ['read', 'write', 'edit', 'read_image', 'glob', 'grep', 'bash', 'pwsh', 'job_output', 'job_list', 'job_kill', 'web_search',
+   'web_fetch', 'skill', 'todo_write', 'subagent', 'list_subagent_models', 'send_message', 'list_agents', 'interrupt_agent']
++/** The DSH tools a Dream refinement works with: the domain tool that reads the frozen material and submits the plan, and skills. */
++const DREAM_TOOLS = ['skill', 'dream_refine']
++/** Whether the Input that originated a ticket is Evolution's Dream refinement: the `evolution` layer and a `dream_` event. */
++function dreamTrigger(trigger: Trigger | undefined): boolean {
++  const input = trigger?.meta?.input
++  if (input === null || typeof input !== 'object') return false
++  const { layer, externalEventId } = input as { layer?: unknown; externalEventId?: unknown }
++  return layer === 'evolution' && typeof externalEventId === 'string' && externalEventId.startsWith('dream_')
++}
+ /** What the main Session is told when it would wait: what it waits for comes to it, and a waiting step holds back the next. */
+ const NO_WAIT = 'Reports, follow_up notices, new candidates and a background job\'s end with its output arrive by themselves as messages; '
+   + 'end the turn instead of waiting for them.'
+@@ -299,7 +308,9 @@ export class Sessions {
+   private workOnly(agent: Agent, ticketId: string): (() => void)[] {
+     const store = this.host.store
+     const parent = scopeParentOf(agent)
+-    const allow = WORK_TOOLS.filter(name => agent.ctx.tools.get(name, parent))
++    const ticket = store.tickets.get(ticketId)
++    const tools = dreamTrigger(ticket ? store.triggers.get(ticket.origin.triggerId) : undefined) ? DREAM_TOOLS : WORK_TOOLS
++    const allow = tools.filter(name => agent.ctx.tools.get(name, parent))
+     return [agent.ctx.tools.restrict({ allow }), agent.ctx.tools.guard(() => {
+       const current = store.tickets.get(ticketId)
+       return !current || !liveTicket(current) ? 'Ticket ended; new work needs a new authorized ticket' : undefined
