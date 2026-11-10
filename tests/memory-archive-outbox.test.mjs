@@ -22,7 +22,7 @@ function tempState(t) {
   const stateDir = join(dir, 'memory')
   const dataDir = join(stateDir, 'data')
   mkdirSync(dataDir, { recursive: true })
-  return { dir, stateDir, dataDir, fullJsonl: join(dataDir, 'memory-card-full.jsonl'), outboxDir: join(dataDir, 'archive-outbox') }
+  return { dir, stateDir, dataDir, fullJsonl: join(dataDir, 'memory-card-full.jsonl'), retiredJsonl: join(dataDir, 'memory-card-retired.jsonl'), outboxDir: join(dataDir, 'archive-outbox') }
 }
 
 function recordLine(overrides = {}) {
@@ -47,8 +47,13 @@ function append(env, ...lines) {
   appendFileSync(env.fullJsonl, lines.map(line => `${line}\n`).join(''), { mode: 0o600 })
 }
 
+/** 投递来源是退役账本：只有退色/被淘汰的记录会走到这里。 */
+function appendRetired(env, ...lines) {
+  appendFileSync(env.retiredJsonl, lines.map(line => `${line}\n`).join(''), { mode: 0o600 })
+}
+
 function makeBox(env, { send, subject = async () => SUBJECT, config = {}, now = () => NOW } = {}) {
-  return createArchiveOutbox({ stateDir: env.stateDir, fullJsonl: env.fullJsonl, config: () => config, subject, send, log() {}, now })
+  return createArchiveOutbox({ stateDir: env.stateDir, ledgerJsonl: env.fullJsonl, config: () => config, subject, send, log() {}, now })
 }
 
 function pendingFiles(env) {
@@ -91,19 +96,19 @@ function recorder({ status = absent, archive = accept } = {}) {
   return { calls, send }
 }
 
-test('the first sweep starts at the end of the existing archive', async t => {
+test('the first sweep picks up the whole retired ledger instead of skipping it', async t => {
   const env = tempState(t)
   append(env, recordLine({ id: 'mem_old', text: '旧记录' }), recordLine({ id: 'mem_older', text: '更旧的记录' }))
   const box = makeBox(env, { send: () => { throw new Error('sweep must not send') } })
-  const initialized = await box.sweep()
-  assert.equal(initialized.ok, true)
-  assert.equal(initialized.intents, 0)
-  assert.equal(box.status().pending, 0)
+  const first = await box.sweep()
+  assert.equal(first.ok, true)
+  assert.equal(first.intents, 2)
+  assert.equal(box.status().pending, 2)
 
   append(env, recordLine({ id: 'mem_new', text: '新归档的记忆', revision: 3, platform: 'bili', tags: ['owner'], kind: 'promise', importance: 80, conversationKey: 'bili:42' }))
   const swept = await box.sweep()
   assert.equal(swept.intents, 1)
-  assert.deepEqual(pendingFiles(env), ['arch_mem_new_r3.json'])
+  assert.deepEqual(pendingFiles(env), ['arch_mem_new_r3.json', 'arch_mem_old_r1.json', 'arch_mem_older_r1.json'])
   const intent = readIntent(env, 'arch_mem_new_r3')
   assert.equal(intent.archive_id, 'arch_mem_new_r3')
   assert.equal(intent.subject_id, SUBJECT)
@@ -404,7 +409,7 @@ test('the memory service delivers new archive lines through status and archive',
   const service = serviceBox(env, send)
   t.after(() => service.dispose())
   await service.drainArchives()
-  append(env, recordLine({ id: 'mem_service' }))
+  appendRetired(env, recordLine({ id: 'mem_service' }))
   await service.drainArchives()
   assert.deepEqual(calls, ['/archive/status', '/archive'])
   const status = await service.archiveStatus()
@@ -426,7 +431,7 @@ test('archive status projects outbox state and honors archiveOut.enabled=false',
     assert.ok(Object.hasOwn(status.archiveOut, key), `archiveOut should expose ${key}`)
   }
   assert.equal(status.archiveOut.enabled, false)
-  append(env, recordLine({ id: 'mem_disabled' }))
+  appendRetired(env, recordLine({ id: 'mem_disabled' }))
   assert.deepEqual(await service.drainArchives(), { ok: true, skipped: 'disabled' })
   assert.deepEqual(calls, [])
   assert.equal((await service.archiveStatus()).archiveOut.pending, 0)
@@ -478,7 +483,7 @@ test('a hanging archive delivery does not block card writes', async t => {
   const service = serviceBox(env, send)
   t.after(async () => { release(); await service.dispose() })
   await service.drainArchives()
-  append(env, recordLine({ id: 'mem_async' }))
+  appendRetired(env, recordLine({ id: 'mem_async' }))
   const draining = service.drainArchives()
   await started
   const recorded = await service.record({ id: 'write-during-drain', platform: 'qq', text: '卡片写入不被归档投递阻塞' })
