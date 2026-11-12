@@ -79,12 +79,19 @@ test('settings retain edited values after save failure and reject invalid gates 
   assert.match(textOf(app.render({ settingsOnly: true })), /必须为正整数/)
 })
 
-test('the approval tab lists pending skill candidates and posts one explicit confirmation', async () => {
-  const pending = [{ candidateId: 'candidate-one', skillId: 'test-skill', bundleDigest: 'a'.repeat(64), baselineDigest: null, description: 'Use when testing', files: ['scripts/run.sh'], content: 'Do the thing.', stagedAt: '2026-01-02' }]
-  const app = harness(snapshot, () => ({ ok: true, publication: { version: 1 } }), { harness: { ok: true, pending, live: [] } })
+test('the approval tab shows the diff, attachments and provenance before one explicit confirmation', async () => {
+  const pending = [{
+    candidateId: 'candidate-one', skillId: 'test-skill', subjectId: 'subject-1', ticketId: 'ticket-1',
+    evidenceRefs: [{ eventId: 'event-1' }], bundleDigest: 'a'.repeat(64), baselineDigest: 'b'.repeat(64),
+    description: 'Use when testing', files: ['scripts/run.sh'], content: 'Do the thing.', stagedAt: '2026-01-02',
+    bundle: [{ name: 'SKILL.md', content: '---\nname: test-skill\n---\n\nDo the thing.' }, { name: 'scripts/run.sh', content: 'echo hi' }],
+    baselineBundle: [{ name: 'SKILL.md', content: '---\nname: test-skill\n---\n\nOld thing.' }],
+  }]
+  const app = harness(snapshot, () => ({ ok: true, publication: { version: 1 } }), { harness: { ok: true, pending, decided: [], live: [] } })
   await app.loadApproval()
   const text = textOf(app.renderApproval())
-  for (const expected of ['test-skill', 'Do the thing.', 'scripts/run.sh', 'Use when testing', '人格 → 提案']) assert.ok(text.includes(expected), expected)
+  for (const expected of ['test-skill', 'Do the thing.', 'Old thing.', 'ticket-1', 'subject-1', 'event-1', 'scripts/run.sh', 'echo hi', 'Use when testing', '人格 → 提案']) assert.ok(text.includes(expected), expected)
+  assert.match(text, /\+ Do the thing\./)
   await nodes(app.renderApproval()).find(node => node.type === 'button' && textOf(node) === '批准并发布').props.onClick()
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(app.requests.filter(item => item.body).at(-1), { url: '/dsh-continual-harness/api/decide', body: { candidateId: 'candidate-one', decision: 'approved', expectedBundleDigest: 'a'.repeat(64), confirm: true } })
@@ -92,12 +99,51 @@ test('the approval tab lists pending skill candidates and posts one explicit con
   assert.match(textOf(app.renderApproval()), /已批准并发布 test-skill · v1/)
 })
 
+test('a truncated candidate hides its body and says why instead of showing a bogus diff', async () => {
+  const pending = [{ candidateId: 'candidate-big', skillId: 'big-skill', subjectId: 'subject-1', ticketId: 'ticket-3',
+    evidenceRefs: [], bundleDigest: 'd'.repeat(64), baselineDigest: null, description: '', files: [], content: '', stagedAt: '2026-01-04',
+    bundle: [{ name: 'SKILL.md', content: '' }], baselineBundle: null, truncated: true }]
+  const app = harness(snapshot, () => ({}), { harness: { ok: true, pending, decided: [], live: [] } })
+  await app.loadApproval()
+  const text = textOf(app.renderApproval())
+  assert.match(text, /内容较大/)
+  assert.doesNotMatch(text, /没有可显示的差异/)
+  assert.match(text, /批准并发布/)
+})
+
+test('the approval tab lists decided candidates and retries a stuck approval', async () => {
+  const decided = [{ candidateId: 'candidate-two', skillId: 'stuck-skill', subjectId: 'subject-1', ticketId: 'ticket-2',
+    decision: 'approved', decidedAt: '2026-01-03', bundleDigest: 'c'.repeat(64), publication: null }]
+  const app = harness(snapshot, () => ({ ok: true, publication: { version: 2 } }), { harness: { ok: true, pending: [], decided, live: [] } })
+  await app.loadApproval()
+  let text = textOf(app.renderApproval())
+  assert.match(text, /已处置（1）/)
+  assert.match(text, /未发布/)
+  await nodes(app.renderApproval()).find(node => node.type === 'button' && textOf(node) === '重试发布').props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(app.requests.filter(item => item.body).at(-1), { url: '/dsh-continual-harness/api/decide', body: { candidateId: 'candidate-two', decision: 'approved', expectedBundleDigest: 'c'.repeat(64), confirm: true } })
+  assert.match(textOf(app.renderApproval()), /已批准并发布 stuck-skill · v2/)
+})
+
+test('the approval tab creates a rollback candidate instead of rewriting the live pointer', async () => {
+  const live = [{ skillId: 'test-skill', bundleDigest: 'a'.repeat(64), version: 3 }]
+  const app = harness(snapshot, () => ({ ok: true, candidate: { candidateId: 'candidate-three' }, previous: { version: 2, publicationId: 'publication-two' } }), { harness: { ok: true, pending: [], decided: [], live } })
+  await app.loadApproval()
+  await nodes(app.renderApproval()).find(node => node.type === 'button' && textOf(node) === '回滚到上一版').props.onClick()
+  let tree = app.renderApproval()
+  assert.match(textOf(tree), /确认生成回滚候选/)
+  await nodes(tree).find(node => node.type === 'button' && textOf(node) === '确认生成回滚候选').props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(app.requests.filter(item => item.body).at(-1), { url: '/dsh-continual-harness/api/rollback', body: { skillId: 'test-skill', confirm: true } })
+  assert.match(textOf(app.renderApproval()), /已生成回滚候选（目标 v2）/)
+})
+
 test('the approval tab states the empty case instead of vanishing and shows live versions', async () => {
-  const empty = harness(snapshot, () => ({}), { harness: { ok: true, pending: [], live: [] } })
+  const empty = harness(snapshot, () => ({}), { harness: { ok: true, pending: [], decided: [], live: [] } })
   await empty.loadApproval()
   assert.match(textOf(empty.renderApproval()), /暂无待批技能候选/)
-  const live = [{ skillId: 'test-skill', bundleDigest: 'a'.repeat(64), version: 3, decisionDigest: 'c'.repeat(64) }]
-  const app = harness(snapshot, () => ({}), { harness: { ok: true, pending: [], live } })
+  const live = [{ skillId: 'test-skill', bundleDigest: 'a'.repeat(64), version: 3 }]
+  const app = harness(snapshot, () => ({}), { harness: { ok: true, pending: [], decided: [], live } })
   await app.loadApproval()
   const text = textOf(app.renderApproval())
   assert.match(text, /已发布的 harness 技能/)

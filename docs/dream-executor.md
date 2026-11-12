@@ -61,6 +61,13 @@ command after `claim` carries the bound request id: one Ticket may own several D
 2026-11-10 run owned two), and without that binding `authorize()` would fall back to "the first request
 this Ticket owns".
 
+Owner staging must keep that binding too. The candidate handed to `/candidates` (harness) or
+`/candidates/stage` (Laputa) carries `requestId`, and each owner forwards it into its own
+`/dream/authorize` call; otherwise a Ticket with an older Dream Input authorizes against that older
+run and every staging attempt fails with `Exact skill entry absent from frozen Dream plan`. `baseline`
+calls the Laputa channel with an empty body on purpose: a body-less internal call is a `GET`, and that
+channel only serves `POST` (`Unknown Laputa owner operation`).
+
 ## What stays the same
 
 - Admission, Ticket creation and retries belong to Superagent; Evolution only submits the Input.
