@@ -8,9 +8,9 @@
 
 ## 0. 这个仓库是什么
 
-- **源码级启动器**：在一个目录里构建并运行 DSH、Superagent 和 15 个本地插件，不装全局 `dsh`/`pnpm`，不改 shell 配置。
-- **18 个 submodule**：3 个上游（`deepseek-harness/`、`superagent/`、`plugins/surfcore/`）+ 15 个本地仓（`vivy-dsh/*`），每个插件都是独立 git 仓。
-- 根仓库自己只有：`scripts/`（安装/启停/接线）、`tests/`（启动器与插件行为）、`patches/`（Superagent 补丁）、`docs/`、`skills/`、`stage-app/`，以及 submodule 指针。
+- **源码级启动器**：在一个目录里构建并运行 DSH、Superagent 和 16 个本地插件，不装全局 `dsh`/`pnpm`，不改 shell 配置。
+- **20 个 submodule**：3 个上游（`deepseek-harness/`、`superagent/`、`plugins/surfcore/`）+ 16 个本地仓（`vivy-dsh/*`，含 `plugins/capability-hub` → `word-gateway`）+ 1 个第三方社区插件（`third-party/dsh-context`），每个插件都是独立 git 仓。
+- 根仓库自己只有：`scripts/`（安装/启停/接线）、`tests/`（启动器与插件行为）、`patches/`（Superagent 补丁）、`docs/`、`skills/`、`stage-app/`、`third-party/`（第三方插件锚定与 pin），以及 submodule 指针。
 
 ## 1. 改哪里
 
@@ -20,6 +20,7 @@
 | SurfCore 行为 | `scripts/lib/surfcore-*.mjs` 的锚点补丁（内存打补丁 + `sourceSha256` 漂移校验） | 直接改 `plugins/surfcore/`：子模块只读，`setup` 重渲染会覆盖 |
 | DSH 本体行为 | 优先用插件实现；确实要改才进 `patches/` | 直接改 `deepseek-harness/` |
 | 新插件 / 新能力 | `plugins/<name>`（独立仓）+ 根 `scripts/setup-<name>.mjs` 接线 | 把实现塞进根仓库 |
+| 第三方社区插件 | `third-party/<name>`（submodule）+ `third-party/pins.json` 锚定 tag + `scripts/setup-third-party.mjs` | 混进 `plugins/`（那是我们自己的仓）；把构建产物 `lib/` 提交进子模块 |
 | 启动器 / 安装 / 编排 | `scripts/*.mjs` + `tests/*.test.mjs` | — |
 | 设计文档 | `docs/`（架构正家 `docs/architecture.md`） | 散落在根目录 |
 
@@ -49,7 +50,7 @@
 - 真实 profile 名是 `superagent-local`（不是 README 里的 web/desktop）。
 - `.artifacts/` 是本机缓存、配置、状态与日志，不入库；不要把它当文档或提交。
 - `.workspace/` 是相邻参考项目与上游源，不参与构建。
-- 验证 `pwsh` 是否可用：本机沙箱曾因临时根落在工作区内而拒绝执行任何命令（`sandbox-windows-acl` 的 path-boundary 校验）。跑不了 shell 时先查这一条，别怀疑改动。
+- 验证 `pwsh` 是否可用：Windows ACL 沙箱拒绝工作区内的 temp root（`sandbox-windows-acl` 的 path-boundary 校验），拒绝后所有命令都会失败。启动器已把 `TMP/TEMP/TMPDIR` 指到 `%LOCALAPPDATA%\diva-dsh-tmp\<hash>`，不要改回 `.artifacts/tmp`；跑不了 shell 时先查这一条，别怀疑改动。
 
 ## 5. 红线
 

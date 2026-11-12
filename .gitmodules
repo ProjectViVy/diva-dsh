@@ -55,3 +55,9 @@
 [submodule "stage-app"]
 	path = stage-app
 	url = https://github.com/vivy-dsh/dsh-stage-app.git
+[submodule "third-party/dsh-context"]
+	path = third-party/dsh-context
+	url = https://github.com/bowenliang123/dsh-context.git
+[submodule "plugins/capability-hub"]
+	path = plugins/capability-hub
+	url = https://github.com/vivy-dsh/word-gateway.git

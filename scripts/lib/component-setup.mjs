@@ -39,7 +39,7 @@ export function relocateProfileDependencies(root, profileName) {
   const backup = typeof marker?.backup === 'string' ? marker.backup.replaceAll('\\', '/') : ''
   const boundary = backup.lastIndexOf('/.artifacts/backups/'), oldRoot = boundary > 0 ? backup.slice(0, boundary) : ''
   if (marker?.version !== 1 || !oldRoot || oldRoot === project.replaceAll('\\', '/')) return false
-  const mappings = { 'dsh-superagent': 'superagent', 'dsh-local-memory': 'plugins/memory', 'dsh-local-voice': 'plugins/voice', 'dsh-mempalace': 'plugins/dsh-mempalace', 'dsh-continual-harness': 'plugins/dsh-continual-harness', 'dsh-evolution': 'plugins/dsh-evolution', 'dsh-laputa': 'plugins/dsh-laputa', 'dsh-actmem-recap': 'plugins/dsh-actmem-recap', surfcore: '.artifacts/surfcore-adapter/bundle', 'surfcore-local-qq-mode': '.artifacts/surfcore-adapter/qq-mode' }
+  const mappings = { 'dsh-superagent': 'superagent', 'dsh-local-memory': 'plugins/memory', 'dsh-local-voice': 'plugins/voice', 'dsh-mempalace': 'plugins/dsh-mempalace', 'dsh-continual-harness': 'plugins/dsh-continual-harness', 'dsh-evolution': 'plugins/dsh-evolution', 'dsh-laputa': 'plugins/dsh-laputa', 'dsh-actmem-recap': 'plugins/dsh-actmem-recap', 'dsh-capability-hub': 'plugins/capability-hub', surfcore: '.artifacts/surfcore-adapter/bundle', 'surfcore-local-qq-mode': '.artifacts/surfcore-adapter/qq-mode' }
   const manifestText = readFileSync(manifestFile, 'utf8'), manifest = JSON.parse(manifestText)
   const lockFile = join(profile, 'pnpm-lock.yaml'), lockText = existsSync(lockFile) ? readFileSync(lockFile, 'utf8') : null
   let updatedLock = lockText, changed = false
@@ -121,6 +121,7 @@ export function componentPackages(root) {
     ['dsh-evolution', join(root, 'plugins', 'dsh-evolution')],
     ['dsh-laputa', join(root, 'plugins', 'dsh-laputa')],
     ['dsh-actmem-recap', join(root, 'plugins', 'dsh-actmem-recap')],
+    ['dsh-capability-hub', join(root, 'plugins', 'capability-hub')],
     ['dsh-surfcore-adapter', join(root, 'plugins', 'dsh-surfcore-adapter')],
     ['dsh-vivy-studio', join(root, 'plugins', 'dsh-vivy-studio')],
     ['dsh-skin-manager', join(root, 'plugins', 'dsh-skin-manager')],

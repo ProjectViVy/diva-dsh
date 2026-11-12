@@ -17,6 +17,7 @@
     "setup:laputa": "node scripts/setup-laputa.mjs",
     "setup:vivy-tone": "node scripts/setup-vivy-tone.mjs",
     "setup:surfcore-adapter": "node scripts/setup-surfcore-adapter.mjs",
+    "setup:third-party": "node scripts/setup-third-party.mjs",
     "start": "node scripts/vivy-dsh.mjs start",
     "stop": "node scripts/vivy-dsh.mjs stop",
     "restart": "node scripts/vivy-dsh.mjs restart",

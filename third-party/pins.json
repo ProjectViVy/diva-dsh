@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "plugins": {
+    "dsh-context": {
+      "tag": "v0.83.1",
+      "upstream": "bowenliang123/dsh-context",
+      "why": "Context panel + /context command: shows what the context is made of and how it is compacted."
+    }
+  }
+}
