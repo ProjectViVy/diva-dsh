@@ -9,12 +9,15 @@ test('standalone mempalace installation confines caches and temporary files to t
   assert.equal(call.options.env.npm_config_cache, '/project/.artifacts/npm-cache')
   assert.equal(call.options.env.npm_package_config_node_gyp_devdir, '/project/.artifacts/node-gyp')
   assert.equal(call.options.env.npm_config_devdir, '/project/.artifacts/node-gyp')
-  assert.equal(call.options.env.TMPDIR, '/project/.artifacts/tmp')
+  assert.ok(isAbsolute(call.options.env.TMPDIR))
+  assert.equal(call.options.env.TMP, call.options.env.TMPDIR)
+  assert.equal(call.options.env.TEMP, call.options.env.TMPDIR)
+  assert.ok(!call.options.env.TMPDIR.startsWith('/project'))
   assert.equal(call.options.env.XDG_CACHE_HOME, '/project/.artifacts/xdg-cache')
 })
 import assert from 'node:assert/strict'
 import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
-import { delimiter, join, resolve } from 'node:path'
+import { delimiter, isAbsolute, join, resolve } from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { createServer } from 'node:http'
@@ -63,7 +66,8 @@ test('npm lifecycle receives the project-local native build cache', async t => {
   const env = JSON.parse(readFileSync(join(plugin, 'result.json'), 'utf8'))
   assert.equal(env.cache, join(root, '.artifacts', 'npm-cache'))
   assert.equal(env.devdir, join(root, '.artifacts', 'node-gyp'))
-  assert.equal(env.tmp, join(root, '.artifacts', 'tmp'))
+  assert.equal(env.tmp, source.localEnvironment(root).TMPDIR)
+  assert.equal(source.validateStateDirectory(root, env.tmp), false, 'temporary files must stay outside the project')
 })
 
 test('child processes keep DSH data, package caches and temporary files in the project', (t) => {
@@ -79,7 +83,8 @@ test('child processes keep DSH data, package caches and temporary files in the p
   assert.equal(env.XDG_CONFIG_HOME, join(root, '.artifacts', 'xdg-config'))
   assert.equal(env.XDG_CACHE_HOME, join(root, '.artifacts', 'xdg-cache'))
   assert.equal(env.XDG_DATA_HOME, join(root, '.artifacts', 'xdg-data'))
-  assert.equal(env.TMPDIR, join(root, '.artifacts', 'tmp'))
+  assert.equal(source.validateStateDirectory(root, env.TMPDIR), false, 'the Windows ACL sandbox refuses a workspace-internal temp root')
+  assert.ok(isAbsolute(env.TMPDIR))
   assert.equal(env.TMP, env.TMPDIR)
   assert.equal(env.TEMP, env.TMPDIR)
   assert.equal(env.KEEP_THIS, 'yes')

@@ -1,6 +1,9 @@
 ---
 name: more-faster-better-economical
 description: Apply More, Fast, Good, and Frugal engineering principles when defining project rules, choosing architecture, planning implementation, or reviewing changes. Use to resolve tradeoffs among composability, runtime performance, maintainability, and total cost.
+metadata:
+  author: diva-dsh
+  role: engineering-principles
 ---
 # More · Fast · Good · Frugal
 

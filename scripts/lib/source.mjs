@@ -3,13 +3,14 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } fro
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { homedir, tmpdir } from 'node:os'
 
 /** Environment for project-owned child processes; it never modifies the parent shell. */
 export function localEnvironment(root, parent = process.env) {
   const project = resolve(root)
   const local = join(project, '.artifacts')
-  const temp = join(local, 'tmp')
+  const temp = join(externalTempRoot(project, parent), 'diva-dsh-tmp', projectHash(project))
   return {
     ...parent,
     PATH: [join(project, 'deepseek-harness', 'node_modules', '.bin'), parent.PATH].filter(Boolean).join(delimiter),
@@ -52,12 +53,15 @@ export function prepareLocalDirectories(root) {
   const names = [
     'DSH_HOME', 'PNPM_HOME', 'COREPACK_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME',
     'CARGO_HOME', 'ELECTRON_CACHE', 'ELECTRON_BUILDER_CACHE', 'PLAYWRIGHT_BROWSERS_PATH',
-    'PUPPETEER_CACHE_DIR', 'npm_config_cache', 'npm_config_devdir', 'npm_package_config_node_gyp_devdir', 'pnpm_config_store_dir', 'TMPDIR',
+    'PUPPETEER_CACHE_DIR', 'npm_config_cache', 'npm_config_devdir', 'npm_package_config_node_gyp_devdir', 'pnpm_config_store_dir',
   ]
   for (const name of names) {
     if (!validateStateDirectory(root, env[name])) {
       throw new Error(`The project-local ${name} path resolves outside the project: ${env[name]}`)
     }
+  }
+  if (!isAbsolute(env.TMPDIR) || validateStateDirectory(root, env.TMPDIR)) {
+    throw new Error(`The temporary directory must be outside the project: ${env.TMPDIR}`)
   }
   for (const path of [join(root, '.artifacts', 'control'), join(root, '.artifacts', 'tools'),
     join(root, 'deepseek-harness'), join(root, 'superagent'), join(root, 'plugins', 'surfcore')]) {
@@ -87,6 +91,32 @@ export function validateStateDirectory(root, target) {
   if (!isAbsolute(target)) return false
   const path = relative(resolvedPath(root), resolvedPath(target))
   return path !== '' && path !== '..' && !path.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(path)
+}
+
+/**
+ * The Windows ACL sandbox refuses a temp root inside the workspace, because every
+ * child created below it would inherit the standing workspace capability. Prefer
+ * the OS temp root, but never accept one that canonicalizes inside the project.
+ */
+function externalTempRoot(project, parent) {
+  const candidates = [
+    parent.LOCALAPPDATA,
+    tmpdir(),
+    process.platform === 'win32' ? join(homedir(), 'AppData', 'Local') : '/tmp',
+  ]
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string' || candidate === '' || !isAbsolute(candidate)) continue
+    if (resolve(candidate) === project) continue
+    if (validateStateDirectory(project, candidate)) continue
+    return resolve(candidate)
+  }
+  throw new Error('No temporary directory outside the project is available; the Windows ACL sandbox refuses a workspace-internal temp root')
+}
+
+/** Stable per-checkout namespace so two copies of the project share no temp files. */
+function projectHash(project) {
+  const key = process.platform === 'win32' ? project.toLowerCase() : project
+  return createHash('sha256').update(key).digest('hex').slice(0, 12)
 }
 
 /** Read the stateDir value from a profile patch without changing its other settings. */
