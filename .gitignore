@@ -2,6 +2,7 @@ node_modules/
 .DS_Store
 .artifacts/
 reference/
+.workspace/
 
 # 本地流程产物：设计探针截图/报告、子代理工作区、头脑风暴文档
 .oil-ui/
