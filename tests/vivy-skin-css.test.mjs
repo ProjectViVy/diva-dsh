@@ -66,15 +66,16 @@ function blockOf(source, selector) {
   return clean.slice(open + 1, clean.indexOf('}', open))
 }
 
-/* The VIVY心核 group. sidebar-core.js answers "rail or wide" by measuring the
-   nav, because the shell keeps the wide layout mounted for 150ms while the
-   column slides; these two attributes are the only state the sheet may key on,
-   and the rail must never be inferred from a member row's box — a shut group
+/* The VIVY心核 and VIVY工具 groups. sidebar-core.js answers "rail or wide" by
+   measuring the nav, because the shell keeps the wide layout mounted for 150ms
+   while the column slides; these attributes are the only state the sheet may key
+   on, and the rail must never be inferred from a member row's box — a shut group
    hides its members, and a hidden row measures 0px like the rail does. */
-test('the group keys its layout off the two attributes the script writes', () => {
+test('the groups key their layout off the attributes the script writes', () => {
   assert.match(blockOf(css, '[data-diva-rail="true"] > .diva-core-head'), /display:\s*none/)
   assert.match(blockOf(css, '[data-diva-rail="false"] > .diva-core-row'), /padding-left:\s*22px/)
-  assert.match(blockOf(css, '[data-diva-rail="false"][data-diva-core="collapsed"] > .diva-core-row'), /display:\s*none/)
+  assert.match(blockOf(css, '[data-diva-rail="false"][data-diva-core="collapsed"] > .diva-core-row[data-diva-group="core"]'), /display:\s*none/)
+  assert.match(blockOf(css, '[data-diva-rail="false"][data-diva-tools="collapsed"] > .diva-core-row[data-diva-group="tools"]'), /display:\s*none/)
   // The members take the rail's own geometry from the shell, so no rail rule
   // may touch a member row at all.
   const rowRules = selectorsOf(css).filter((selector) => selector.includes('[data-diva-rail="true"]'))
@@ -83,16 +84,29 @@ test('the group keys its layout off the two attributes the script writes', () =>
   }
 })
 
-test('the group survives every skin, not only the one it is named after', () => {
+test('each group shuts only its own members', () => {
+  // One attribute per group: a shut core must not take the tools with it.
+  const shut = selectorsOf(css).filter((selector) => /data-diva-(core|tools)="collapsed"/.test(selector))
+  assert.equal(shut.length, 2, `expected one shut rule per group, found ${shut.length}`)
+  for (const group of ['core', 'tools']) {
+    assert.ok(
+      shut.some((selector) => selector.includes(`data-diva-${group}="collapsed"`) && selector.includes(`data-diva-group="${group}"`)),
+      `the ${group} group's shut rule does not match its own members`,
+    )
+  }
+})
+
+test('the groups survive every skin, not only the one they are named after', () => {
   // --diva-* tokens exist only under html[data-dsh-skin="diva"], so a rule that
-  // carries the group's behaviour may not reach for one.
+  // carries a group's behaviour may not reach for one.
   for (const selector of [
     '.diva-core-head',
     '.diva-core-head:focus-visible',
     '.diva-core-chevron',
     '[data-diva-rail="true"] > .diva-core-head',
     '[data-diva-rail="false"] > .diva-core-row',
-    '[data-diva-rail="false"][data-diva-core="collapsed"] > .diva-core-row',
+    '[data-diva-rail="false"][data-diva-core="collapsed"] > .diva-core-row[data-diva-group="core"]',
+    '[data-diva-rail="false"][data-diva-tools="collapsed"] > .diva-core-row[data-diva-group="tools"]',
   ]) {
     assert.doesNotMatch(selector, /data-dsh-skin/, `state rule must be skin-independent: ${selector}`)
     assert.doesNotMatch(blockOf(css, selector), /var\(--diva-/, `rule uses a diva-only token: ${selector}`)

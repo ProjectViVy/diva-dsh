@@ -6,18 +6,22 @@
  */
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { resolveConfig } from '../plugins/dsh-vivy-tone/src/config.mjs'
-import { applyTranslations, removeTranslations, resolveStateDir, defaultStateDir } from '../plugins/dsh-vivy-tone/src/install.mjs'
+import { applyTranslations, removeTranslations, resolveStateDir, defaultStateDir, saveTone } from '../plugins/dsh-vivy-tone/src/install.mjs'
 import { parseArgs } from '../plugins/dsh-vivy-tone/src/cli.mjs'
 import {
   composeConfig, hashText, normalizeView, planParts, readPrompts, readState, stripConfig, writeState,
 } from '../plugins/dsh-vivy-tone/src/write.mjs'
-import { REQUIRED_PLACEHOLDERS, TRANSLATIONS, missingPlaceholders } from '../plugins/dsh-vivy-tone/src/zh.mjs'
+import { DEFAULT_TONE, ORCHESTRATOR_HEAD, REQUIRED_PLACEHOLDERS, TRANSLATIONS, missingPlaceholders } from '../plugins/dsh-vivy-tone/src/zh.mjs'
+import {
+  MAX_TONE_CHARS, TONE_FILE, composeOrchestrator, normalizeTone, readTone, toneTable, writeTone,
+} from '../plugins/dsh-vivy-tone/src/tone.mjs'
+import { TONE_PREFIX, registerTonePanel } from '../plugins/dsh-vivy-tone/src/server.mjs'
 
 const TEAM = Object.freeze({
   communication: '## communication\nEnglish team text',
@@ -341,5 +345,224 @@ describe('the CLI arguments', () => {
     assert.equal(parseArgs(['--remove', '--dry-run']).dryRun, true)
     assert.equal(parseArgs(['--status', '--url', 'http://127.0.0.1:9999/']).url, 'http://127.0.0.1:9999/')
     assert.throws(() => parseArgs(['--wat']), /unknown argument "--wat"/)
+  })
+})
+
+describe('the editable tone', () => {
+  it('splits the orchestrator part into the package head and the shipped tone', () => {
+    assert.equal(TRANSLATIONS['runtime/orchestrator'], composeOrchestrator(DEFAULT_TONE))
+    assert.ok(!ORCHESTRATOR_HEAD.includes('## 怎么跟人说话'))
+    assert.ok(DEFAULT_TONE.startsWith('## 怎么跟人说话'))
+  })
+
+  it('composes the head alone for an empty tone', () => {
+    assert.equal(composeOrchestrator(''), ORCHESTRATOR_HEAD)
+    assert.equal(composeOrchestrator('   \n'), ORCHESTRATOR_HEAD)
+    assert.equal(composeOrchestrator('新的语气'), `${ORCHESTRATOR_HEAD}\n\n新的语气`)
+    assert.equal(toneTable('')['runtime/orchestrator'], ORCHESTRATOR_HEAD)
+  })
+
+  it('reads the shipped default until a tone is saved', () => {
+    const dir = tempDir()
+    assert.deepEqual(readTone(dir), { text: DEFAULT_TONE, custom: false })
+    writeTone(dir, '只留一句：先给结论。')
+    assert.deepEqual(readTone(dir), { text: '只留一句：先给结论。', custom: true })
+    assert.equal(readFileSync(join(dir, TONE_FILE), 'utf8'), '只留一句：先给结论。\n')
+  })
+
+  it('treats an empty saved tone as "no tone section"', () => {
+    const dir = tempDir()
+    writeTone(dir, '')
+    assert.deepEqual(readTone(dir), { text: '', custom: true })
+    assert.equal(composeOrchestrator(readTone(dir).text), ORCHESTRATOR_HEAD)
+  })
+
+  it('falls back to the shipped default when the tone file cannot be read', () => {
+    const dir = tempDir()
+    mkdirSync(join(dir, TONE_FILE))
+    assert.deepEqual(readTone(dir), { text: DEFAULT_TONE, custom: false })
+  })
+
+  it('normalizes newlines and refuses a non-string or oversized tone', () => {
+    assert.equal(normalizeTone('  a\r\nb  '), 'a\nb')
+    assert.throws(() => normalizeTone(42), /must be a string/)
+    assert.throws(() => normalizeTone('x'.repeat(MAX_TONE_CHARS + 1)), /limit is 20000/)
+  })
+
+  it('installs the orchestrator part from the stored tone', async () => {
+    const stateDir = tempDir()
+    const tone = '## 怎么跟人说话\n\n只说结论。'
+    writeTone(stateDir, tone)
+    const initial = { revision: 0, current: { config: { ...TEAM } }, parts: Object.entries(TRANSLATIONS).map(([key]) => ({ key, text: 'English', base: `base-${key}` })) }
+    const { impl, puts } = fakeFetch(initial)
+    await applyTranslations({ baseUrl: 'http://127.0.0.1:3082', stateDir, fetchImpl: impl })
+    assert.equal(puts[0].config.overrides['runtime/orchestrator'].text, `${ORCHESTRATOR_HEAD}\n\n${tone}`)
+    assert.equal(readState(stateDir).parts['runtime/orchestrator'], hashText(`${ORCHESTRATOR_HEAD}\n\n${tone}`))
+  })
+
+  it('keeps a saved tone across a restart: the install writes nothing', async () => {
+    const stateDir = tempDir()
+    const tone = '## 怎么跟人说话\n\n只说结论。'
+    writeTone(stateDir, tone)
+    const composed = `${ORCHESTRATOR_HEAD}\n\n${tone}`
+    const overrides = Object.fromEntries(Object.entries(TRANSLATIONS).map(([part, text]) => [
+      part, { text: part === 'runtime/orchestrator' ? composed : text, base: `base-${part}` },
+    ]))
+    const initial = {
+      revision: 1,
+      current: { config: { ...TEAM, overrides } },
+      parts: Object.entries(TRANSLATIONS).map(([key]) => ({ key, text: TRANSLATIONS[key], base: `base-${key}` })),
+    }
+    const { impl, puts } = fakeFetch(initial)
+    const result = await applyTranslations({ baseUrl: 'http://127.0.0.1:3082', stateDir, fetchImpl: impl })
+    assert.equal(result.saved, false)
+    assert.equal(puts.length, 0)
+  })
+})
+
+describe('saveTone', () => {
+  const panelView = () => ({
+    revision: 5,
+    current: { config: { ...TEAM } },
+    parts: [{ key: 'runtime/orchestrator', text: 'English A', base: 'base-a' }],
+  })
+
+  it('writes the composed part and records what it wrote', async () => {
+    const stateDir = tempDir()
+    const { impl, puts } = fakeFetch(panelView())
+    const result = await saveTone({ baseUrl: 'http://127.0.0.1:3082', stateDir, text: '只说结论。', fetchImpl: impl })
+    assert.equal(result.revision, 6)
+    assert.equal(puts.length, 1)
+    assert.equal(puts[0].baseRevision, 5)
+    assert.equal(puts[0].config.overrides['runtime/orchestrator'].text, `${ORCHESTRATOR_HEAD}\n\n只说结论。`)
+    assert.equal(puts[0].config.overrides['runtime/orchestrator'].base, 'base-a')
+    assert.equal(readTone(stateDir).text, '只说结论。')
+    assert.equal(readState(stateDir).parts['runtime/orchestrator'], hashText(`${ORCHESTRATOR_HEAD}\n\n只说结论。`))
+  })
+
+  it('refuses before touching anything when this Superagent has no orchestrator part', async () => {
+    const stateDir = tempDir()
+    const { impl, puts } = fakeFetch({ revision: 5, current: { config: { ...TEAM } }, parts: [] })
+    await assert.rejects(
+      () => saveTone({ baseUrl: 'http://127.0.0.1:3082', stateDir, text: 'x', fetchImpl: impl }),
+      error => error.name === 'PromptsApiError' && error.status === 404,
+    )
+    assert.equal(puts.length, 0)
+    assert.deepEqual(readTone(stateDir), { text: DEFAULT_TONE, custom: false })
+  })
+
+  it('leaves the stored tone alone when Superagent refuses the save', async () => {
+    const stateDir = tempDir()
+    const failing = async (_url, init = {}) => ((init.method ?? 'GET') === 'GET'
+      ? json(200, panelView())
+      : json(409, { error: 'Prompt version changed to 9' }))
+    await assert.rejects(
+      () => saveTone({ baseUrl: 'http://127.0.0.1:3082', stateDir, text: '新的', fetchImpl: failing }),
+      /HTTP 409/,
+    )
+    assert.deepEqual(readTone(stateDir), { text: DEFAULT_TONE, custom: false })
+  })
+
+  it('validates the text before calling Superagent', async () => {
+    const stateDir = tempDir()
+    let calls = 0
+    const impl = async () => { calls += 1; return json(200, {}) }
+    await assert.rejects(
+      () => saveTone({ baseUrl: 'http://127.0.0.1:3082', stateDir, text: 12, fetchImpl: impl }),
+      /must be a string/,
+    )
+    assert.equal(calls, 0)
+  })
+})
+
+describe('the tone panel route', () => {
+  /** Register the route against a fake host and return its handler. */
+  function handlerFor(options = {}) {
+    const routes = []
+    const ctx = {
+      get: name => {
+        if (name === 'webServer') {
+          return { register: route => { routes.push(route); return () => {} } }
+        }
+        if (name === 'connection') return { requestRejection: options.rejection ?? (() => undefined) }
+        return undefined
+      },
+    }
+    registerTonePanel(ctx, { baseUrl: 'http://127.0.0.1:3082', stateDir: tempDir(), ...options })
+    assert.equal(routes.length, 1)
+    assert.equal(routes[0].kind, 'prefix')
+    assert.equal(routes[0].path, TONE_PREFIX)
+    return routes[0].handler
+  }
+
+  function request({ method = 'GET', path = `${TONE_PREFIX}/tone`, headers = {}, body = '' } = {}) {
+    return {
+      method,
+      url: path,
+      headers: { host: '127.0.0.1:3082', ...headers },
+      async *[Symbol.asyncIterator]() { if (body) yield Buffer.from(body) },
+    }
+  }
+
+  function response() {
+    return {
+      status: 0,
+      body: undefined,
+      writeHead(status) { this.status = status },
+      end(value) { this.body = JSON.parse(value) },
+    }
+  }
+
+  it('returns the current tone and the shipped default', async () => {
+    const handler = handlerFor()
+    const res = response()
+    await handler(request(), res)
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body, {
+      ok: true, text: DEFAULT_TONE, defaultText: DEFAULT_TONE, custom: false, maxChars: MAX_TONE_CHARS,
+    })
+  })
+
+  it('rejects a non-loopback Host and a cross-origin write', async () => {
+    const handler = handlerFor()
+    const host = response()
+    await handler(request({ headers: { host: 'example.com' } }), host)
+    assert.equal(host.status, 403)
+    assert.equal(host.body.code, 'HOST_REJECTED')
+    const origin = response()
+    await handler(request({ method: 'PUT', headers: { origin: 'http://example.com' } }), origin)
+    assert.equal(origin.status, 403)
+    assert.equal(origin.body.code, 'ORIGIN_REJECTED')
+  })
+
+  it('rejects a session the host connection refuses', async () => {
+    const handler = handlerFor({ rejection: () => 401 })
+    const res = response()
+    await handler(request(), res)
+    assert.equal(res.status, 401)
+    assert.equal(res.body.code, 'AUTH_REJECTED')
+  })
+
+  it('requires a JSON body and a string tone', async () => {
+    const handler = handlerFor()
+    const noJson = response()
+    await handler(request({ method: 'PUT', body: '{"text":"x"}' }), noJson)
+    assert.equal(noJson.status, 415)
+    assert.equal(noJson.body.code, 'CONTENT_TYPE_REQUIRED')
+
+    const notString = response()
+    await handler(request({
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 7 }),
+    }), notString)
+    assert.equal(notString.status, 400)
+    assert.equal(notString.body.code, 'INVALID_TONE')
+  })
+
+  it('answers an unknown path with 404', async () => {
+    const handler = handlerFor()
+    const res = response()
+    await handler(request({ path: `${TONE_PREFIX}/ghost` }), res)
+    assert.equal(res.status, 404)
+    assert.equal(res.body.code, 'NOT_FOUND')
   })
 })

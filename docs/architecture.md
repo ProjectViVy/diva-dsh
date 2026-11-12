@@ -160,6 +160,7 @@ Evolution 与 Superagent 发生职责重叠时，以 Superagent 主链为准。E
 - MemPalace 不得通过独立 `identity` 文件成为第二人格来源。
 - continual-harness 的 `memory` 条目不得成为 ActMem/MemPalace 之外的正式记忆库。
 - continual-harness 的 `prompt` 条目不得成为 Laputa 之外的影子人格。
+- dsh-vivy-tone 的「语气」只编辑 Superagent 自己提示词的中文表达小节（`runtime/orchestrator`），保存走 Superagent 的提示词 API 并留在其历史里，不是第二套人格正文；人格、使命与边界仍只在 Laputa。
 - SurfCore 不得长期持有与 ActMem 重复的可写记忆卡副本。
 - 面板不得直接改写底层文件来绕过所有者 API。
 - Evolution 不得复制 Superagent 的 Ticket、Effect 或 Outbox 状态作为第二控制账本。

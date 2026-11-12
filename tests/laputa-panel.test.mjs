@@ -243,6 +243,21 @@ test('the laputa client registers a same-level main panel and sidebar entry', ()
   react.reset()
 })
 
+test('the settings section is 人格与语气 and hosts the tone slot', () => {
+  const { exported } = loadClient([])
+  const entries = register(exported)
+  const section = entries.find(entry => entry.options.name === 'settings.section')
+  assert.ok(section)
+  assert.equal(section.options.id, 'laputa')
+  assert.equal(section.options.label(), '人格与语气')
+  assert.deepEqual(Object.keys(section.options.children), ['settings.laputa.item'])
+  assert.equal(section.options.children['settings.laputa.item'].kind, 'single')
+  assert.equal(section.options.children['settings.laputa.item'].scope, 'root')
+  const rendered = walk(section.component({ renderSlot: key => ({ type: 'div', props: { 'data-slot': key }, children: [] }) }))
+  assert.match(textOf(rendered), /人格与语气/)
+  assert.ok(rendered.some(node => node.props && node.props['data-slot'] === 'settings.laputa.item'))
+})
+
 test('the overview explains the two questions while uninitialized', () => {
   const state = ['overview', { ok: true, status: status(), fileDetails: FILE_DETAILS }]
   const { exported } = loadClient(state)

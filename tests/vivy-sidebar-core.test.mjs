@@ -18,7 +18,7 @@ const script = /<script data-plugin="dsh-vivy-studio">([\s\S]*?)<\/script>/.exec
 
 test('the served script carries both the identity and the group enhancement', () => {
   assert.ok(script.includes('window.__VIVY_PRODUCT__'), 'brand.js is not in the served script')
-  assert.ok(script.includes('dsh.vivy.sidebar.core.v1'), 'sidebar-core.js is not in the served script')
+  assert.ok(script.includes('diva-core-head'), 'sidebar-core.js is not in the served script')
   // One tag each: verify-skin.mjs reads back the first match of this pattern.
   assert.equal((served.match(/<script data-plugin="dsh-vivy-studio">/g) ?? []).length, 1)
   assert.ok(!script.includes('</script'), 'the script would close its own tag')
@@ -37,18 +37,35 @@ test('the group ships inside the package', () => {
   assert.ok(manifest.files.includes('sidebar-core.js'), 'package.json would not publish sidebar-core.js')
 })
 
-test('the group names its members off the label, not off a position', () => {
+test('the groups name their members off the label, not off a position', () => {
   const source = readFileSync(join(plugin, 'sidebar-core.js'), 'utf8')
-  assert.ok(source.includes('VIVY心核'), 'the group caption is not the product name')
+  assert.ok(source.includes('VIVY心核'), 'the core group caption is not the product name')
+  assert.ok(source.includes('VIVY工具'), 'the tools group caption is not the product name')
   // Member count moves with what is installed and pinned, so nothing may pin a
   // number, and the resident rows are told apart by their accessible name.
   assert.match(source, /aria-label/)
   assert.match(source, /插件/)
   assert.match(source, /自动化任务/)
   assert.match(source, /更多/)
+  // 上下文洞察 is a tools member; every other non-resident row stays in 心核.
+  assert.match(source, /上下文洞察/)
+  assert.match(source, /Context Insights/i, 'the tools allow-list must carry the English label too')
   assert.doesNotMatch(source, /panelRow\)?\s*\.\s*(slice|at)\(\s*[1-9]/, 'members must not be a fixed slice of the list')
   // Rail is measured on the nav: a member of a shut group measures 0px.
   assert.match(source, /getBoundingClientRect\(\)\.width/)
+})
+
+/* Two groups, two states: shutting one must not shut or move the other, so each
+   carries its own header marker, its own nav attribute and its own stored key.
+   `心核` keeps the key it has always written, or an upgraded session would come
+   back with the group it had shut reopened. */
+test('each group keeps its own state', () => {
+  const source = readFileSync(join(plugin, 'sidebar-core.js'), 'utf8')
+  assert.match(source, /dsh\.vivy\.sidebar\.\$\{id\}\.v1/)
+  assert.match(source, /data-diva-core/)
+  assert.match(source, /data-diva-tools/)
+  assert.match(source, /head\.dataset\.divaHead = group\.id/)
+  assert.match(source, /event\.currentTarget\.dataset\.divaHead/)
 })
 
 /* The header goes before the first member, so the position test has to read the
@@ -57,7 +74,7 @@ test('the group names its members off the label, not off a position', () => {
    then re-enters on its own edit forever, freezing the page. */
 test('the header settles instead of re-inserting itself', () => {
   const source = readFileSync(join(plugin, 'sidebar-core.js'), 'utf8')
-  assert.match(source, /nextSibling\s*!==\s*members\[0\]/, 'the position test must read the next sibling')
+  assert.match(source, /nextSibling\s*!==\s*own\[0\]/, 'the position test must read the next sibling')
   assert.doesNotMatch(source, /\.previousSibling/, 'a previousSibling comparison re-inserts on every pass')
 })
 
@@ -66,21 +83,25 @@ test('the header settles instead of re-inserting itself', () => {
    自动化任务 instead of a title sitting above them. */
 test('the header is drawn glyph, caption, disclosure', () => {
   const source = readFileSync(join(plugin, 'sidebar-core.js'), 'utf8')
-  assert.match(source, /head\.append\(heart\(\), label, chevron\(\)\)/, 'the header children are out of reading order')
-  assert.match(source, /"diva-core-heart"/, 'the group lost its heart')
-  assert.match(source, /"diva-core-chevron"/, 'the group lost its disclosure')
+  assert.match(source, /head\.append\(glyphOf\(group\), label, chevron\(\)\)/, 'the header children are out of reading order')
+  assert.match(source, /"diva-core-heart"/, 'the core group lost its heart')
+  assert.match(source, /"diva-tools-glyph"/, 'the tools group lost its mark')
+  assert.match(source, /"diva-core-chevron"/, 'the groups lost their disclosure')
 })
 
 /* Panel rows are sorted by a per-plugin `order`, and SurfCore, Superagent and
    自动化任务 all register at 10 — so the later registration renders below the
    first two, and a header placed before the first member would file 自动化任务
-   behind the group instead of beside 插件. */
-test('a resident row the shell filed behind the group comes back in front of it', () => {
+   behind the groups instead of beside 插件. */
+test('a resident row the shell filed behind the groups comes back in front of them', () => {
   const source = readFileSync(join(plugin, 'sidebar-core.js'), 'utf8')
   assert.match(source, /compareDocumentPosition\(node\)/, 'the stray test must compare document position')
-  assert.match(source, /if \(!follows\(row, built\)\) continue/, 'the stray test must run per resident row')
-  assert.match(source, /nav\.insertBefore\(row, built\)/, 'a stray resident row is never moved back')
-  // The More launcher closes the list; pulling it in front of the group would
-  // put the launcher above the group it is meant to follow.
+  assert.match(source, /if \(!follows\(row, first\)\) continue/, 'the stray test must run per resident row')
+  assert.match(source, /nav\.insertBefore\(row, first\)/, 'a stray resident row is never moved back')
+  // The first header anchors the resident rows: moving one in front of the tools
+  // header would leave it between the two groups.
+  assert.match(source, /built\[0\]\[1\]/, 'the resident rows must be anchored to the first header')
+  // The More launcher closes the list; pulling it in front of the groups would
+  // put the launcher above the groups it is meant to follow.
   assert.match(source, /TAIL/, 'the More launcher must be exempt from the move')
 })
