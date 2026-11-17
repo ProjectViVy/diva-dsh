@@ -14,6 +14,21 @@ const settingsEntry = `    function apply(ctx) {
       );
     }`
 
+// Framework-level shell, same skeleton as the memory card / memory palace panels:
+// one full-bleed frame with a fixed head, a fixed tab bar, one scrolling body and a
+// fixed action foot. The pinned client keeps its own inner markup; only this wrapper
+// decides the sections and what scrolls.
+const panelShellCss = [
+  '.surfcore-panel{box-sizing:border-box;height:100%;display:flex;overflow:hidden}',
+  '.surfcore-panel .qbw-app{flex:1;min-width:0;width:100%;max-width:none;margin:0;display:flex;flex-direction:column;overflow:hidden;border:none;border-radius:0;background:var(--dsw-alias-bg-base,#fff);box-shadow:none}',
+  '.surfcore-panel .qbw-head{flex:none;padding:16px 22px 13px}',
+  '.surfcore-panel .qbw-tabs{flex:none;padding:6px 16px 0;overscroll-behavior-x:contain;scrollbar-width:none}',
+  '.surfcore-panel .qbw-tabs::-webkit-scrollbar{display:none}',
+  '.surfcore-panel .qbw-body{flex:1;min-height:0;max-height:none;overflow:auto;padding:16px 22px 22px;overscroll-behavior:contain;scrollbar-gutter:stable}',
+  '.surfcore-panel .qbw-foot{position:static;flex:none;padding:10px 22px;background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.06))}',
+  '@media(max-width:760px){.surfcore-panel .qbw-head,.surfcore-panel .qbw-body,.surfcore-panel .qbw-foot{padding-left:14px;padding-right:14px}.surfcore-panel .qbw-tabs{padding-left:8px;padding-right:8px}}',
+].join('')
+
 const panelEntry = `    function SurfCoreIcon({ size }) {
       return h("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none",
         stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
@@ -25,7 +40,7 @@ const panelEntry = `    function SurfCoreIcon({ size }) {
     function SurfCorePanel() {
       return h("div", { className: "surfcore-panel" },
         h(QQBIliWhaleSection),
-        h("style", null, ".surfcore-panel{box-sizing:border-box;height:100%;overflow:auto;padding:28px clamp(16px,4vw,48px) 48px}.surfcore-panel .qbw-app{max-width:1200px;overflow:visible}.surfcore-panel .qbw-body{max-height:none;overflow:visible}.surfcore-panel .qbw-foot{background:var(--dsw-alias-bg-layer-1,#fff);z-index:2}"));
+        h("style", null, ${JSON.stringify(panelShellCss)}));
     }
 
     function apply(ctx) {
