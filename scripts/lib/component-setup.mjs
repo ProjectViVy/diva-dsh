@@ -51,7 +51,9 @@ export function relocateProfileDependencies(root, profileName) {
     const next = `link:${relative(profile, target).replaceAll('\\', '/')}`
     if (updatedLock !== null) {
       const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const entry = new RegExp(`(^[ \\t]+(?:${escape(name)}|'${escape(name)}'|"${escape(name)}"):[ \\t]*\\r?\\n[ \\t]+specifier:[ \\t]*)(["']?)${escape(old)}\\2([ \\t]*\\r?$)`, 'gm')
+      // The lockfile and the manifest may disagree on slash direction on Windows.
+      const escapeSpecifier = value => value.replaceAll('\\', '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\//g, '[\\\\/]')
+      const entry = new RegExp(`(^[ \\t]+(?:${escape(name)}|'${escape(name)}'|"${escape(name)}"):[ \\t]*\\r?\\n[ \\t]+specifier:[ \\t]*)(["']?)${escapeSpecifier(old)}\\2([ \\t]*\\r?$)`, 'gm')
       const matches = [...updatedLock.matchAll(entry)]
       if (matches.length !== 1) throw new Error(`Profile lockfile does not match dependency ${name}`)
       updatedLock = updatedLock.replace(entry, (_match, prefix, quote, ending) => `${prefix}${quote}${next}${quote}${ending}`)

@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { componentPackages } from '../scripts/lib/component-setup.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -69,7 +69,7 @@ test('客户端调用的接口都在两个既有插件里注册过', () => {
 })
 
 test('宿主半边满足 Loader 契约（设置页逻辑全在浏览器端）', async () => {
-  const entry = await import(join(PLUGIN, 'src', 'index.mjs'))
+  const entry = await import(pathToFileURL(join(PLUGIN, 'src', 'index.mjs')).href)
   assert.equal(entry.name, 'dsh-local-voice')
   assert.ok(entry.inject.includes('webServer'))
   assert.ok(entry.inject.includes('connection'))

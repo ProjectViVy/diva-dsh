@@ -2,10 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { runInNewContext } from 'node:vm'
 import * as transforms from '../scripts/lib/surfcore-runtime-transform.mjs'
+
+// `--import` given a bare Windows path resolves relative imports against `c:\…`,
+// so the loader has to enter as a file URL (same as scripts/lib/surfcore.mjs).
+const LOADER = pathToFileURL(resolve('scripts/surfcore-loader.mjs')).href
 
 test('DM peek retains the upstream cursor until delivery', () => {
   const source = readFileSync(resolve('plugins/surfcore/plugins/surfcore/tools/commands/dm-await.mjs'), 'utf8')
@@ -26,7 +31,7 @@ test('DM peek runs through the project loader without advancing either cursor mo
   const fetchStub = join(dir, 'fetch.mjs')
   writeFileSync(fetchStub, `globalThis.fetch = async () => ({ json: async () => ({ code: 0, data: { session_list: [{ talker_id: 1001, last_msg: { sender_uid: 1001, timestamp: 2, content: 'hi' } }] } }) });`)
   const command = resolve('plugins/surfcore/plugins/surfcore/tools/commands/dm-await.mjs')
-  const args = ['--import', resolve('scripts/surfcore-loader.mjs'), '--import', fetchStub, command, '--once', '--json', '--peek']
+  const args = ['--import', LOADER, '--import', fetchStub, command, '--once', '--json', '--peek']
   const env = { ...process.env, DSH_HOME: dir, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1', SURFCORE_BILI_CONFIG: config, NODE_OPTIONS: '' }
   for (const extra of [[], ['--any']]) {
     const result = JSON.parse(execFileSync(process.execPath, [...args, ...extra], { env, encoding: 'utf8' }))
@@ -51,7 +56,7 @@ test('owner DM peek does not advance the cursor when the latest message is from 
   const response = (sender, timestamp) => `globalThis.fetch = async () => ({ json: async () => ({ code: 0, data: { session_list: [{ talker_id: 1001, last_msg: { sender_uid: ${sender}, timestamp: ${timestamp}, content: 'message' } }] } }) });`
   writeFileSync(stub, response(9999, 200))
   const command = resolve('plugins/surfcore/plugins/surfcore/tools/commands/dm-await.mjs')
-  const args = ['--import', resolve('scripts/surfcore-loader.mjs'), '--import', stub, command, '--once', '--json']
+  const args = ['--import', LOADER, '--import', stub, command, '--once', '--json']
   const env = { ...process.env, DSH_HOME: dir, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1', SURFCORE_BILI_CONFIG: config, NODE_OPTIONS: '' }
   const peek = spawnSync(process.execPath, [...args, '--peek'], { env, encoding: 'utf8' })
   assert.equal(peek.status, 1); assert.equal(JSON.parse(peek.stdout).hit, false)
@@ -74,7 +79,7 @@ test('initializing or updating all-person DM mode preserves the owner cursor', t
   const stub = join(dir, 'fetch.mjs')
   writeFileSync(stub, `globalThis.fetch = async () => ({ json: async () => ({ code: 0, data: { session_list: [{ talker_id: 1001, last_msg: { sender_uid: 1001, timestamp: 100, content: 'old' } }] } }) });`)
   const command = resolve('plugins/surfcore/plugins/surfcore/tools/commands/dm-await.mjs')
-  const args = ['--import', resolve('scripts/surfcore-loader.mjs'), '--import', stub, command]
+  const args = ['--import', LOADER, '--import', stub, command]
   const env = { ...process.env, DSH_HOME: dir, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1', SURFCORE_BILI_CONFIG: config, NODE_OPTIONS: '' }
   for (const extra of [['--once', '--json', '--peek', '--any'], ['--baseline', '--any'], ['--once', '--json', '--any']]) {
     writeFileSync(cursor, JSON.stringify({ lastSeen: 100, other: 'keep', ...(extra.includes('--peek') || extra.includes('--baseline') ? {} : { seen: { 1001: 1 } }) }))
@@ -98,7 +103,7 @@ test('malformed DM session responses cannot initialize the all-person baseline',
   writeFileSync(join(bili, 'credentials.json'), JSON.stringify({ sessdata: 'test', bili_jct: 'test', buvid3: 'test' }))
   const stub = join(dir, 'fetch.mjs'), initial = JSON.stringify({ lastSeen: 100, other: 'keep' })
   const command = resolve('plugins/surfcore/plugins/surfcore/tools/commands/dm-await.mjs')
-  const args = ['--import', resolve('scripts/surfcore-loader.mjs'), '--import', stub, command, '--once', '--json', '--peek', '--any']
+  const args = ['--import', LOADER, '--import', stub, command, '--once', '--json', '--peek', '--any']
   const env = { ...process.env, DSH_HOME: dir, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1', SURFCORE_BILI_CONFIG: config, NODE_OPTIONS: '' }
   for (const data of [null, {}, { session_list: {} }]) {
     writeFileSync(cursor, initial)
@@ -124,7 +129,7 @@ test('invalid DM cursor contents are preserved by polling, baseline and acknowle
   const stub = join(dir, 'fetch.mjs')
   writeFileSync(stub, `globalThis.fetch = async () => ({ json: async () => ({ code: 0, data: { session_list: [{ talker_id: 1001, last_msg: { sender_uid: 1001, timestamp: 100, content: 'message' } }] } }) });`)
   const command = resolve('plugins/surfcore/plugins/surfcore/tools/commands/dm-await.mjs')
-  const args = ['--import', resolve('scripts/surfcore-loader.mjs'), '--import', stub, command]
+  const args = ['--import', LOADER, '--import', stub, command]
   const env = { ...process.env, DSH_HOME: dir, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1', SURFCORE_BILI_CONFIG: config, NODE_OPTIONS: '' }
   for (const original of ['{broken', '[]', '{"lastSeen":"bad"}', '{"seen":{"1001":"bad"}}', '{"seen":[]}']) {
     for (const extra of [['--once', '--json', '--peek'], ['--baseline', '--any']]) {
@@ -153,7 +158,7 @@ test('DM baseline preserves the previous cursor if atomic publication fails', t 
   const stub = join(dir, 'fetch.mjs')
   writeFileSync(stub, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = (from, to) => { if (to === ${JSON.stringify(cursor)}) throw new Error('simulated cursor publication failure'); return original(from, to); }; syncBuiltinESMExports(); globalThis.fetch = async () => ({ json: async () => ({ code: 0, data: { session_list: [{ talker_id: 1001, last_msg: { sender_uid: 1001, timestamp: 100, content: 'message' } }] } }) });`)
   const command = resolve('plugins/surfcore/plugins/surfcore/tools/commands/dm-await.mjs')
-  const args = ['--import', resolve('scripts/surfcore-loader.mjs'), '--import', stub, command, '--baseline', '--any']
+  const args = ['--import', LOADER, '--import', stub, command, '--baseline', '--any']
   const env = { ...process.env, DSH_HOME: dir, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1', SURFCORE_BILI_CONFIG: config, NODE_OPTIONS: '' }
   const failed = spawnSync(process.execPath, args, { env, encoding: 'utf8' })
   assert.notEqual(failed.status, 0)

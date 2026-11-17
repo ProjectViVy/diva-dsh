@@ -57,7 +57,8 @@ test('legacy config is backed up byte-for-byte and rewritten without retired key
   assert.equal(report.config.rewritten, true)
   assert.deepEqual(report.config.removedKeys, REMOVED_CONFIG_KEYS)
   assert.equal(sha256(readFileSync(join(dir, report.config.backup))), sha256(before))
-  assert.equal((lstatSync(join(dir, report.config.backup)).mode & 0o777), 0o600)
+  // Windows has no POSIX permission bits: lstat().mode always reports 0o666 there.
+  if (process.platform !== 'win32') assert.equal((lstatSync(join(dir, report.config.backup)).mode & 0o777), 0o600)
 
   const saved = loadPersistedConfig(dir)
   for (const key of REMOVED_CONFIG_KEYS) assert.equal(Object.hasOwn(saved, key), false)
@@ -102,7 +103,7 @@ test('identity.txt is backed up and archived without leaving a live persona file
   assert.equal(report.identity.sha256, sha256(bytes))
   assert.equal(sha256(readFileSync(join(dir, report.identity.backup))), sha256(bytes))
   assert.equal(readFileSync(join(dir, report.identity.archivedTo), 'utf8'), bytes.toString('utf8'))
-  assert.equal((lstatSync(join(dir, report.identity.archivedTo)).mode & 0o777), 0o600)
+  if (process.platform !== 'win32') assert.equal((lstatSync(join(dir, report.identity.archivedTo)).mode & 0o777), 0o600)
   assert.doesNotMatch(readFileSync(join(dir, 'migration.json'), 'utf8'), /secret/)
 })
 
@@ -110,7 +111,14 @@ test('identity symlinks are left untouched and reported', t => {
   const dir = tempDir(t)
   const target = join(dir, 'persona-target.txt')
   writeFileSync(target, 'persona')
-  symlinkSync(target, join(dir, 'identity.txt'))
+  try {
+    symlinkSync(target, join(dir, 'identity.txt'))
+  } catch (error) {
+    // Windows without symlink privilege (developer mode or elevation) cannot create one;
+    // the case then has no meaning on this machine instead of failing the suite.
+    t.skip(`无法创建符号链接：${error?.code ?? error}`)
+    return
+  }
   const report = retireLegacyState(dir, { now: NOW, logger: silent })
   assert.equal(report.identity, null)
   assert.ok(report.warnings.some(message => message.includes('不是普通文件')))
@@ -124,6 +132,7 @@ test('status snapshot exposes retirement and no identity or capture fields', asy
   retireLegacyState(dir, { now: NOW, logger: silent })
   const service = new MempalaceService({ stateDir: dir, config: resolveConfig({}, {}), logger: silent })
   const snapshot = await service.statusSnapshot()
+  await service.dispose()
   assert.equal(snapshot.retirement.version, RETIREMENT_VERSION)
   assert.equal(Object.hasOwn(snapshot, 'pendingCaptures'), false)
   assert.equal(Object.hasOwn(snapshot.paths, 'identityPath'), false)
@@ -138,7 +147,7 @@ test('an existing archive copy is reused only when its bytes match', t => {
   writeFileSync(join(dir, 'archive', 'identity.txt'), 'same')
   writeFileSync(join(dir, 'identity.txt'), 'same')
   const first = retireLegacyState(dir, { now: NOW, logger: silent })
-  assert.equal(first.identity.archivedTo, 'archive/identity.txt')
+  assert.equal(first.identity.archivedTo, join('archive', 'identity.txt'))
   assert.equal(existsSync(join(dir, 'identity.txt')), false)
 
   const other = tempDir(t)
@@ -146,7 +155,7 @@ test('an existing archive copy is reused only when its bytes match', t => {
   writeFileSync(join(other, 'archive', 'identity.txt'), 'old')
   writeFileSync(join(other, 'identity.txt'), 'new')
   const second = retireLegacyState(other, { now: NOW, logger: silent })
-  assert.notEqual(second.identity.archivedTo, 'archive/identity.txt')
+  assert.notEqual(second.identity.archivedTo, join('archive', 'identity.txt'))
   assert.equal(readFileSync(join(other, second.identity.archivedTo), 'utf8'), 'new')
   assert.equal(readFileSync(join(other, 'archive', 'identity.txt'), 'utf8'), 'old')
 })

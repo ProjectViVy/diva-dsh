@@ -165,7 +165,7 @@ test('migrated Bilibili watch history combines platform records with independent
   migrateComponents(root)
   const moduleUrl = pathToFileURL(resolve('plugins/surfcore/plugins/surfcore/tools/lib/watch-history.mjs')).href
   const program = `import { readWatchHistory } from ${JSON.stringify(moduleUrl)}; process.stdout.write(JSON.stringify(readWatchHistory().items));`
-  const output = execFileSync(process.execPath, ['--import', resolve('scripts/surfcore-loader.mjs'), '--input-type=module', '-e', program], {
+  const output = execFileSync(process.execPath, ['--import', pathToFileURL(resolve('scripts/surfcore-loader.mjs')).href, '--input-type=module', '-e', program], {
     env: { ...process.env, DSH_HOME: join(root, '.artifacts/dsh-home'), SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1' }, encoding: 'utf8',
   })
   const items = JSON.parse(output)

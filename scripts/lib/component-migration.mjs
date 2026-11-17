@@ -230,7 +230,7 @@ export function migrateComponents(projectRoot) {
     const manifest = []
     for (const item of backupFiles) {
       const rel = relative(root, item.source)
-      manifest.push({ path: rel, bytes: item.size, sha256: copyVerified(item.source, join(backup, rel)) })
+      manifest.push({ path: rel.replaceAll('\\', '/'), bytes: item.size, sha256: copyVerified(item.source, join(backup, rel)) })
     }
     writeJson(join(backup, 'manifest.json'), { createdAt: new Date().toISOString(), files: manifest })
     const stagedVoice = join(stage, 'voice')
@@ -253,7 +253,7 @@ export function migrateComponents(projectRoot) {
     writeJson(join(stagedMemory, 'migration.json'), {
       version: 1, completedAt: new Date().toISOString(), backup,
       sources: [...memoryFiles, ...memoryExtras, ...biliMemoryFiles, ...voiceFiles, ...audioFiles]
-        .map(item => ({ path: relative(root, item.source), sha256: digest(item.source) })),
+        .map(item => ({ path: relative(root, item.source).replaceAll('\\', '/'), sha256: digest(item.source) })),
     })
     const { dir: _oldPacksDirectory, ...voicePacks } = qq.voicePacks ?? {}
     const relocatePacksUrl = value => {

@@ -4,7 +4,7 @@ import { registerHooks } from 'node:module'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { renderPatchedSource } from './lib/surfcore-component-patch.mjs'
 import { renderHostWorkdirSource } from './lib/surfcore-runtime-transform.mjs'
 
@@ -31,18 +31,32 @@ function assertFreshPatch(relativeFile, source) {
   }
 }
 
+// Some pinned SurfCore files are checked in with CRLF while these anchors are written
+// with LF. Match on a normalized copy and put the original endings back.
 function replaceOnce(source, before, after) {
-  if (source.split(before).length !== 2) {
+  const crlf = source.includes('\r\n')
+  const text = crlf ? source.replaceAll('\r\n', '\n') : source
+  if (text.split(before).length !== 2) {
     throw new Error('The pinned SurfCore source no longer matches the local automation safeguards.')
   }
-  return source.replace(before, after)
+  const replaced = text.replace(before, after)
+  return crlf ? replaced.replaceAll('\n', '\r\n') : replaced
+}
+
+// A child started as `node --import <this file> <C:\path\entry.mjs>` hands a bare
+// Windows path to the sync load hook; nextLoad only accepts URLs.
+function loadableUrl(url) {
+  if (typeof url !== 'string') return url
+  if (/^[a-zA-Z]:[\\/]/.test(url) || url.startsWith('\\\\')) return pathToFileURL(url).href
+  return url
 }
 
 registerHooks({
   load(url, context, nextLoad) {
-    const loaded = nextLoad(url, context)
-    if (!url.startsWith('file:') || loaded.format !== 'module' || loaded.source == null || !process.env.DSH_HOME) return loaded
-    const file = fileURLToPath(url)
+    const target = loadableUrl(url)
+    const loaded = nextLoad(target, context)
+    if (!target.startsWith('file:') || loaded.format !== 'module' || loaded.source == null || !process.env.DSH_HOME) return loaded
+    const file = fileURLToPath(target)
     const relativeFile = relative(sourceRoot, file)
     if (!relativeFile || relativeFile.startsWith(`..${sep}`) || relativeFile === '..' || isAbsolute(relativeFile) || relativeFile.split(sep).includes('node_modules')) return loaded
     let source = typeof loaded.source === 'string' ? loaded.source : Buffer.from(loaded.source).toString('utf8')

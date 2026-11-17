@@ -18,17 +18,30 @@ const CHECKS = { provenance: true, conflict: true, integrity: true, retrieval: t
 const scope = 'knowledge:conflict:vivy'
 const upsert = { op: 'upsert_triple', subject: 'Alice', predicate: 'likes', object: 'tea', project: 'persona:vivy:soul' }
 
+/** Stores/services opened by the running test; all are closed before the temp dir is removed. */
+const openHandles = []
+
 function tempDir(t) {
   const base = resolve('.artifacts/test-tmp')
   mkdirSync(base, { recursive: true })
   const dir = mkdtempSync(join(base, 'knowledge-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  t.after(async () => {
+    // Windows refuses to delete a directory that still holds an open SQLite handle.
+    while (openHandles.length > 0) {
+      const handle = openHandles.pop()
+      try {
+        if (typeof handle.close === 'function') handle.close()
+        else if (typeof handle.dispose === 'function') await handle.dispose()
+      } catch { /* already closed */ }
+    }
+    rmSync(dir, { recursive: true, force: true })
+  })
   return dir
 }
 async function openStore(t) {
   const store = new MemoryStore({ memoryDir: tempDir(t), embed: async () => new Float32Array(EMBEDDING_DIM), logger: silent })
   await store.open()
-  t.after(() => store.close())
+  openHandles.push(store)
   return store
 }
 const SUBJECT_ID = 'subject_11111111-1111-1111-1111-111111111111'
@@ -39,7 +52,7 @@ async function openService(t) {
     logger: silent,
     subject: async () => SUBJECT_ID,
   })
-  t.after(() => service.dispose())
+  openHandles.push(service)
   await service.ready()
   return service
 }

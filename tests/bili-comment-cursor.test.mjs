@@ -46,7 +46,7 @@ test('project loader exposes message feed pagination without changing IDs', (t) 
   const dir = mkdtempSync(join(base, 'comment-loader-')); t.after(() => rmSync(dir, { recursive: true, force: true }))
   const moduleUrl = pathToFileURL(resolve('plugins/surfcore/plugins/surfcore/tools/lib/msgfeed.mjs')).href
   const code = `globalThis.fetch = async (url) => ({ json: async () => ({ code: 0, data: { cursor: String(url).includes('cursor=next') ? '' : 'next', items: [{ id: 1, reply_time: 20, user: { mid: '123', nickname: 'u' }, item: { uri: 'https://t.bilibili.com/1261813571425140745' } }] } }) }); const { pullFeed } = await import(${JSON.stringify(moduleUrl)}); const a = await pullFeed('reply', { headers: {} }); const b = await pullFeed('reply', { headers: {}, cursor: a.nextCursor }); process.stdout.write(JSON.stringify({ first: a.nextCursor, last: b.nextCursor, oid: a.items[0].oid }));`
-  const output = execFileSync(process.execPath, ['--import', resolve('scripts/surfcore-loader.mjs'), '--input-type=module', '-e', code], {
+  const output = execFileSync(process.execPath, ['--import', pathToFileURL(resolve('scripts/surfcore-loader.mjs')).href, '--input-type=module', '-e', code], {
     env: { ...process.env, DSH_HOME: dir, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1', NODE_OPTIONS: '' }, encoding: 'utf8',
   })
   assert.deepEqual(JSON.parse(output), { first: 'next', last: '', oid: '1261813571425140745' })

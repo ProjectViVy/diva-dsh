@@ -83,7 +83,7 @@ test('profile dependency relocation resumes after interruption between its two f
   writeFileSync(join(old, '.artifacts/component-migration.json'), JSON.stringify({ version: 1, backup: join(old, '.artifacts/backups/migration') }))
   renameSync(old, moved)
   const module = new URL('../scripts/lib/component-setup.mjs', import.meta.url).href
-  const script = `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = (...args) => { original(...args); if (args[1].endsWith('/package.json')) process.exit(73) }; syncBuiltinESMExports(); const mod = await import(${JSON.stringify(module)}); mod.relocateProfileDependencies(process.argv[1], 'superagent-local')`
+  const script = `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = (...args) => { original(...args); if (String(args[1]).endsWith('package.json')) process.exit(73) }; syncBuiltinESMExports(); const mod = await import(${JSON.stringify(module)}); mod.relocateProfileDependencies(process.argv[1], 'superagent-local')`
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', script, moved], { encoding: 'utf8' })
   assert.equal(child.status, 73, child.stderr)
   assert.equal(componentSetup.relocateProfileDependencies(moved, 'superagent-local'), true)

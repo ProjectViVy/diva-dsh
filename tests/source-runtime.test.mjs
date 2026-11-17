@@ -2,18 +2,20 @@ import test from 'node:test'
 
 test('standalone mempalace installation confines caches and temporary files to the project', async () => {
   const { runMempalaceNpm } = await import('../scripts/lib/mempalace-setup.mjs')
+  // cwd 用原始 root 拼，环境变量走 localEnvironment（内部 resolve 过）。
+  const root = resolve('/project')
   let call
   runMempalaceNpm(['install'], { root: '/project', parent: { PATH: '/bin', DSH_HOME: '/outside/home', npm_config_cache: '/outside/cache', TMPDIR: '/outside/tmp' }, spawnImpl: (cmd, args, options) => { call = { cmd, args, options }; return { status: 0 } }, platform: 'linux' })
-  assert.equal(call.options.cwd, '/project/plugins/dsh-mempalace')
-  assert.equal(call.options.env.DSH_HOME, '/project/.artifacts/dsh-home')
-  assert.equal(call.options.env.npm_config_cache, '/project/.artifacts/npm-cache')
-  assert.equal(call.options.env.npm_package_config_node_gyp_devdir, '/project/.artifacts/node-gyp')
-  assert.equal(call.options.env.npm_config_devdir, '/project/.artifacts/node-gyp')
+  assert.equal(call.options.cwd, join('/project', 'plugins', 'dsh-mempalace'))
+  assert.equal(call.options.env.DSH_HOME, join(root, '.artifacts', 'dsh-home'))
+  assert.equal(call.options.env.npm_config_cache, join(root, '.artifacts', 'npm-cache'))
+  assert.equal(call.options.env.npm_package_config_node_gyp_devdir, join(root, '.artifacts', 'node-gyp'))
+  assert.equal(call.options.env.npm_config_devdir, join(root, '.artifacts', 'node-gyp'))
   assert.ok(isAbsolute(call.options.env.TMPDIR))
   assert.equal(call.options.env.TMP, call.options.env.TMPDIR)
   assert.equal(call.options.env.TEMP, call.options.env.TMPDIR)
-  assert.ok(!call.options.env.TMPDIR.startsWith('/project'))
-  assert.equal(call.options.env.XDG_CACHE_HOME, '/project/.artifacts/xdg-cache')
+  assert.ok(!call.options.env.TMPDIR.startsWith(root))
+  assert.equal(call.options.env.XDG_CACHE_HOME, join(root, '.artifacts', 'xdg-cache'))
 })
 import assert from 'node:assert/strict'
 import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
@@ -97,7 +99,8 @@ test('a fresh profile receives a local state directory and requested port', (t) 
   const patch = readFileSync(join(root, '.artifacts', 'dsh-home', 'profiles', 'superagent-local', 'cordis.patch.yml'), 'utf8')
   assert.equal(changed, true)
   assert.match(patch, /port: 3082/)
-  assert.ok(patch.includes(JSON.stringify(join(root, '.artifacts', 'dsh-home', 'state', 'superagent-local'))))
+  // 写进 cordis.patch.yml 的路径统一用正斜杠（YAML 里反斜杠要转义）。
+  assert.ok(patch.includes(JSON.stringify(join(root, '.artifacts', 'dsh-home', 'state', 'superagent-local').replaceAll('\\', '/'))))
 })
 
 test('setup preserves an already configured local profile', (t) => {
@@ -120,7 +123,7 @@ test('setup relocates its own profile state path after the whole project moves',
   const moved = join(parent, 'moved-project'); renameSync(root, moved)
   assert.equal(source.ensureMachineConfig(moved, profile, 3082), true)
   const patch = readFileSync(join(moved, '.artifacts/dsh-home/profiles', profile, 'cordis.patch.yml'), 'utf8')
-  assert.equal(source.configuredStateDirectory(patch), join(moved, '.artifacts/dsh-home/state', profile))
+  assert.equal(source.configuredStateDirectory(patch), join(moved, '.artifacts/dsh-home/state', profile).replaceAll('\\', '/'))
   assert.match(patch, /port: 3082/)
   assert.ok(readFileSync(join(moved, '.artifacts/dsh-home/profiles', profile, 'cordis.patch.pre-relocation.yml'), 'utf8') === original)
 })

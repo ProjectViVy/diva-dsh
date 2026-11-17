@@ -22,7 +22,8 @@ test('installer child uses project-local home, temporary and package cache paths
   const program = 'require("node:fs").writeFileSync(process.argv[1],JSON.stringify({home:process.env.HOME,tmp:process.env.TMPDIR,cache:process.env.PIP_CACHE_DIR,user:process.env.PYTHONUSERBASE,opts:process.env.NODE_OPTIONS || ""}))'
   await runInstallCommand({ root: dir, cwd: dir, command: process.execPath, args: ['-e', program, out] })
   const result = JSON.parse(readFileSync(out, 'utf8'))
-  for (const value of [result.home, result.tmp, result.cache, result.user]) assert.ok(value.startsWith(`${dir}/`), value)
+  const slash = value => String(value).replaceAll('\\', '/')
+  for (const value of [result.home, result.tmp, result.cache, result.user]) assert.ok(slash(value).startsWith(`${slash(dir)}/`), value)
   assert.equal(result.opts, '')
 })
 
@@ -41,7 +42,8 @@ test('cancelling a running install command stops its own child process', async t
 test('cancelling the installer also stops subprocesses launched by its bootstrap', async t => {
   const dir = workspace(t), { runInstallCommand } = await runner()
   const controller = new AbortController(), marker = join(dir, 'orphan.txt')
-  const nested = 'setTimeout(() => require("node:fs").writeFileSync(process.argv[1],"escaped"), 350)'
+  // 孙进程 1500ms 后才落盘：这段窗口留给 taskkill /T，取消后等过窗口再验，避免把「杀得慢」误判成「没杀」。
+  const nested = 'setTimeout(() => require("node:fs").writeFileSync(process.argv[1],"escaped"), 1500)'
   const parent = 'require("node:child_process").spawn(process.execPath,["-e",process.argv[1],process.argv[2]],{stdio:"ignore"}); console.log("ready");setInterval(()=>{},1000)'
   let ready
   const started = new Promise(resolve => { ready = resolve })
@@ -49,6 +51,6 @@ test('cancelling the installer also stops subprocesses launched by its bootstrap
   await started
   controller.abort()
   await assert.rejects(work, /cancel/i)
-  await new Promise(resolve => setTimeout(resolve, 500))
-  assert.equal(existsSync(marker), false)
+  await new Promise(resolve => setTimeout(resolve, 2000))
+  assert.equal(existsSync(marker), false, '孙进程必须跟着一起停掉')
 })

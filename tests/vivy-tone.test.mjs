@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { resolveConfig } from '../plugins/dsh-vivy-tone/src/config.mjs'
@@ -332,10 +332,10 @@ describe('configuration', () => {
 
   it('resolves the state directory the same way for the plugin and the CLI', () => {
     const env = { DSH_HOME: '/tmp/dsh-home' }
-    assert.equal(defaultStateDir(env), '/tmp/dsh-home/vivy-tone')
-    assert.equal(resolveStateDir('/absolute/vivy', env), '/absolute/vivy')
+    assert.equal(defaultStateDir(env), join('/tmp/dsh-home', 'vivy-tone'))
+    assert.equal(resolveStateDir('/absolute/vivy', env), resolve('/absolute/vivy'))
     assert.equal(resolveStateDir('nested', env), join(process.cwd(), 'nested'))
-    assert.equal(resolveStateDir('', env), '/tmp/dsh-home/vivy-tone')
+    assert.equal(resolveStateDir('', env), join('/tmp/dsh-home', 'vivy-tone'))
   })
 })
 

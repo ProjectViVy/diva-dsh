@@ -828,7 +828,7 @@ test('the actual SurfCore loader applies the role-free alignment brief transform
   const home = mkdtempSync(join(base, 'alignment-loader-')); t.after(() => rmSync(home, { recursive: true, force: true }))
   const moduleUrl = pathToFileURL(resolve('plugins/surfcore/plugins/surfcore/lib/align.js')).href
   const code = `import { buildQqAlignmentBrief } from ${JSON.stringify(moduleUrl)}; const links = [{label:'小明',identities:{qq:{id:'123456',name:'群友'},bili:{id:'456789',name:'小站'}}}]; process.stdout.write(buildQqAlignmentBrief({links}));`
-  const text = execFileSync(process.execPath, ['--import', resolve('scripts/surfcore-loader.mjs'), '--input-type=module', '-e', code], { env: { ...process.env, DSH_HOME: home, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1' }, encoding: 'utf8' })
+  const text = execFileSync(process.execPath, ['--import', pathToFileURL(resolve('scripts/surfcore-loader.mjs')).href, '--input-type=module', '-e', code], { env: { ...process.env, DSH_HOME: home, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_COMPONENT_SPLIT: '1' }, encoding: 'utf8' })
   assert.match(text, /小明/)
   assert.doesNotMatch(text, /人格卡|角色卡|人设卡/)
 })
@@ -970,7 +970,7 @@ test('explicit platform setting changes start or stop services even when startup
 test('SurfCore startup restores only globally enabled extension activation without starting platforms', t => {
   const base = resolve('.artifacts/test-tmp'); mkdirSync(base, { recursive: true })
   const dir = mkdtempSync(join(base, 'extension-startup-')); t.after(() => rmSync(dir, { recursive: true, force: true }))
-  const loader = resolve('scripts/surfcore-loader.mjs'), entry = pathToFileURL(resolve('plugins/surfcore/plugins/surfcore/lib/index.js')).href
+  const loader = pathToFileURL(resolve('scripts/surfcore-loader.mjs')).href, entry = pathToFileURL(resolve('plugins/surfcore/plugins/surfcore/lib/index.js')).href
   const extension = pathToFileURL(resolve('plugins/surfcore/plugins/surfcore/lib/extensions.js')).href
   for (const enabled of [false, true]) {
     const home = join(dir, String(enabled), 'home'), qq = join(dir, String(enabled), 'qq')
@@ -988,7 +988,8 @@ test('SurfCore startup restores only globally enabled extension activation witho
       apply(ctx); await new Promise(resolve => setImmediate(resolve));
       if (JSON.stringify(activated) !== ${JSON.stringify(JSON.stringify(enabled ? ['sts2'] : []))}) throw new Error('unexpected extension activation: ' + activated);
       for (const effect of effects) { const dispose = effect(); if (typeof dispose === 'function') await dispose(); }
-      process.exit(0);
+      // 只设退出码：Windows 上在异步句柄关闭过程中 process.exit() 会撞 libuv 断言。
+      process.exitCode = 0;
     `
     execFileSync(process.execPath, ['--import', loader, '--input-type=module', '-e', program], { env: { ...process.env, DSH_HOME: home, SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_ROOT: qq, SURFCORE_QQBOT_ROOT: qq, SURFCORE_SKIP_AUTOSTART: '1', SURFCORE_DISABLE_CHARACTER_MIGRATION: '1', SURFCORE_DISABLE_MEMORY_TIMER: '1', SURFCORE_DISABLE_PLATFORM_RESTART: '1', SURFCORE_COMPONENT_SPLIT: '1' }, stdio: 'pipe', timeout: 10000 })
   }
@@ -1309,9 +1310,9 @@ test('Bilibili wake prompt uses project-local tool and diary paths without role 
   const prompt = wake({ atText: '现在' }, tools)
   assert.doesNotMatch(prompt, /~\/\.dsh|人格卡|角色卡|人设卡/)
   assert.ok(prompt.includes(`${tools} selftest`))
-  assert.ok(prompt.includes(`${dataDir}/whale-diary.md`))
-  assert.ok(prompt.includes(`${dataDir}/whale-diary-private.md`))
-  assert.ok(prompt.includes(`${dataDir}/memes`))
+  for (const name of ['whale-diary.md', 'whale-diary-private.md', 'memes']) {
+    assert.ok(prompt.includes(join(dataDir, name)), `wake prompt 缺少 ${join(dataDir, name)}`)
+  }
   assert.match(prompt, /feed.*选题/)
   assert.match(prompt, /comment-digest/)
   assert.doesNotMatch(source, /按 AGENTS\.md/)
@@ -1325,8 +1326,8 @@ test('transformed SurfCore host starts offline and rejects removed management ro
   writeFileSync(join(qq, 'config.json'), JSON.stringify({ allow: { groups: ['12345'] } }))
   mkdirSync(join(qq, 'state'), { recursive: true })
   writeFileSync(join(qq, 'state/qq-public-feed.jsonl'), JSON.stringify({ at: new Date().toISOString(), groupId: '12345', senderId: '54321', text: '我B站叫星空' }) + '\n')
-  const loader = resolve('scripts/surfcore-loader.mjs')
-  const entry = resolve('plugins/surfcore/plugins/surfcore/lib/index.js')
+  const loader = pathToFileURL(resolve('scripts/surfcore-loader.mjs')).href
+  const entry = pathToFileURL(resolve('plugins/surfcore/plugins/surfcore/lib/index.js')).href
   const program = `
     import { EventEmitter } from 'node:events'; import { Readable } from 'node:stream';
     import { createServer } from 'node:http'; import { mkdirSync, writeFileSync } from 'node:fs'; import { join } from 'node:path';
@@ -1335,7 +1336,7 @@ test('transformed SurfCore host starts offline and rejects removed management ro
       get: name => name === 'connection' ? { requestRejection: () => false } : null,
       effect: fn => { effects.push(fn); return () => {} },
       sessionController: { inspect: async () => ({ events: [] }), create: async () => ({}), prompt: async () => ({ accepted: true }) } };
-    const { apply } = await import(${JSON.stringify(new URL(`file://${entry}`).href)});
+    const { apply } = await import(${JSON.stringify(entry)});
     apply(ctx);
     if (routes.some(route => route.path.includes('pet-api'))) throw new Error('pet route is still registered');
     const api = routes.find(route => route.path === '/dsh-surfcore/api');
@@ -1396,7 +1397,8 @@ test('transformed SurfCore host starts offline and rejects removed management ro
     const failedBili = disconnected.data.platforms.find(platform => platform.id === 'bili')?.runtime;
     if (disconnected.status !== 200 || failedBili?.ok !== false || !failedBili.error) throw new Error('offline memory did not report platform error');
     for (const effect of effects) { const dispose = effect(); if (typeof dispose === 'function') dispose(); }
-    process.exit(0);
+    // 只设退出码：Windows 上在异步句柄关闭过程中 process.exit() 会撞 libuv 断言。
+    process.exitCode = 0;
   `
   execFileSync(process.execPath, ['--import', loader, '--input-type=module', '-e', program], {
     env: { ...process.env, DSH_HOME: join(dir, 'dsh'), SURFCORE_LOCAL_SOURCE: resolve('plugins/surfcore'), SURFCORE_ROOT: qq,

@@ -39,11 +39,21 @@ const clientSource = readFileSync(join(pluginDir, 'src/client.js'), 'utf8')
 const serviceSource = readFileSync(join(pluginDir, 'src/service.mjs'), 'utf8')
 const storeSource = readFileSync(join(pluginDir, 'src/store/memory_store.mjs'), 'utf8')
 
+/** Stores opened by the running test; every one is closed before the temp dir is removed. */
+const openStores = []
+
 function tempDir(t, prefix) {
   const base = resolve('.artifacts/test-tmp')
   mkdirSync(base, { recursive: true })
   const dir = mkdtempSync(join(base, prefix))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  t.after(() => {
+    // Windows refuses to delete a directory that still holds an open SQLite handle,
+    // so every store must be closed before the recursive remove (EPERM otherwise).
+    while (openStores.length > 0) {
+      try { openStores.pop().close() } catch { /* already closed */ }
+    }
+    rmSync(dir, { recursive: true, force: true })
+  })
   return dir
 }
 
@@ -80,7 +90,7 @@ async function openStore(t, options = {}) {
   const embed = options.embed ?? fakeEmbedder()
   const store = new MemoryStore({ memoryDir: dir, embed, logger: silent, ...options.store })
   await store.open()
-  t.after(() => store.close())
+  openStores.push(store)
   return { dir, store, embed }
 }
 
@@ -461,7 +471,7 @@ test('closing and reopening the store keeps persisted memories', { skip: !native
 
   const reopened = new MemoryStore({ memoryDir: dir, embed: fakeEmbedder(), logger: silent })
   await reopened.open()
-  t.after(() => reopened.close())
+  openStores.push(reopened)
   assert.equal(reopened.size, 1)
   assert.equal(reopened.listMemories({ project: 'restart' }).items[0].content, 'persisted across restart')
   reopened.vacuum()

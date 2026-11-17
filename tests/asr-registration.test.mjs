@@ -8,7 +8,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { componentPackages } from '../scripts/lib/component-setup.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -80,7 +80,7 @@ test('面板前端和后端注册的路径必须完全对上（改名只改一�
 })
 
 test('插件入口导出契约：名字、两个必需服务、apply', async () => {
-  const entry = await import(join(ROOT, 'plugins', 'asr', 'src', 'index.mjs'))
+  const entry = await import(pathToFileURL(join(ROOT, 'plugins', 'asr', 'src', 'index.mjs')).href)
   assert.equal(entry.name, 'dsh-local-asr')
   assert.deepEqual(entry.inject, ['webServer', 'connection'], '少一个服务插件就挂不上（面板或内部通道会缺）')
   assert.equal(typeof entry.apply, 'function')

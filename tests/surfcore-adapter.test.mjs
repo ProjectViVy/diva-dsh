@@ -24,6 +24,10 @@ function workspace(t, name) {
   t.after(() => rmSync(home, { recursive: true, force: true }))
   mkdirSync(join(home, 'surfcore'), { recursive: true })
   writeFileSync(join(home, 'surfcore', 'config.json'), JSON.stringify({ snowluma: { httpUrl: 'http://127.0.0.1:3000', accessToken: 'secret-token' } }))
+  // 这套测试拿隔离的 home 当配置来源；宿主环境里的 SURFCORE_CONFIG_FILE 会把它盖掉。
+  const inherited = process.env.SURFCORE_CONFIG_FILE
+  delete process.env.SURFCORE_CONFIG_FILE
+  t.after(() => { if (inherited !== undefined) process.env.SURFCORE_CONFIG_FILE = inherited })
   return home
 }
 

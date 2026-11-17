@@ -4,6 +4,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 import { runInNewContext } from 'node:vm'
 
 import { buildProfile, STANDARD_PRIMARY } from '../stage-app/src/profile.mjs'
@@ -735,14 +737,14 @@ async function makeStageStore() {
 }
 
 test('路径安全：越界、编码绕过、非法编码都拿不到文件', () => {
-  const root = '/tmp/stage-root'
-  assert.equal(safeJoin(root, 'a/b.png'), '/tmp/stage-root/a/b.png')
+  const root = join(tmpdir(), 'stage-root')
+  assert.equal(safeJoin(root, 'a/b.png'), join(root, 'a', 'b.png'))
   assert.equal(safeJoin(root, '../etc/passwd'), null, '.. 不能越界')
   assert.equal(safeJoin(root, '%2e%2e/etc/passwd'), null, '编码过的 .. 同样不能越界')
   assert.equal(safeJoin(root, 'a/../../etc/passwd'), null)
   assert.equal(safeJoin(root, '%zz'), null, '非法编码不该抛异常')
   // 根自身是允许的（目录列表之类的场景）
-  assert.equal(safeJoin(root, '.'), '/tmp/stage-root')
+  assert.equal(safeJoin(root, '.'), resolve(root))
 })
 
 test('指令箱：入队后能被取走，进度回执能被读到', async () => {
@@ -865,7 +867,7 @@ test('工具层：五个工具都能注册，且 schema 通过真校验器', asy
 test('工具层：schema 能被宿主的真校验器接受', async (t) => {
   const candidate = resolve('plugins/dsh-laputa/node_modules/@deepseek-ai/dsh-tools/lib/index.js')
   if (!existsSync(candidate)) return t.skip('没有 dsh-tools，跳过 schema 校验')
-  const { assertSupportedJsonSchema } = await import(candidate)
+  const { assertSupportedJsonSchema } = await import(pathToFileURL(candidate).href)
   const { registerLive2dTools } = await import('../plugins/dsh-live2d/src/l2d-tools-remote.mjs')
   const registered = []
   const ctx = { tools: { register: (d) => { registered.push(d); return () => {} } }, logger: null }

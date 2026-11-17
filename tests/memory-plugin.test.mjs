@@ -956,9 +956,11 @@ test('QQ public sync retries a snapshot when the bridge rotates the feed during 
   await service.updateQqSync({ enabled: true, includeGroups: ['12345'] })
   const original = fs.promises.open; let rotated = false
   const mock = t.mock.method(fs.promises, 'open', async function (file, ...args) {
-    const value = await original.call(this, file, ...args)
+    // Rotate while no handle is open: Windows refuses to rename onto a file this
+    // process still has open, and the retry only needs the signature to change
+    // between the first stat and the second.
     if (file === `${feed}.1` && !rotated) { rotated = true; fs.renameSync(feed, `${feed}.1`); writeFileSync(feed, row('轮转后的新消息')) }
-    return value
+    return original.call(this, file, ...args)
   })
   t.after(() => mock.mock.restore())
   assert.equal((await service.syncQqFeed()).stats.kept, 2)

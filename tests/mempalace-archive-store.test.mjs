@@ -14,11 +14,20 @@ const skip = !nativeReady && '原生依赖未安装（plugins/dsh-mempalace/node
 const silent = { warn() {}, info() {}, error() {} }
 const SUBJECT = 'subject_11111111-1111-4111-8111-111111111111'
 
+/** Stores opened by the running test; every one is closed before the temp dir is removed. */
+const openStores = []
+
 function tempDir(t, prefix) {
   const base = resolve('.artifacts/test-tmp')
   mkdirSync(base, { recursive: true })
   const dir = mkdtempSync(join(base, prefix))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  t.after(() => {
+    // Windows refuses to delete a directory that still holds an open SQLite handle.
+    while (openStores.length > 0) {
+      try { openStores.pop().close() } catch { /* already closed */ }
+    }
+    rmSync(dir, { recursive: true, force: true })
+  })
   return dir
 }
 
@@ -56,7 +65,7 @@ async function openStore(t, options = {}) {
   const dir = tempDir(t, 'mempalace-archive-')
   const store = new MemoryStore({ memoryDir: dir, embed: options.embed ?? fakeEmbedder(), logger: silent, ...options.store })
   await store.open()
-  t.after(() => store.close())
+  openStores.push(store)
   return { dir, store }
 }
 
@@ -68,6 +77,7 @@ test('reopening the store keeps the archive columns and stays idempotent', { ski
   const again = new MemoryStore({ memoryDir: dir, embed: fakeEmbedder(), logger: silent })
   await again.open()
   await again.open()
+  openStores.push(again)
   assert.deepEqual(['archive_id', 'archive_digest', 'subject_id', 'archive_meta'].filter(name => !columnsOf(again).includes(name)), [])
   again.close()
 })

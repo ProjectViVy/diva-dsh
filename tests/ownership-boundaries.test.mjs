@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
+// 报告里的路径统一用正斜杠，Windows 上 relative() 会给反斜杠。
+const posix = path => path.replaceAll('\\', '/')
+
 function sourceFiles(dir) {
   const files = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -41,7 +44,7 @@ function mutatingStatements(source) {
 function offenders(dir, predicate, base = ROOT) {
   return sourceFiles(dir)
     .filter(file => predicate(readFileSync(file, 'utf8'), file))
-    .map(file => relative(base, file))
+    .map(file => posix(relative(base, file)))
 }
 
 const MEMPALACE_STATE = /dsh-mempalace|mempalace[\\/](?:memories\.db|config\.json|identity\.txt|runtime\.json)/
@@ -62,9 +65,12 @@ test('memory relative imports never reach into MemPalace', () => {
 test('memory names MemPalace only in the single component call', () => {
   const found = []
   let indexLines = 0
+  // 注释里说明「归档端是 MemPalace」不算耦合，只有代码行才算。
+  const commentOnly = line => /^\s*(?:\/\/|\/\*|\*)/.test(line)
   for (const file of sourceFiles(join(ROOT, 'plugins/memory/src'))) {
-    const relativePath = relative(ROOT, file)
-    const lines = readFileSync(file, 'utf8').split('\n').filter(line => /mempalace/i.test(line))
+    const relativePath = posix(relative(ROOT, file))
+    const lines = readFileSync(file, 'utf8').split('\n')
+      .filter(line => /mempalace/i.test(line) && !commentOnly(line))
     if (!lines.length) continue
     const allowed = relativePath === 'plugins/memory/src/index.mjs' && lines.every(line => {
       const hits = line.match(/mempalace/gi) ?? []
@@ -108,7 +114,7 @@ test('dsh-evolution never writes harness state files directly', () => {
 test('the record layer is the only place that opens a database', () => {
   const sqliteFiles = sourceFiles(join(ROOT, 'plugins/dsh-evolution/src'))
     .filter(file => /node:sqlite/.test(readFileSync(file, 'utf8')))
-    .map(file => relative(ROOT, file))
+    .map(file => posix(relative(ROOT, file)))
   assert.deepEqual(sqliteFiles, ['plugins/dsh-evolution/src/records.mjs'],
     'node:sqlite 只能出现在进化记录层，其他视图保持无数据库依赖')
   const otherDomains = ['plugins/memory/src', 'plugins/voice/src', 'plugins/dsh-laputa/src',
@@ -128,7 +134,7 @@ test('dsh-evolution reaches no other domain source or state', () => {
   }
   const found = sourceFiles(join(ROOT, 'plugins/dsh-evolution/src'))
     .filter(file => escapes(file))
-    .map(file => relative(ROOT, file))
+    .map(file => posix(relative(ROOT, file)))
   assert.deepEqual(found, [], `进化只能依赖共享契约，不得伸进别的领域：\n${found.join('\n')}`)
 })
 

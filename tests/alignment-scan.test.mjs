@@ -64,9 +64,11 @@ test('QQ alignment scan retries rotation before writing any candidates', async t
   writeFileSync(`${feed}.1`, row('旧轮转')); writeFileSync(feed, row('原当前'))
   const original = fs.promises.open; let rotated = false
   const mock = t.mock.method(fs.promises, 'open', async function (file, ...args) {
-    const handle = await original.call(this, file, ...args)
+    // Rotate while no handle is open: Windows refuses to rename onto a file this
+    // process still has open, and the retry only needs the signature to change
+    // between the first stat and the second.
     if (file === `${feed}.1` && !rotated) { rotated = true; fs.renameSync(feed, `${feed}.1`); writeFileSync(feed, row('新当前')) }
-    return handle
+    return original.call(this, file, ...args)
   }); t.after(() => mock.mock.restore())
   const seen = [], scanner = createAlignmentScanner({ qqFeedFile: feed, qqConfigFile: config, detect: item => { seen.push(item.text); return [] }, add: () => false })
   await scanner.scanQqFeedForCandidates()

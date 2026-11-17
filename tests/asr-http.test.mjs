@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { createConfigStore } from '../plugins/asr/src/store.mjs'
 import { createEngineRegistry } from '../plugins/asr/src/engine-registry.mjs'
 import { createAsrService, silentWave } from '../plugins/asr/src/service.mjs'
@@ -187,9 +187,11 @@ test('the internal handler answers the component surface', async t => {
   writeFileSync(file, silentWave(0.4))
   const byPath = await handle({ method: 'POST', path: '/transcribe', query: new URLSearchParams(), body: { path: file, source: 'surfcore' } })
   assert.equal(byPath.text, '识别结果')
-  // 引擎拿到的是插件临时目录里的副本，不是调用方的原始路径。
-  assert.notEqual(engine.state.requests.at(-1).wavPath, file)
-  assert.match(engine.state.requests.at(-1).wavPath, /\/tmp\/[0-9a-f-]+\.wav$/)
+  // 引擎拿到的是插件临时目录里的副本（临时文件名是 uuid），不是调用方的原始路径。
+  const copied = engine.state.requests.at(-1).wavPath
+  assert.notEqual(copied, file)
+  assert.match(basename(copied), /^[0-9a-f-]{36}\.wav$/)
+  assert.notEqual(resolve(copied), resolve(file))
   const rows = service.recentAudit(5)
   assert.equal(rows[0].source, 'surfcore')
 

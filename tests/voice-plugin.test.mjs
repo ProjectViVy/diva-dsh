@@ -27,6 +27,11 @@ function make(t, options = {}) {
   return { dir, service: createVoiceService({ stateDir: dir, ...options }) }
 }
 
+// 语音包把路径按 / 写进 pyvenv.cfg 与 config.toml（跨平台可搬），断言时两边都归一化再比。
+const slash = value => String(value).replaceAll('\\', '/')
+// Windows 上 checkout 可能是 CRLF，按行切片前先归一化。
+const lf = value => String(value).replaceAll('\r\n', '\n')
+
 test('a failed startup cleanup retains managed workers for a later retry', async () => {
   const children = [{ pid: 1 }], owned = new Map([['voice-local', children]])
   const first = await cleanupTimedOutVoiceStart(owned, 'voice-local', async value => {
@@ -47,7 +52,7 @@ test('a late startup cleanup never removes a newer set of managed workers', asyn
 })
 
 test('a startup timeout reports cleanup failure and keeps the workers tracked', async () => {
-  const source = readFileSync(resolve('plugins/voice/src/voice-packs.js'), 'utf8')
+  const source = lf(readFileSync(resolve('plugins/voice/src/voice-packs.js'), 'utf8'))
   const start = source.lastIndexOf('    const cleanupError = await cleanupTimedOutVoiceStart(')
   const end = source.indexOf('\n  }\n\n  /** 取消正在进行的安装', start)
   assert.ok(start > 0 && end > start)
@@ -1484,7 +1489,7 @@ test('offline voice pack import preserves its source and repairs paths in the fi
   assert.equal(readFileSync(join(source, 'config.toml'), 'utf8'), config)
   const target = join(dir, 'packs/voice-cloud')
   assert.doesNotMatch(readFileSync(join(target, 'config.toml'), 'utf8'), /bundled-secret/)
-  assert.match(readFileSync(join(target, '.venv/pyvenv.cfg'), 'utf8'), new RegExp(target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  assert.match(slash(readFileSync(join(target, '.venv/pyvenv.cfg'), 'utf8')), new RegExp(slash(target).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 })
 
 test('disposing voice cancels copying imports and waits for directory switches', { timeout: 10000 }, async t => {
@@ -1742,9 +1747,9 @@ test('offline import accepts the project-local Python layout produced by online 
     await new Promise(resolve => setTimeout(resolve, 10))
   }
   assert.equal(item.import?.phase, '完成', item.import?.error)
-  assert.ok(readFileSync(join(target, '.venv/pyvenv.cfg'), 'utf8').includes(`${target}/runtime/python`))
-  assert.ok(readFileSync(join(target, 'config.toml'), 'utf8').includes(`${target}/.venv/ffmpeg.exe`))
-  assert.ok(readFileSync(join(source, '.venv/pyvenv.cfg'), 'utf8').includes(`${source}/runtime/python`))
+  assert.ok(slash(readFileSync(join(target, '.venv/pyvenv.cfg'), 'utf8')).includes(`${slash(target)}/runtime/python`))
+  assert.ok(slash(readFileSync(join(target, 'config.toml'), 'utf8')).includes(`${slash(target)}/.venv/ffmpeg.exe`))
+  assert.ok(slash(readFileSync(join(source, '.venv/pyvenv.cfg'), 'utf8')).includes(`${slash(source)}/runtime/python`))
 })
 
 test('portable local voice packs relocate both environments to their shared Python runtime', async t => {
@@ -1767,8 +1772,8 @@ test('a bundled voice pack repairs its paths after moving the project directory'
   writeFileSync(join(pack, '.venv/pyvenv.cfg'), `home = ${old}/runtime/python\nexecutable = ${old}/runtime/python/python.exe\n`)
   writeFileSync(join(pack, 'config.toml'), `[ffmpeg]\npath = "${old}/.venv/ffmpeg.exe"\n`)
   await repairMovedVoicePack(pack, 'voice-cloud')
-  assert.match(readFileSync(join(pack, '.venv/pyvenv.cfg'), 'utf8'), new RegExp(pack))
-  assert.ok(readFileSync(join(pack, 'config.toml'), 'utf8').includes(`${pack}/.venv/ffmpeg.exe`))
+  assert.match(slash(readFileSync(join(pack, '.venv/pyvenv.cfg'), 'utf8')), new RegExp(slash(pack).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  assert.ok(slash(readFileSync(join(pack, 'config.toml'), 'utf8')).includes(`${slash(pack)}/.venv/ffmpeg.exe`))
   assert.equal(await repairMovedVoicePack(pack, 'voice-cloud'), false)
 })
 
@@ -1849,7 +1854,7 @@ test('synthesis talks to the selected loopback engine and stores audio inside it
   } })
   const result = await service.synthesize({ text: '你好', baseUrl: 'http://127.0.0.1:8765' })
   assert.equal(target, 'http://127.0.0.1:8765/v1/speak/file')
-  assert.ok(result.path.startsWith(join(dir, 'cache') + '/'))
+  assert.ok(slash(result.path).startsWith(`${slash(join(dir, 'cache'))}/`))
   const updated = await service.synthesize({ text: '你好', baseUrl: 'http://127.0.0.1:8765', cacheVersion: 2 })
   assert.notEqual(updated.path, result.path)
   assert.throws(() => service.synthesize({ text: '你好', baseUrl: 'https://example.com' }), /loopback/i)
@@ -1922,7 +1927,7 @@ test('voice preview uses the selected local route and writes only into the voice
   await service.saveRules({ endpoints: { cloud: 'http://127.0.0.1:9876' } })
   const result = await service.preview('voice-cloud', '试听内容')
   assert.equal(target, 'http://127.0.0.1:9876/v1/speak/file')
-  assert.ok(result.path.startsWith(join(dir, 'cache') + '/'))
+  assert.ok(slash(result.path).startsWith(`${slash(join(dir, 'cache'))}/`))
   await assert.rejects(service.preview('../unknown', '试听内容'), /未知语音包/)
 })
 

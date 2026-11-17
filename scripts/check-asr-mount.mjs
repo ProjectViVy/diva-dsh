@@ -107,4 +107,6 @@ if (mounted) {
 }
 if (!filesOk) console.log('注意：上面有 ✗ 的文件层问题，先修文件层再重启，否则重启也不会生效。')
 
-process.exit(mounted ? 0 : 1)
+// Windows 上在 fetch 的句柄还没关完时调用 process.exit() 会撞 libuv 断言
+// （退出码 0xC0000409），所以只设退出码，让事件循环自己收尾。
+process.exitCode = mounted ? 0 : 1

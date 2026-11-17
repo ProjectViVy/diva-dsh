@@ -30,7 +30,11 @@ function sourceLink(target, link) {
       throw new Error(`The SurfCore adapter link points elsewhere: ${link}`)
     }
     const temp = `${link}.${randomUUID()}.tmp`
-    try { symlinkSync(process.platform === 'win32' ? target : relative(dirname(link), target), temp, process.platform === 'win32' ? 'junction' : 'dir'); renameSync(temp, link) }
+    // Windows cannot rename over an existing junction, so drop the stale link first.
+    try {
+      symlinkSync(process.platform === 'win32' ? target : relative(dirname(link), target), temp, process.platform === 'win32' ? 'junction' : 'dir')
+      try { renameSync(temp, link) } catch { unlinkSync(link); renameSync(temp, link) }
+    }
     catch (error) { try { unlinkSync(temp) } catch {}; throw error }
   } else {
     symlinkSync(process.platform === 'win32' ? target : relative(dirname(link), target), link, process.platform === 'win32' ? 'junction' : 'dir')
