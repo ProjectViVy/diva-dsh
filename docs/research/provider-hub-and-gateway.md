@@ -252,6 +252,10 @@
 
 一句话：**记进候选，不进 M1–M4 的路径。**
 
+> 2026-11-18 更新：`platform.moss.cn` 的文档已公开（不再需要登录），§6.5 第 4 条「先建后猜」的前提消失。
+> 已按「只接线、不实现」接入：`moss` 接入点 + MOSS-Live 实时语音插槽；API 面与模型映射见
+> `moss-world-gateway-wiring.md`。§6.5 第 1 条仍然成立——WS 管线本身不在本轮范围。
+
 ## 7. 未验证
 
 1. 第三方插件能否直接调 `ctx.remote.credentials.set/describe`（`remote` 是 BFF 通道；插件服务端可能只能用 `ctx.credentials`）。两条路都试一次，取通的那条。

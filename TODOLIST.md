@@ -8,6 +8,10 @@
 
 ## NOW（≤40 行、≤3 条；没有就写「无」，不要编）
 
+- [ ] **DV-VOICE-003 世界网关语音包已接好、真 key 验过，只差重启生效** `sev-P2`
+  状态: waiting-user（`npm run stop && npm start` 之后语音页会多出「世界网关（千问）」线路，已是默认）｜ 详见 `## 活跃` 里的完整条目
+  下一步：重启 → 语音页选「世界网关（千问）」点试听确认出声 → 按 `docs/logs/2026-11-world-gateway/v0.1.4-voice-dashscope/acceptance.md` 过失败路径。
+
 - [ ] **DV-UI-022 今日卡契约 v2：卡片可带 genui nodes，11 节简报按新格式重写** `sev-P2`
   状态: waiting-user（代码、内容、隔离实例验证完成；**宿主 route 改了，要重启 3082 一次**）｜ owner: today-v2 ｜ 开始: 2026-11-16 23:43 ｜ 完成: 2026-11-16 23:5x ｜ Scope: plugins/dsh-daily/index.js、plugins/dsh-daily/client.js、tests/daily-today.test.mjs、tests/daily-client.test.mjs、.artifacts/dsh-home/today/2026-11-16.json、TODOLIST.md、docs/logs/2026-11-daily/v0.10.0-today-nodes/
   目标：主人 2026-11-16 23:5x「不错。我觉得要按照这类规范来。再试试看吧。」——今日卡从「标题+正文」扩成可带一棵 genui `nodes`（复用左栏 `renderSpec`，不写第二套），旧格式继续按标题+正文显示；把主人那份 11 节简报按新格式写回今天的卡文件。
@@ -24,6 +28,40 @@
   下一步：stop/status 在记录为空但端口有应答时，按端口与命令行识别同 profile 的服务并明确列出（不自动杀）；重启前给出可执行提示，避免「以为停了其实没停」。
 
 ## 活跃
+
+- [ ] **DV-VOICE-004 世界网关定位为「能力服务」：ASR + TTS 统一供给，语音版块标清来源** `sev-P1`
+  状态: doing ｜ owner: lead ｜ 开始: 2026-11-18 07:05 ｜ Scope: plugins/capability-hub/src、plugins/asr/src、plugins/voice/src/client.js、scripts/setup-capability-hub.mjs、tests/*、docs/logs/2026-11-world-gateway/v0.2.0-capability-service-asr/、TODOLIST.md
+  目标：主人 2026-11-18 07:04「网关明确将其定位为某种服务——为外部组件提供……输入框的输入按钮特性应该由语音输入统一管理，后面数字人的语音合成、语音识别都应该在这边进行统一管理……语音版块很多还是没有清晰的标识，要明确可选究竟用的是本地语音包还是世界网关的包。现在我们在收世界网关接入能力，所以 asr tts 都需要真实能在语音版块接入。」——三件事：①能力服务化（asr/tts 都从 `capabilityHub` 取，消费者不各自直连上游）；②语音版块把「来源」写在明面上（本地包 / 世界网关）；③网关真能跑 ASR，并在语音版块的识别里可选。
+  已定事实（本轮实测）：base64 音频必须用 **data URL** 形状（`data:audio/wav;base64,…`）才被接受，裸 base64 串返回 500；兼容模式 `/audio/transcriptions` 是 404；ASR 走 `/api/v1/services/aigc/multimodal-generation/generation` + `parameters.format/sample_rate`。实测 4.4s 中文 wav → 200，转写与原文一致，耗时约 21s（含一次传输重试）。ASR 面板规范音频是 16kHz/16bit/单声道，故 `sample_rate: '16000'`。
+  下一步：hub 侧 asr 适配器 + `transcribe` + `/asr` 路由 → asr 插件 `gateway` 引擎（走进程内）→ 语音版块来源标识 → 测试与四件套。
+- [ ] **DV-DOC-017 世界网关：MOSS（模思）预接线 —— `moss` 接入点 + MOSS-Live 实时语音插槽** `sev-P2`
+  状态: waiting-user（代码、测试、文档完成；**要重启 3082 一次**才能看到六张卡）｜ owner: lead ｜ 开始: 2026-11-18 03:05 ｜ 完成: 2026-11-18 03:2x ｜ Scope: plugins/capability-hub/src/{capabilities.mjs,registry.mjs,candidates.mjs,catalog.mjs,client.js}、plugins/capability-hub/tests/{registry,candidates,catalog,client-render}.test.mjs、plugins/capability-hub/README.md、plugins/capability-hub/scripts/explore-endpoints.mjs、docs/research/moss-world-gateway-wiring.md、docs/logs/2026-11-world-gateway/v0.1.5-moss-prefab/、TODOLIST.md
+  目标：主人 2026-11-18 03:03「将 platform.moss.cn 的模型页与 MOSS-Live 参考接入，先做预制接线保证能力，后面再进行实际应用开发」——只接线（接入点、基址、模型候选、实时语音插槽），不做适配器与真实调用。
+  进度：`moss` 为第五个接入点（API 主机 `https://api.mosi.cn`，`platform.moss.cn` 是文档站，`api.moss.cn` 404；凭据名 `MOSS_API_KEY`）；四条能力候选 asr/tts/omni + 新增第六能力 `realtime`（`wss://api.mosi.cn/v1/realtime`、`moss-live-1.0`）；注册表按能力区分 `wss://`/`https://`，换接入点带出该家基址与首个候选，缺这类模型时保存被拒；面板删旧占位卡、加模思与实时语音真插槽；不接 embedding（模思没有向量）与 decision（Nex 属于 chat）。
+  验证：capability-hub 37 pass / 0 fail（candidates 6、catalog 6、client-render 5、http-catalog 4、http-tts 7、registry 9）；`npm test` 1480/1469/1/10，唯一失败是已知的 `memory-actmem` 04:00 前时间窗问题（单跑同样失败，与本轮无关）；`explore-endpoints.mjs` 无 key 实测模思 403 `missing bearer api key`，随机路径 404。
+  下一步：主人 `npm run stop && npm start` → 硬刷新 → 按 `docs/logs/2026-11-world-gateway/v0.1.5-moss-prefab/acceptance.md` 走七步；有 `MOSS_API_KEY` 后填凭据并跑 `explore-endpoints.mjs --check`。
+  未验证：模思候选 id 未用真 key 对账；没有模思适配器（tts 选 moss 报 501）、没有 MOSS-Live WS 客户端（浏览器不能带 Authorization 头，要服务端代理，每用户并发 1 条）；3082 真面板观感。
+  日志：docs/logs/2026-11-world-gateway/v0.1.5-moss-prefab/
+
+- [ ] **DV-VOICE-003 世界网关语音包（`voice-dashscope`）并设为默认线路** `sev-P2`
+  状态: waiting-user（三处面板级 bug 已修、隔离实例四个面板动作全过；**只差你再重启一次让新代码生效**）｜ owner: lead ｜ 开始: 2026-11-18 00:5x ｜ 完成: 2026-11-18 03:3x ｜ Scope: plugins/voice/src/{service.mjs,index.mjs,voice-packs.js,voice-tts.js,voice-diagnostics.js,client.js}、plugins/voice/README.md、plugins/capability-hub/src/{index.mjs,http.mjs,speak.mjs,adapters/dashscope-tts.mjs}、plugins/capability-hub/tests/{http-tts,speak}.test.mjs、scripts/setup-capability-hub.mjs、tests/{capability-hub-setup,voice-plugin,voice-gateway-inprocess}.test.mjs、package.json、TODOLIST.md、docs/logs/2026-11-world-gateway/v0.1.4-voice-dashscope/
+  目标：主人 2026-11-18 00:5x「可以开始做一个世界网关语音包了，原理是，从世界网关获取数据，然后根据情况来进行云端语音合成」；音色选 `Cherry`，线路设为默认。
+  进度：语音插件 2 线 → 3 线（`local`/`cloud`/`dashscope`），线路表收敛成 `ROUTE_PACKS` 常量；新增无进程的 `voice-dashscope` 包（`port: null`、`external: true`，只有接线后才出现在列表里；启动=探网关 `/health`，停止=空操作，卸载被拒绝并给替代做法）；网关侧新增唯一 invoke 路由 `POST /dsh-capability-hub/api/tts`（文本进 wav 出，`X-Duration-Ms`）与百炼适配器；`npm run setup:capability-hub` 幂等接线；已设默认线路 `dashscope` + 音色 `Cherry`。
+  顺手修三个真 bug：①`synthesizeToFile` 硬编码 `/v1/speak/file`（网关是 `/tts`，会 404）；②百炼流式 wav 头长度是占位值（44739241ms → 实际时长，新增 `repairWavHeader`）；③**语音插件服务端调网关必然 401**（服务端请求没有浏览器会话，架构上走不通，不是配置问题）——改为网关 `ctx.provide('capabilityHub', { speak })` + 语音插件 `ctx.inject` 订阅，两个入口共用 `speak.mjs`，拿不到服务才退回 HTTP。
+  验证：取 `HEAD` 基线确认既有 10 个失败（Windows 符号链接/云配置恢复事务），改完新增 0 个；最终 **263 项 261 通过 0 失败**（voice-plugin 156/154、voice-core 6、voice-policy 6、voice-settings-client 21、voice-send-pipeline 15、voice-registration 6、capability-hub-setup 5、voice-gateway-inprocess 4、capability-hub 七个套件全通过，新增 `http-tts` 7/7 与 `speak` 7/7）。全量 `npm test` 1484 项 1473 通过 1 失败（唯一失败在 `tests/memory-actmem.test.mjs`，该文件与被测模块本轮均未改、单独跑同样失败，既有问题未修）。隔离实例 3099（同一 profile 与 `DSH_HOME`，只改端口，3082 全程未动，pid 9884 起始 20:27）实测：四个错误分支正确（空文本 400、插槽关 409、无凭据 502、假 key 走到阿里云 401），真 key 下网关 `POST /tts` 200 / 153644 字节 / 3200ms（wav 有效、RMS −22.4dB 非静音），语音插件试听 200 / 88364 字节，缓存命中 18ms，时长随文本变化（2 字 400ms、84 字 18800ms，sha 不同，排除复用旧音频）。
+  第二轮（主人重启后反馈「跑不起来」）：查出三处独立的错——①探活 fetch 网关 `/health`（路由不存在，且服务端请求过不了会话校验 → 永远 401），面板因此永远显示「已安装 · 已停止」，而「测试合成」按钮正是在 `!pack.running` 时禁用的；②`manifests()` 先合并 `{id,url}` 补丁再判断要不要加网关包，补丁把 id 占住，`external: true` 与名称音色永远进不来，包被当成「本地包但端口空」；③「测试合成」自己又 fetch 了一次。修法：网关多暴露 `status()` 服务，探活与测试合成全走进程内；`manifests()` 改成先放完整定义再让补丁覆盖。隔离实例 3099 实测四个面板动作全过：列包 `running: true`、测试合成 200 / 115244 字节 / 2.4s、试听 200 / `audio/wav` / 119084 字节、启动停止 200；定向套件 270 项 268 通过 0 失败。
+  下一步：**再重启一次**（05:07 那个进程跑的是修复前的代码）→ 语音页选「世界网关（千问）」→ 点「测试合成」应出时长，点「试听」应出声。
+  未验证：3082 真面板第三条线路的观感（只在渲染测试里过）；重启后真面板里按钮到出声。接口层与真 key 合成均已实测。
+  日志：docs/logs/2026-11-world-gateway/v0.1.4-voice-dashscope/
+
+- [ ] **DV-DOC-009 世界网关 × 千问接入点：ASR / TTS / 向量 实测** `sev-P2`
+  状态: waiting-user（三项实测通过；等 D1/D2/D3 三个决定）｜ owner: lead ｜ 开始: 2026-11-17 20:46 ｜ 完成: 2026-11-17 22:1x ｜ Scope: scripts/probe-world-gateway.mjs、docs/research/world-gateway-qwen-maas-smoke.md、docs/logs/2026-11-world-gateway/v0.1.3-qwen-maas-smoke/、TODOLIST.md
+  目标：主人「世界网关中接入千问系列模型，主要测 ASR / TTS / 向量 能力」。**只做实测**：没改 `plugins/capability-hub`、没写 `registry.json`、没改 profile、没重启宿主。
+  结论：三项都能跑通，但没有一项走「OpenAI 兼容」那条最顺的路。向量 `POST /compatible-mode/v1/embeddings` 200，`dimensions` 1024 / 512 都真实生效；TTS 走 `aigc/multimodal-generation`（`qwen3-tts-flash`）与 `audio/tts/SpeechSynthesizer`（`qwen-audio-3.1-tts-flash`）都直接回 wav（24kHz/单声道/16bit），`/compatible-mode/v1/audio/speech` 404；ASR 走原生路径 + 公开 URL 输入，三个模型都 200，`qwen-audio-3.0-asr-flash` 识别正确、另两个首词错（只有一个 2 秒样本，不足以下结论）；兼容模式 `audio/transcriptions` 404。
+  两个坑：①**本机代理会掐断带音频 base64 的大请求体**（同样大小的非音频体也一样断，所以不是服务端拒收）——ASR 因此改走公开 URL 形状；②百炼直回的 wav 头长度是流式占位值（声明 2147483547 字节、实际 211200），不修头播放器会以为是 12 小时音频。
+  下一步：等主人定 **D1**（ASR 用现成的 `qwen-audio-3.0-asr-flash`，还是去控制台开通 `qwen-audio-3.1-asr-flash`）、**D2**（向量对照测做不做：20 条中文 query，本地 MiniLM vs `qwen3.7-text-embedding-flash@512`，做了才知道要不要动 mempalace 的 384 维硬校验）、**D3**（要不要给 capability-hub 写 asr/tts/embedding 三合一适配器——其中 TTS 那半已由 DV-VOICE-003 落地）。
+  未验证：本地音频走 base64 的 ASR 形状（被代理挡住）；omni 吃 `input_audio`（网络断，无结论）；兼容 chat 的 `modalities:['text','audio']` 参数位置；真实录音上的字错率；TTS 换音色的主观听感。
+  日志：docs/logs/2026-11-world-gateway/v0.1.3-qwen-maas-smoke/
 
 - [x] **DV-SETUP-001 用户自定义插件源码级安装目录（user-plugins）** `sev-P2`
   状态: done（第三档安装档 + 首个真实插件 dsh-oil-ui 已装好并生效）｜ owner: lead ｜ 开始: 2026-11-16 23:1x ｜ 完成: 2026-11-17 00:2x ｜ Scope: user-plugins/、scripts/lib/user-plugins.mjs、scripts/setup-user-plugins.mjs、scripts/setup.mjs、package.json、.gitignore、AGENTS.md、tests/user-plugins.test.mjs、TODOLIST.md、docs/logs/2026-11-setup/v0.1.0-user-plugins/
@@ -505,6 +543,17 @@
   阻塞：无（等用户决策，非阻塞）
 
 ## L0 决策闸门（先拍板、后实施）
+
+- [ ] **DV-DOC-018 MOSS-Live 的工具调用：能与 OpenAI 标准对照（调研已出，待拍 D1–D4）** `sev-P2`
+  目标：主人 2026-11-18 03:2x「他这个 live 是不是也能接入工具？和 openai compatible 的工具接入标准，区别有吗」——查清 Live 的工具协议、与 OpenAI Chat/Realtime 两套标准的异同、以及我们要不要做桥。
+  状态：waiting-user（报告已交付，零代码改动）｜ owner：本会话 ｜ 开始：2026-11-18 03:22 ｜ Scope：docs/research/moss-live-tool-calling.md（新建）、docs/logs/2026-11-world-gateway/v0.1.6-moss-live-tools/、TODOLIST.md
+  结论：**能挂，但和「OpenAI compatible」不是同一层。** Live 原生支持客户端函数工具（`session.update.session.tools`，≤128；`type/name/description/parameters` + `execution_mode`）；模型发 `response.function_call_arguments.done`，应用执行后 `conversation.item.create`（`function_call_output`）+ `response.create{call_ids}` 续答。OpenAI Chat 的 `tools/tool_calls/role:"tool"` 是 HTTP 结构，只适用于 MOSS 的 HTTP 侧（Nex N2.6 文档完全兼容它），**不能驱动 Live**。Live 与 OpenAI Realtime 事件骨架几乎同名，但：外壳 `action` vs `type`；MOSS 多一层**异步任务**（task_id/revision/取消/幂等、32 修订、4 并发、120 秒）；MOSS 没有 `tool_choice`、`parallel_tool_calls`、MCP 服务端工具与浏览器临时令牌，浏览器必须服务端代理。
+  候选：D1 何时做——A 现在（不推荐）/ **B 等语音闭环跑通后（推荐）** / C 不做；D2 桥形状——**A 按 MOSS 原生事件（推荐，薄）** / B 抽象成 OpenAI Realtime 兼容层（可换供应商，厚且丢 async 语义）；D3 第一版范围——**A 只 sync（推荐）** / B sync+async_effect（要任务/取消/幂等）；D4 是否接受 Beta 限额（128 工具/128 任务/4 并发/120 秒/单会话并发 1/无 MCP）。
+  下一步：用户读报告 §6 拍 D1–D4，可只回「按推荐来」；拍板前不动 Live 适配器与世界网关代码。
+  验收：报告 §0 四条结论可独立读懂；§4 对照表每行能对到 §2/§3 的文档原文；§7 未验证项不混进结论。
+  未验证：没有 `MOSS_API_KEY`、没跑过 MOSS-Live 会话；同步工具等待上限、同轮并行、output 上限文档未给；OpenAI 事件名按现行文档对照，不同 SDK 版本可能不同。
+  阻塞：无（等用户决策，非阻塞）
+  日志：docs/logs/2026-11-world-gateway/v0.1.6-moss-live-tools/
 
 - [ ] **DV-PR-001 openhanako 的规则类内容能不能搬过来（调研已出，待拍 D1–D6）** `sev-P2`
   目标：主人 2026-11-15 16:1x「openhanako 里面是不是有一些可以借鉴的规则类内容，我们能不能把这些规则看看怎么在这边生效」——查清它有哪些规则、哪些能用在 DIVA 这边、落点在哪。
