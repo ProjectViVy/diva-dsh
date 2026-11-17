@@ -28,11 +28,17 @@ import {
 const SUBJECT = 'subject_2f6a5e4b-1c2d-4e5f-8a9b-0c1d2e3f4a5b'
 const CANDIDATE_BODY = 'HARNESS-CANDIDATE-BODY-must-never-be-stored'
 
+// Windows 不允许删除仍被 sqlite 打开的文件：删目录前先关掉本文件开过的 store。
+const openStores = []
+
 function tempDir(t, prefix) {
   const base = resolve('.artifacts/test-tmp')
   mkdirSync(base, { recursive: true })
   const dir = mkdtempSync(join(base, prefix))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  t.after(async () => {
+    while (openStores.length) { try { await openStores.pop().close() } catch {} }
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
   return dir
 }
 
@@ -42,6 +48,7 @@ function tempDir(t, prefix) {
  */
 async function mountEvolution(t, home) {
   const store = createLazyEvolutionStore({ home, env: { DSH_HOME: home }, subject: SUBJECT })
+  openStores.push(store)
   t.after(() => store.close())
   const routes = []
   const dispose = registerEvolutionInternal({
@@ -126,7 +133,7 @@ test('a refused cross-domain edit becomes one Evidence and one Proposal, digest 
     home,
     harnessRoot,
     refinement,
-    ticketId: 'T-42',
+    requestId: 'T-42',
     refs: { sessionKey: 'sess-1', turn: 7 },
     call,
   })
@@ -166,14 +173,14 @@ test('every owned kind in one refinement is handed over separately', async t => 
     refusedEdit('memory', 'deleted-legacy', { action: 'delete', reason: 'cleanup' }),
   ])
 
-  const report = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement, ticketId: 'T-7', call })
+  const report = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement, requestId: 'T-7', call })
   assert.deepEqual(report, { forwarded: 3, deferred: 0, failed: 0 }, 'skill 与删除不是跨域候选')
   const proposals = (await store.listProposals()).items
   assert.deepEqual(proposals.map(item => item.candidateKind).sort(), ['active_memory', 'behaviour_prompt', 'subagent'])
   assert.equal((await store.listEvidence()).items.length, 3)
 })
 
-test('a missing ticket writes the ledger, raises nothing, and creates no Proposal', async t => {
+test('a missing request id writes the ledger, raises nothing, and creates no Proposal', async t => {
   const home = tempDir(t, 'harness-owner-defer-')
   const harnessRoot = join(home, 'harness')
   mkdirSync(harnessRoot, { recursive: true })
@@ -182,8 +189,8 @@ test('a missing ticket writes the ledger, raises nothing, and creates no Proposa
 
   const report = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement, call })
   assert.deepEqual(report, { forwarded: 0, deferred: 1, failed: 0 })
-  assert.equal((await store.listProposals()).items.length, 0, '缺 ticket 不建 Proposal')
-  assert.equal((await store.listEvidence()).items.length, 0, '缺 ticket 也不先落一条孤立 Evidence')
+  assert.equal((await store.listProposals()).items.length, 0, '缺请求 ID 不建 Proposal')
+  assert.equal((await store.listEvidence()).items.length, 0, '缺请求 ID 也不先落一条孤立 Evidence')
 
   const file = pendingCandidatesPath(harnessRoot)
   assert.ok(existsSync(file), '待办必须落盘')
@@ -207,7 +214,7 @@ test('the pending ledger drains on the next forward and the file is deleted', as
 
   assert.deepEqual(await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement: deferred, call }),
     { forwarded: 0, deferred: 1, failed: 0 })
-  const report = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement: later, ticketId: 'T-9', call })
+  const report = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement: later, requestId: 'T-9', call })
   assert.deepEqual(report, { forwarded: 2, deferred: 0, failed: 0 }, '先 drain 旧待办，再交付本次候选')
 
   assert.equal((await store.listProposals()).items.length, 2)
@@ -216,7 +223,7 @@ test('the pending ledger drains on the next forward and the file is deleted', as
     ownerCandidateDedupeKey({ refinementId: deferred.id, kind: 'prompt', editId: 'plan-style' }),
     ownerCandidateDedupeKey({ refinementId: later.id, kind: 'subagent', editId: 'research' }),
   ].sort())
-  assert.ok(evidence.every(item => item.ticketId === 'T-9'), 'drain 用本次调用给出的 ticket 交付')
+  assert.ok(evidence.every(item => item.ticketId === 'T-9'), 'drain 用本次调用给出的请求 ID 交付')
   assert.ok(!existsSync(pendingCandidatesPath(harnessRoot)), 'drain 清空后删除意图文件')
 })
 
@@ -227,21 +234,21 @@ test('replaying the same candidate adds no second row', async t => {
   const { store, call } = await mountEvolution(t, home)
   const refinement = refinementOf([refusedEdit('prompt', 'plan-style')])
 
-  const first = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement, ticketId: 'T-1', call })
-  const second = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement, ticketId: 'T-1', call })
+  const first = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement, requestId: 'T-1', call })
+  const second = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement, requestId: 'T-1', call })
   assert.deepEqual(first, { forwarded: 1, deferred: 0, failed: 0 })
   assert.deepEqual(second, { forwarded: 1, deferred: 0, failed: 0 })
   assert.equal((await store.listEvidence()).items.length, 1, 'dedupeKey 让重放不再落第二行')
   assert.equal((await store.listProposals()).items.length, 1, 'candidateDigest 让重放不再落第二个候选')
 })
 
-test('an unavailable Evolution defers the ticket-bearing candidate and load drains it', async t => {
+test('an unavailable Evolution defers the candidate that carries a request id and load drains it', async t => {
   const home = tempDir(t, 'harness-owner-retry-')
   const harnessRoot = join(home, 'harness')
   mkdirSync(harnessRoot, { recursive: true })
   const refinement = refinementOf([refusedEdit('prompt', 'plan-style')])
 
-  const first = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement, ticketId: 'T-3' })
+  const first = await forwardAppliedOwnerCandidates({ home, harnessRoot, refinement, requestId: 'T-3' })
   assert.deepEqual(first, { forwarded: 0, deferred: 1, failed: 0 }, '交付不出去就留待办，绝不静默丢弃')
   assert.ok(existsSync(pendingCandidatesPath(harnessRoot)))
 
@@ -252,7 +259,7 @@ test('an unavailable Evolution defers the ticket-bearing candidate and load drai
   assert.ok(!existsSync(pendingCandidatesPath(harnessRoot)))
 })
 
-test('a candidate with no ticket is left for a later call that has one', async t => {
+test('a candidate with no request id is left for a later call that has one', async t => {
   const home = tempDir(t, 'harness-owner-keep-')
   const harnessRoot = join(home, 'harness')
   mkdirSync(harnessRoot, { recursive: true })
@@ -261,7 +268,7 @@ test('a candidate with no ticket is left for a later call that has one', async t
 
   const drained = await retryPendingOwnerCandidates({ home, harnessRoot })
   assert.deepEqual(drained, { forwarded: 0, deferred: 0, failed: 0 })
-  assert.ok(existsSync(pendingCandidatesPath(harnessRoot)), '没有 ticket 的重试不动待办')
+  assert.ok(existsSync(pendingCandidatesPath(harnessRoot)), '没有请求 ID 的重试不动待办')
 })
 
 test('the harness never reads or writes the Evolution database', () => {

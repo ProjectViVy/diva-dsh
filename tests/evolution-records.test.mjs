@@ -206,17 +206,24 @@ await test('loadSqliteModule resolves here and closes the loop otherwise', async
 
 /* ---------------------------------- Task 2: opening the store ---------------------------------- */
 
+// Windows 不允许删除仍被 sqlite 打开的数据库文件：删目录前先关掉本文件开过的 store。
+const openStores = []
+const trackStore = store => (openStores.push(store), store)
+
 function tempHome(t) {
   const base = resolve('.artifacts/test-tmp')
   mkdirSync(base, { recursive: true })
   const home = mkdtempSync(join(base, 'evolution-records-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  t.after(async () => {
+    while (openStores.length) { try { await openStores.pop().close() } catch {} }
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
   return home
 }
 
 async function makeStore(t, options = {}) {
   const home = options.home ?? tempHome(t)
-  const store = await openEvolutionStore({ home, env: { DSH_HOME: home }, subject: SUBJECT, ...options })
+  const store = trackStore(await openEvolutionStore({ home, env: { DSH_HOME: home }, subject: SUBJECT, ...options }))
   t.after(async () => { await store.close() })
   return store
 }
@@ -234,9 +241,10 @@ function insertEvidenceRaw(db, id, { digest = 'a'.repeat(64), ticketId = 'T-1' }
 }
 
 test('paths default inside the project home and only accept absolute overrides', () => {
+  const home = resolve('/tmp/dsh')
   const paths = resolveEvolutionPaths({ DSH_HOME: '/tmp/dsh' }, '/tmp/dsh')
-  assert.deepEqual(paths, { dir: '/tmp/dsh/evolution', file: '/tmp/dsh/evolution/evolution.db' })
-  assert.equal(resolveEvolutionPaths({ DSH_EVOLUTION_STATE_DIR: '/srv/evo' }, '/tmp/dsh').dir, '/srv/evo')
+  assert.deepEqual(paths, { dir: join(home, 'evolution'), file: join(home, 'evolution', 'evolution.db') })
+  assert.equal(resolveEvolutionPaths({ DSH_EVOLUTION_STATE_DIR: '/srv/evo' }, '/tmp/dsh').dir, resolve('/srv/evo'))
   rejectsCode('EVOLUTION_INVALID_RECORD', () => resolveEvolutionPaths({ DSH_EVOLUTION_STATE_DIR: 'evolution' }, '/tmp/dsh'), 'relative override')
   rejectsCode('EVOLUTION_INVALID_RECORD', () => resolveEvolutionPaths({}, ''), 'missing home')
 })
@@ -291,8 +299,11 @@ test('a failed open is not cached, so fixing the environment is enough to retry'
 
 test('the state directory is 0700, the database 0600, and durability pragmas are set', async t => {
   const store = await makeStore(t)
-  assert.equal(statSync(dirOf(store)).mode & 0o777, 0o700)
-  assert.equal(statSync(store.paths.file).mode & 0o777, 0o600)
+  // Windows 没有 POSIX 权限位，隐私靠 ACL；这里只校验 pragma 与 schema。
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(dirOf(store)).mode & 0o777, 0o700)
+    assert.equal(statSync(store.paths.file).mode & 0o777, 0o600)
+  }
   const status = await store.status()
   assert.equal(status.journalMode, 'wal')
   assert.equal(status.synchronous, 2, 'synchronous must be FULL')
@@ -351,7 +362,7 @@ test('a store from another version or another owner is refused without touching 
 
   const newerDir = join(home, 'newer')
   mkdirSync(newerDir, { recursive: true })
-  const newer = await openEvolutionStore({ home, env: {}, subject: SUBJECT, stateDir: newerDir })
+  const newer = trackStore(await openEvolutionStore({ home, env: {}, subject: SUBJECT, stateDir: newerDir }))
   await newer.close()
   const bump = new DatabaseSync(join(newerDir, 'evolution.db'))
   bump.prepare('UPDATE meta SET value = ? WHERE key = ?').run('99', 'schema_version')
@@ -399,7 +410,7 @@ test('a snapshot backup is readable, private, and refused while writes are still
   await store.close()
   const copy = await backupDatabase({ dir: dirOf(store), file: store.paths.file, fromVersion: MIN_SUPPORTED_SCHEMA })
   assert.match(copy, /evolution\.pre-migration-v1-.*\.db$/)
-  assert.equal(statSync(copy).mode & 0o777, 0o600)
+  if (process.platform !== 'win32') assert.equal(statSync(copy).mode & 0o777, 0o600)
   const { DatabaseSync } = await import('node:sqlite')
   const reopened = new DatabaseSync(copy, { readOnly: true })
   assert.equal(reopened.prepare('PRAGMA integrity_check').get().integrity_check, 'ok')
@@ -414,7 +425,7 @@ test('reopening an existing store keeps its rows and its recorded digests', asyn
   insertEvidenceRaw(first.rawHandle(), 'ev_persist')
   const file = first.paths.file
   await first.close()
-  const second = await openEvolutionStore({ home, env: { DSH_HOME: home }, subject: SUBJECT })
+  const second = trackStore(await openEvolutionStore({ home, env: { DSH_HOME: home }, subject: SUBJECT }))
   assert.equal(second.paths.file, file)
   assert.equal(second.rawHandle().prepare('SELECT count(*) AS n FROM evidence').get().n, 1)
   assert.equal(second.rawHandle().prepare('SELECT digest FROM evidence WHERE id = ?').get('ev_persist').digest, 'a'.repeat(64))
@@ -1518,7 +1529,7 @@ test('verifyHistory reports a record whose stored digest no longer matches', asy
   db.exec('DROP TRIGGER proposal_no_update')
   db.prepare('UPDATE proposal SET summary = ? WHERE id = ? AND version = 1').run('被改写过', proposal.id)
   db.close()
-  const reopened = await openEvolutionStore({ home, env: { DSH_HOME: home }, subject: SUBJECT })
+  const reopened = trackStore(await openEvolutionStore({ home, env: { DSH_HOME: home }, subject: SUBJECT }))
   t.after(async () => { await reopened.close() })
   const report = await reopened.verifyHistory()
   assert.equal(report.ok, false)

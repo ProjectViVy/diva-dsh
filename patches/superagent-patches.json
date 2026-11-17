@@ -10,7 +10,6 @@
     "superagent-context.patch",
     "superagent-schedule.patch",
     "superagent-schedule-panel.patch",
-    "superagent-voice-closeout.patch",
-    "superagent-dream.patch"
+    "superagent-voice-closeout.patch"
   ]
 }

@@ -33,26 +33,26 @@ function harness(snapshot, handler = () => ({}), options = {}) {
 }
 function nodes(tree) { return tree && typeof tree === 'object' ? [tree, ...tree.children.flat(Infinity).flatMap(nodes)] : [] }
 function textOf(tree) { return tree && typeof tree === 'object' ? tree.children.flat(Infinity).map(textOf).join(' ') : String(tree ?? '') }
-const snapshot = { config: { enabled: true, cooldownHours: 24, minSessions: 5, minPrimaryEvents: 10 }, lastCheck: { reason: 'insufficient_sessions', sessionCount: 2, primaryEventCount: 12 }, requests: [{ id: 'req1', status: 'submitted', inputId: 'input1', createdAt: '2026-01-01' }], runs: [] }
+const snapshot = { config: { enabled: true, cooldownHours: 24, minSessions: 5, minPrimaryEvents: 10 }, lastCheck: { reason: 'insufficient_sessions', sessionCount: 2, primaryEventCount: 12 }, requests: [{ id: 'req1', status: 'running', agentSessionId: 'dream-run-1', createdAt: '2026-01-01' }], runs: [] }
 
-test('AutoDream separates submitted Input from an accepted Ticket and shows gate counts', async () => {
+test('AutoDream shows the launched Session and the gate counts instead of an admission state', async () => {
   const app = harness(snapshot)
   await app.load()
   const text = textOf(app.render())
-  assert.match(text, /Input.*input1/)
-  assert.match(text, /Ticket.*尚未接纳/)
+  assert.match(text, /会话 dream-run-1/)
+  assert.doesNotMatch(text, /Ticket|尚未接纳/)
   assert.match(text, /2 \/ 5/)
   assert.match(text, /12 \/ 10/)
   assert.doesNotMatch(text, /精炼已完成/)
 })
 
-test('manual refine submits one ordinary request and preserves the entered session on failure', async () => {
+test('manual refine creates one Session-bound request and preserves the entered session on failure', async () => {
   const app = harness(snapshot, () => { throw new Error('policy unavailable') })
   await app.load()
   let tree = app.render()
   nodes(tree).find(node => node.props['aria-label'] === '精炼会话 ID').props.onChange({ target: { value: 'session-one' } })
   tree = app.render()
-  await nodes(tree).find(node => node.type === 'button' && textOf(node) === '提交手动精炼').props.onClick()
+  await nodes(tree).find(node => node.type === 'button' && textOf(node) === '创建手动精炼').props.onClick()
   tree = app.render()
   assert.equal(app.requests.filter(item => item.body?.mode === 'manual').length, 1)
   assert.deepEqual(app.requests.at(-1).body, { mode: 'manual', sessionId: 'session-one', crossSession: false })
@@ -81,7 +81,7 @@ test('settings retain edited values after save failure and reject invalid gates 
 
 test('the approval tab shows the diff, attachments and provenance before one explicit confirmation', async () => {
   const pending = [{
-    candidateId: 'candidate-one', skillId: 'test-skill', subjectId: 'subject-1', ticketId: 'ticket-1',
+    candidateId: 'candidate-one', skillId: 'test-skill', subjectId: 'subject-1', requestId: 'request-1',
     evidenceRefs: [{ eventId: 'event-1' }], bundleDigest: 'a'.repeat(64), baselineDigest: 'b'.repeat(64),
     description: 'Use when testing', files: ['scripts/run.sh'], content: 'Do the thing.', stagedAt: '2026-01-02',
     bundle: [{ name: 'SKILL.md', content: '---\nname: test-skill\n---\n\nDo the thing.' }, { name: 'scripts/run.sh', content: 'echo hi' }],
@@ -90,7 +90,7 @@ test('the approval tab shows the diff, attachments and provenance before one exp
   const app = harness(snapshot, () => ({ ok: true, publication: { version: 1 } }), { harness: { ok: true, pending, decided: [], live: [] } })
   await app.loadApproval()
   const text = textOf(app.renderApproval())
-  for (const expected of ['test-skill', 'Do the thing.', 'Old thing.', 'ticket-1', 'subject-1', 'event-1', 'scripts/run.sh', 'echo hi', 'Use when testing', '人格 → 提案']) assert.ok(text.includes(expected), expected)
+  for (const expected of ['test-skill', 'Do the thing.', 'Old thing.', 'request-1', 'subject-1', 'event-1', 'scripts/run.sh', 'echo hi', 'Use when testing', '人格 → 提案']) assert.ok(text.includes(expected), expected)
   assert.match(text, /\+ Do the thing\./)
   await nodes(app.renderApproval()).find(node => node.type === 'button' && textOf(node) === '批准并发布').props.onClick()
   await new Promise(resolve => setImmediate(resolve))
@@ -100,7 +100,7 @@ test('the approval tab shows the diff, attachments and provenance before one exp
 })
 
 test('a truncated candidate hides its body and says why instead of showing a bogus diff', async () => {
-  const pending = [{ candidateId: 'candidate-big', skillId: 'big-skill', subjectId: 'subject-1', ticketId: 'ticket-3',
+  const pending = [{ candidateId: 'candidate-big', skillId: 'big-skill', subjectId: 'subject-1', requestId: 'request-3',
     evidenceRefs: [], bundleDigest: 'd'.repeat(64), baselineDigest: null, description: '', files: [], content: '', stagedAt: '2026-01-04',
     bundle: [{ name: 'SKILL.md', content: '' }], baselineBundle: null, truncated: true }]
   const app = harness(snapshot, () => ({}), { harness: { ok: true, pending, decided: [], live: [] } })
@@ -112,7 +112,7 @@ test('a truncated candidate hides its body and says why instead of showing a bog
 })
 
 test('the approval tab lists decided candidates and retries a stuck approval', async () => {
-  const decided = [{ candidateId: 'candidate-two', skillId: 'stuck-skill', subjectId: 'subject-1', ticketId: 'ticket-2',
+  const decided = [{ candidateId: 'candidate-two', skillId: 'stuck-skill', subjectId: 'subject-1', requestId: 'request-2',
     decision: 'approved', decidedAt: '2026-01-03', bundleDigest: 'c'.repeat(64), publication: null }]
   const app = harness(snapshot, () => ({ ok: true, publication: { version: 2 } }), { harness: { ok: true, pending: [], decided, live: [] } })
   await app.loadApproval()
@@ -163,6 +163,6 @@ test('refresh failure keeps the committed run snapshot and unsaved settings', as
   await new Promise(resolve => setImmediate(resolve))
   tree = app.render()
   assert.match(textOf(tree), /network offline/)
-  assert.match(textOf(tree), /input1/)
+  assert.match(textOf(tree), /dream-run-1/)
   assert.equal(nodes(app.render({ settingsOnly: true })).find(node => node.type === 'input' && node.props.type === 'number').props.value, 72)
 })
