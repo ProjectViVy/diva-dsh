@@ -65,6 +65,44 @@ export function satisfiesRelease(version, constraint) {
   return compareVersions(current, floor) >= 0
 }
 
+/** One comparator: ^x.y.z-pre, >=x.y.z, <=, >, <, or an exact version. */
+const COMPARATOR_RE = /^(\^|>=|<=|>|<|=)?\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/
+
+/**
+ * Whether a package's own engines.dsh range covers the deployed DSH version.
+ * That is the second declaration form in the wild (dsh-genui) - a semver range
+ * instead of the dshReleases floor map. Only the comparator forms the range uses
+ * are accepted; anything else throws rather than guessing. The caret upper bound
+ * ignores node-semver's prerelease rule: ^0.2.1-rc.1 is read as >=0.2.1-rc.1 <0.3.0.
+ */
+export function satisfiesRange(version, range) {
+  if (typeof range !== 'string' || range.trim() === '') throw new Error('Unparseable DSH range: ' + range)
+  const current = parseVersion(version)
+  if (!current) throw new Error('Unparseable DSH version: ' + version)
+  return range.split('||').some(part => satisfiesComparator(current, part.trim()))
+}
+
+function satisfiesComparator(current, text) {
+  const match = COMPARATOR_RE.exec(text)
+  if (!match) throw new Error('Unsupported DSH range comparator: ' + text)
+  const operator = match[1] ?? '='
+  const target = parseVersion(match[2])
+  const order = compareVersions(current, target)
+  if (operator === '^') {
+    if (order < 0) return false
+    const [major, minor, patch] = target.core
+    const upper = major > 0
+      ? { core: [major + 1, 0, 0], pre: [] }
+      : minor > 0 ? { core: [0, minor + 1, 0], pre: [] } : { core: [0, 0, patch + 1], pre: [] }
+    return compareVersions(current, upper) < 0
+  }
+  if (operator === '>=') return order >= 0
+  if (operator === '>') return order > 0
+  if (operator === '<') return order < 0
+  if (operator === '<=') return order <= 0
+  return order === 0
+}
+
 export function readPins(root = ROOT) {
   const file = join(root, 'third-party', 'pins.json')
   const pins = JSON.parse(readFileSync(file, 'utf8'))
@@ -92,7 +130,7 @@ export function inspectThirdPartyPlugin(root, name, pins = readPins(root)) {
   if (!pin) throw new Error(`No pin for third-party plugin ${name}`)
   const dir = join(root, 'third-party', name)
   const manifestFile = join(dir, 'package.json')
-  const result = { name, dir, pinnedTag: pin.tag, version: null, dshVersion: deployedDshVersion(root), releases: [], missing: [] }
+  const result = { name, dir, pinnedTag: pin.tag, version: null, dshVersion: deployedDshVersion(root), releases: [], range: null, missing: [] }
   if (!existsSync(manifestFile)) {
     result.missing.push('source: the submodule is not checked out')
     return result
@@ -101,11 +139,20 @@ export function inspectThirdPartyPlugin(root, name, pins = readPins(root)) {
   result.version = manifest.version
   if (`v${manifest.version}` !== pin.tag) result.missing.push(`pin: pins.json says ${pin.tag}, the checkout is ${manifest.version}`)
   const declared = manifest.dsh?.compatibility?.dshReleases
-  if (!declared || typeof declared !== 'object' || !Object.keys(declared).length) {
-    result.missing.push('compatibility: the package declares no dsh.compatibility.dshReleases')
-  } else {
+  const range = typeof manifest.engines?.dsh === 'string' ? manifest.engines.dsh.trim() : ''
+  if (declared && typeof declared === 'object' && Object.keys(declared).length) {
     result.releases = Object.keys(declared).filter(key => declared[key] === 'compatible')
-    if (!result.releases.some(key => satisfiesRelease(result.dshVersion, key))) result.missing.push(`compatibility: no declared release covers DSH ${result.dshVersion}`)
+    if (!result.releases.some(key => satisfiesRelease(result.dshVersion, key))) result.missing.push('compatibility: no declared release covers DSH ' + result.dshVersion)
+  } else if (range !== '') {
+    // The other declaration form in the wild: a package engines.dsh semver range.
+    result.range = range
+    try {
+      if (!satisfiesRange(result.dshVersion, range)) result.missing.push('compatibility: engines.dsh "' + range + '" does not cover DSH ' + result.dshVersion)
+    } catch (error) {
+      result.missing.push('compatibility: ' + (error instanceof Error ? error.message : String(error)))
+    }
+  } else {
+    result.missing.push('compatibility: the package declares no dsh.compatibility.dshReleases and no engines.dsh')
   }
   for (const entry of ['lib/index.js', 'lib/client.js']) {
     if (!existsSync(join(dir, entry))) result.missing.push(`build: ${entry} is missing (run the package build)`)

@@ -61,3 +61,18 @@
 [submodule "plugins/capability-hub"]
 	path = plugins/capability-hub
 	url = https://github.com/vivy-dsh/word-gateway.git
+[submodule "plugins/dsh-see-now"]
+	path = plugins/dsh-see-now
+	url = https://github.com/vivy-dsh/dsh-see-now
+[submodule "third-party/genui"]
+	path = third-party/genui
+	url = https://github.com/vivy-dsh/dsh-genui
+[submodule "plugins/dsh-daily"]
+	path = plugins/dsh-daily
+	url = https://github.com/vivy-dsh/dsh-daily.git
+[submodule "plugins/dsh-superagent-reset"]
+	path = plugins/dsh-superagent-reset
+	url = https://github.com/vivy-dsh/dsh-superagent-reset.git
+[submodule "plugins/dsh-ui-scope"]
+	path = plugins/dsh-ui-scope
+	url = https://github.com/vivy-dsh/dsh-ui-scope.git

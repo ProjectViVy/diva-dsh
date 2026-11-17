@@ -11,3 +11,7 @@ docs/superpowers/
 
 # 本地备份包
 *.tgz
+
+# 私人插件源码（第三档源码级安装）：只有说明书进仓库，规则见 user-plugins/README.md
+user-plugins/*
+!user-plugins/README.md

@@ -121,6 +121,9 @@ run(process.execPath, [join(ROOT, 'scripts', 'setup-vivy-tone.mjs')])
 step('Migrate and register the local components, including the DIVA skins and skin manager')
 run(process.execPath, [join(ROOT, 'scripts', 'setup-components.mjs')])
 
+step('Register the private plugins under user-plugins/ (an empty directory is fine)')
+run(process.execPath, [join(ROOT, 'scripts', 'setup-user-plugins.mjs')])
+
 step('Done')
 console.log(`Panel: ${SERVICE_URL}`)
 console.log(`Data:  ${home()}`)

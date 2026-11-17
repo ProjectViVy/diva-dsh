@@ -36,4 +36,4 @@ export function installProjectSkill(root, home, name) {
 }
 
 /** The skills this repository installs into a harness home. */
-export const PROJECT_SKILLS = Object.freeze(['diva-dream', 'more-faster-better-economical'])
+export const PROJECT_SKILLS = Object.freeze(['card-guide', 'diva-dream', 'more-faster-better-economical'])

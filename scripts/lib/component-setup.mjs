@@ -39,7 +39,7 @@ export function relocateProfileDependencies(root, profileName) {
   const backup = typeof marker?.backup === 'string' ? marker.backup.replaceAll('\\', '/') : ''
   const boundary = backup.lastIndexOf('/.artifacts/backups/'), oldRoot = boundary > 0 ? backup.slice(0, boundary) : ''
   if (marker?.version !== 1 || !oldRoot || oldRoot === project.replaceAll('\\', '/')) return false
-  const mappings = { 'dsh-superagent': 'superagent', 'dsh-local-memory': 'plugins/memory', 'dsh-local-voice': 'plugins/voice', 'dsh-mempalace': 'plugins/dsh-mempalace', 'dsh-continual-harness': 'plugins/dsh-continual-harness', 'dsh-evolution': 'plugins/dsh-evolution', 'dsh-laputa': 'plugins/dsh-laputa', 'dsh-actmem-recap': 'plugins/dsh-actmem-recap', 'dsh-capability-hub': 'plugins/capability-hub', surfcore: '.artifacts/surfcore-adapter/bundle', 'surfcore-local-qq-mode': '.artifacts/surfcore-adapter/qq-mode' }
+  const mappings = { 'dsh-superagent': 'superagent', 'dsh-local-memory': 'plugins/memory', 'dsh-local-voice': 'plugins/voice', 'dsh-see-now': 'plugins/dsh-see-now', 'dsh-mempalace': 'plugins/dsh-mempalace', 'dsh-continual-harness': 'plugins/dsh-continual-harness', 'dsh-evolution': 'plugins/dsh-evolution', 'dsh-laputa': 'plugins/dsh-laputa', 'dsh-actmem-recap': 'plugins/dsh-actmem-recap', 'dsh-capability-hub': 'plugins/capability-hub', surfcore: '.artifacts/surfcore-adapter/bundle', 'surfcore-local-qq-mode': '.artifacts/surfcore-adapter/qq-mode' }
   const manifestText = readFileSync(manifestFile, 'utf8'), manifest = JSON.parse(manifestText)
   const lockFile = join(profile, 'pnpm-lock.yaml'), lockText = existsSync(lockFile) ? readFileSync(lockFile, 'utf8') : null
   let updatedLock = lockText, changed = false
@@ -117,6 +117,7 @@ export function componentPackages(root) {
     ['dsh-local-memory', join(root, 'plugins', 'memory')],
     ['dsh-local-voice', join(root, 'plugins', 'voice')],
     ['dsh-local-asr', join(root, 'plugins', 'asr')],
+    ['dsh-see-now', join(root, 'plugins', 'dsh-see-now')],
     ['dsh-live2d', join(root, 'plugins', 'dsh-live2d')],
     ['dsh-mempalace', join(root, 'plugins', 'dsh-mempalace')],
     ['dsh-continual-harness', join(root, 'plugins', 'dsh-continual-harness')],
@@ -128,5 +129,8 @@ export function componentPackages(root) {
     ['dsh-vivy-studio', join(root, 'plugins', 'dsh-vivy-studio')],
     ['dsh-skin-manager', join(root, 'plugins', 'dsh-skin-manager')],
     ['dsh-vivy-tone', join(root, 'plugins', 'dsh-vivy-tone')],
+    ['dsh-daily', join(root, 'plugins', 'dsh-daily')],
+    ['dsh-ui-scope', join(root, 'plugins', 'dsh-ui-scope')],
+    ['dsh-superagent-reset', join(root, 'plugins', 'dsh-superagent-reset')],
   ]
 }

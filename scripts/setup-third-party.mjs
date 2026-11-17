@@ -14,7 +14,7 @@
 // Adding a plugin means: `git submodule add` it to the pinned tag, add one entry
 // to `third-party/pins.json`, then run this. No other edit is needed.
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ARTIFACTS, PROFILE, ROOT, profileDir, state } from './lib/vivy.mjs'
 import { localEnvironment, prepareLocalDirectories, sourceRuntimeInvocation } from './lib/source.mjs'
@@ -64,14 +64,20 @@ const names = Object.keys(pins.plugins)
 if (!names.length) throw new Error('third-party/pins.json pins no plugins')
 
 const inspectAll = () => names.map(name => inspectThirdPartyPlugin(ROOT, name, pins))
-const registrationMissing = () => inspectComponents(profileDir(), names.map(name => [name, join(ROOT, 'third-party', name)])).missing
+
+/* 目录名（pins 的键）不一定等于包名：第三方仓可以用 scope，例如 @changfenhuang/dsh-genui
+   住在 third-party/genui。profile 的依赖与 bundles 认的是包名，所以注册与核对都用它。 */
+const packageNameOf = (name) => JSON.parse(readFileSync(join(ROOT, 'third-party', name, 'package.json'), 'utf8')).name
+const labelOf = (packageName) => names.find(name => packageNameOf(name) === packageName) ?? packageName
+const registrationMissing = () => inspectComponents(profileDir(), names.map(name => [packageNameOf(name), join(ROOT, 'third-party', name)])).missing
 
 function describe(entry) {
   console.log(`\n${entry.name}`)
   console.log(`  pin:       ${entry.pinnedTag}`)
   console.log(`  checkout:  ${entry.version ?? '(missing)'}`)
   console.log(`  DSH:       ${entry.dshVersion}`)
-  console.log(`  declares:  ${entry.releases.length ? entry.releases.join(', ') : '(nothing)'}`)
+  console.log(`  declares:  ${entry.releases.length ? entry.releases.join(', ') : entry.range === null ? '(nothing)' : 'engines.dsh'}`)
+  if (entry.range !== null) console.log('  range:     ' + entry.range)
   if (entry.missing.length) for (const item of entry.missing) console.log(`  MISSING    ${item}`)
 }
 
@@ -80,7 +86,7 @@ if (options.check) {
   step(`Inspect third-party plugins for DSH ${entries[0]?.dshVersion ?? '?'}`)
   for (const entry of entries) describe(entry)
   const pending = registrationMissing()
-  for (const [name] of pending) console.log(`\n${name} is not registered in ${PROFILE}.`)
+  for (const [name] of pending) console.log(`\n${labelOf(name)} (${name}) is not registered in ${PROFILE}.`)
   const failed = entries.some(entry => entry.missing.length) || pending.length > 0
   console.log(failed
     ? `\nNot ready. Fix the entries above, then run "npm run stop && npm run setup:third-party && npm start".`
@@ -95,7 +101,7 @@ if ((await state()) !== undefined) {
 if (options.remove) {
   for (const name of names) {
     step(`Unregister ${name}`)
-    dsh(['plugin', '--profile', PROFILE, 'remove', name])
+    dsh(['plugin', '--profile', PROFILE, 'remove', packageNameOf(name)])
   }
   console.log(`\nUnregistered: ${names.join(', ')}. The sources stay under third-party/.`)
   process.exit(0)
@@ -126,5 +132,5 @@ for (const name of names) {
 
 step('Confirm')
 const pending = registrationMissing()
-if (pending.length) throw new Error(`Registration is incomplete: ${pending.map(([name]) => name).join(', ')}`)
+if (pending.length) throw new Error(`Registration is incomplete: ${pending.map(([name]) => labelOf(name)).join(', ')}`)
 console.log(`${names.join(', ')} registered in ${PROFILE}. Start the panel with "npm run start".`)

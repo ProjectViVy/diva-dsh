@@ -12,6 +12,9 @@ import { ensureSurfcoreAdapter } from './lib/surfcore.mjs'
 prepareLocalDirectories(ROOT)
 if (processes().length || (await state()) !== undefined) throw new Error('Stop the local panel with "npm run stop" before migrating components')
 verifyPinnedSubmodule(ROOT, 'plugins/surfcore')
+const seeNowPatch = spawnSync(process.execPath, [join(ROOT, 'scripts', 'setup-see-now.mjs')], { cwd: ROOT, stdio: 'inherit' })
+if (seeNowPatch.error) throw seeNowPatch.error
+if (seeNowPatch.status !== 0) throw new Error('dsh-see-now VIVY心核 patch failed')
 const packages = componentPackages(ROOT)
 const profile = profileDir()
 if (relocateProfileDependencies(ROOT, PROFILE)) console.log('Relocated project-owned profile dependencies; originals were backed up.')

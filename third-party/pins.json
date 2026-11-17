@@ -5,6 +5,11 @@
       "tag": "v0.83.1",
       "upstream": "bowenliang123/dsh-context",
       "why": "Context panel + /context command: shows what the context is made of and how it is compacted."
+    },
+    "genui": {
+      "tag": "v0.16.0",
+      "upstream": "vivy-dsh/dsh-genui",
+      "why": "GenUI structured UI: the model writes a dsh-ui fence and the browser renders interactive cards; replaces the temporary free-form html+iframe path (DV-UI-017). Fork of omdsh-dev/dsh-genui; the pinned v0.16.0 commit carries no fork-only changes."
     }
   }
 }

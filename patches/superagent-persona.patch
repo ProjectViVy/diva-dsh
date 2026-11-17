@@ -1,0 +1,19 @@
+diff --git a/src/app/sessions.ts b/src/app/sessions.ts
+index 1a22388..27f3d0b 100644
+--- a/src/app/sessions.ts
++++ b/src/app/sessions.ts
+@@ -241,12 +241,13 @@ export class Sessions {
+     if (agent.status === 'idle') this.retryHealth.clear(agent.id)
+     this.updateModelHealth()
+     // Disable variable interpolation so literal ${{ ... }} expressions in team prompts are preserved.
++    // The master Session keeps every other system section (laputa persona, profile rules) too, so its policy section must never be `complete`.
+     binding.disposers.push(agent.ctx.systemPrompt.section({ name: 'dsh-superagent-policy', order: 9999, interpolate: false, text: context => {
+       const version = this.promptFor(agent, context.signal !== undefined)
+       const current = ticket && host.store.tickets.get(ticket.id)
+       const composed = host.prompts.compose(version.config, master ? 'orchestrator' : 'worker', current ? host.environment(current) : undefined)
+       return `[dsh-superagent prompt revision ${version.revision}]\n${composed}\n${current ? mandateInstructions(current.mandate) : ''}`
+-    }, ...(master ? { complete: true } : {}) }))
++    } }))
+     // A recreated skill scope (e.g. after the skills service restarts) starts empty, so reset `binding.skills` before rebinding.
+     const skillScope = agent.ctx.inject(['skills'], scope => {
+       binding.scope = scope

@@ -1,0 +1,1044 @@
+diff --git a/client.js b/client.js
+index 7ec8ec1..2732ac1 100644
+--- a/client.js
++++ b/client.js
+@@ -872,6 +872,461 @@ window.__ModuleLoader__.load({
+         h('div', { className: 'sn_note' }, t('hint.origin')));
+     }
+ 
++    function EyeIcon({ size = 20 }) {
++      return h('svg', {
++        width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
++        stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true,
++      },
++        h('path', { d: 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z' }),
++        h('circle', { cx: 12, cy: 12, r: 3 }));
++    }
++
++    const SN_TABS = [
++      ['overview', '总览'],
++      ['sessions', '会话'],
++      ['records', '记录'],
++      ['debug', '调试'],
++      ['settings', '配置'],
++      ['privacy', '隐私'],
++    ];
++
++    const SN_ACTION = {
++      start: '开始看',
++      stop: '停止',
++      'window-open': '打开悬浮窗',
++      'window-close': '关闭悬浮窗',
++      clear: '清空记录',
++    };
++
++    const SN_CSS = `
++      .snv{--snv-line:var(--dsw-alias-border-l2,rgba(127,127,127,.24));--snv-line2:var(--dsw-alias-border-l3,rgba(127,127,127,.4));--snv-brand:var(--dsw-alias-brand-primary,#2f6fed);--snv-ok:var(--dsw-alias-state-success-primary,#1a7f4b);--snv-warn:var(--dsw-alias-state-warn-primary,#a86a00);--snv-bad:var(--dsw-alias-state-error-primary,#c43b3b);--snv-fg:var(--dsw-alias-label-primary,#1f2329);--snv-fg2:var(--dsw-alias-label-secondary,rgba(0,0,0,.64));--snv-fg3:var(--dsw-alias-label-tertiary,rgba(0,0,0,.46));--snv-bg:var(--dsw-alias-bg-base,#fff);--snv-bg1:var(--dsw-alias-bg-layer-1,rgba(127,127,127,.04));--snv-bg2:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.08));height:100%;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;background:var(--snv-bg);color:var(--snv-fg);font:13.5px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
++      .snv *{box-sizing:border-box}
++      .snv h1,.snv h2,.snv h3,.snv p{margin:0}
++      .snv-head{flex:none;display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:15px 22px 13px;border-bottom:1px solid var(--snv-line);background:linear-gradient(135deg,rgba(47,111,237,.10),rgba(118,196,255,.07) 58%,transparent)}
++      .snv-kicker{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--snv-fg3)}
++      .snv-head h1{font-size:19px;font-weight:660;letter-spacing:.01em}
++      .snv-sub{margin-top:3px;font-size:12px;color:var(--snv-fg2);max-width:680px}
++      .snv-dots{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px 12px;max-width:100%;padding-top:2px}
++      .snv-dot{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--snv-fg2);white-space:nowrap}
++      .snv-dot::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--snv-fg3);box-shadow:0 0 0 3px rgba(127,127,127,.12);flex:none}
++      .snv-dot.ok::before{background:var(--snv-ok);box-shadow:0 0 0 3px rgba(26,127,75,.16)}
++      .snv-dot.warn::before{background:var(--snv-warn);box-shadow:0 0 0 3px rgba(168,106,0,.16)}
++      .snv-dot.bad::before{background:var(--snv-bad);box-shadow:0 0 0 3px rgba(196,59,59,.16)}
++      .snv-tabs{flex:none;display:flex;gap:2px;padding:0 14px;margin-top:8px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;border-bottom:1px solid var(--snv-line);background:var(--snv-bg1)}
++      .snv-tabs::-webkit-scrollbar{display:none}
++      .snv-tab{flex:none;appearance:none;background:none;border:0;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;margin:0;padding:9px 12px 7px;font:inherit;font-size:12.5px;font-weight:500;color:var(--snv-fg2);cursor:pointer;transition:background .15s,color .15s,border-color .15s}
++      .snv-tab:hover{background:rgba(127,127,127,.08);color:var(--snv-fg)}
++      .snv-tab.on{color:var(--snv-brand);border-bottom-color:var(--snv-brand);font-weight:650}
++      .snv-tab:focus-visible{outline:2px solid var(--snv-brand);outline-offset:-2px}
++      .snv-body{flex:1;min-height:0;overflow:auto;padding:14px 20px 26px;scrollbar-gutter:stable}
++      .snv-alert{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;padding:8px 11px;border-radius:9px;border:1px solid rgba(196,59,59,.35);background:rgba(196,59,59,.08);color:var(--snv-bad);font-size:12px}
++      .snv-toast{margin-bottom:10px;padding:8px 11px;border-radius:9px;border:1px solid rgba(26,127,75,.35);background:rgba(26,127,75,.08);color:var(--snv-ok);font-size:12px}
++      .snv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
++      .snv-card{padding:11px 13px;border:1px solid var(--snv-line);border-radius:11px;background:var(--snv-bg1);min-width:0}
++      .snv-card.ok{border-color:rgba(26,127,75,.35);background:rgba(26,127,75,.06)}
++      .snv-card.warn{border-color:rgba(168,106,0,.35);background:rgba(168,106,0,.06)}
++      .snv-card.bad{border-color:rgba(196,59,59,.35);background:rgba(196,59,59,.06)}
++      .snv-card-title{font-size:11.5px;color:var(--snv-fg3);display:flex;align-items:center;justify-content:space-between;gap:8px}
++      .snv-card-value{margin-top:5px;font-size:18px;font-weight:650;line-height:1.2;letter-spacing:-.01em;font-variant-numeric:tabular-nums;word-break:break-word}
++      .snv-card-hint{margin-top:3px;font-size:11.5px;color:var(--snv-fg2);word-break:break-word}
++      .snv-actions{display:flex;flex-wrap:wrap;gap:8px;margin:13px 0 4px}
++      .snv-btn{appearance:none;height:31px;padding:0 12px;border-radius:8px;border:1px solid var(--snv-line2);background:var(--snv-bg);color:var(--snv-fg);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
++      .snv-btn:hover{background:var(--snv-bg2)}
++      .snv-btn.primary{background:var(--snv-brand);border-color:var(--snv-brand);color:#fff}
++      .snv-btn.primary:hover{filter:brightness(1.05)}
++      .snv-btn.danger{border-color:rgba(196,59,59,.4);color:var(--snv-bad)}
++      .snv-btn.quiet{border-color:transparent;background:transparent;color:var(--snv-fg2)}
++      .snv-btn:disabled{opacity:.45;cursor:default}
++      .snv-section{margin-top:16px}
++      .snv-section h3{font-size:12.5px;font-weight:650;margin:0 0 7px;color:var(--snv-fg)}
++      .snv-note{margin:0 0 10px;font-size:12px;color:var(--snv-fg2);line-height:1.6}
++      .snv-table{width:100%;border-collapse:collapse;font-size:12px}
++      .snv-table th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--snv-line);color:var(--snv-fg3);font-weight:500;white-space:nowrap}
++      .snv-table td{padding:6px 8px;border-bottom:1px solid var(--snv-line);vertical-align:top;word-break:break-word}
++      .snv-table tr:last-child td{border-bottom:0}
++      .snv-chip{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:999px;border:1px solid var(--snv-line2);font-size:11px;line-height:1.6;color:var(--snv-fg2);background:rgba(127,127,127,.06);white-space:nowrap}
++      .snv-chip.ok{color:var(--snv-ok);border-color:rgba(26,127,75,.35);background:rgba(26,127,75,.1)}
++      .snv-chip.warn{color:var(--snv-warn);border-color:rgba(168,106,0,.35);background:rgba(168,106,0,.1)}
++      .snv-chip.bad{color:var(--snv-bad);border-color:rgba(196,59,59,.35);background:rgba(196,59,59,.1)}
++      .snv-empty{padding:18px 12px;border:1px dashed var(--snv-line2);border-radius:10px;color:var(--snv-fg3);font-size:12px;text-align:center}
++      .snv-embed{border:1px solid var(--snv-line);border-radius:11px;overflow:hidden;background:var(--snv-bg)}
++      .snv-path{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11.5px;color:var(--snv-fg2);word-break:break-all}
++      .snv-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
++      .snv-debug-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
++      .snv-kv{padding:8px 10px;border:1px solid var(--snv-line);border-radius:8px;background:var(--snv-bg1);min-width:0}
++      .snv-kv-k{font-size:11px;color:var(--snv-fg3)}
++      .snv-kv-v{margin-top:2px;font-size:12.5px;font-weight:600;word-break:break-word}
++      .snv-error{margin:10px 0;padding:9px 11px;border-radius:8px;border:1px solid rgba(196,59,59,.35);background:rgba(196,59,59,.08);color:var(--snv-bad);font-size:12px;line-height:1.55;word-break:break-word}
++      .snv-details{margin-top:4px}
++      .snv-details summary{cursor:pointer;font-size:12px;color:var(--snv-brand)}
++      .snv-pre{margin:8px 0 0;padding:10px;border-radius:8px;background:var(--snv-bg2);font:11.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-word;max-height:380px;overflow:auto}
++      @media(max-width:760px){.snv-head{flex-direction:column;gap:8px;padding:13px 14px 11px}.snv-dots{justify-content:flex-start}.snv-tabs{padding:0 8px}.snv-body{padding:11px 12px 20px}.snv-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
++    `;
++
++    async function snRequest(path, options = {}) {
++      const response = await fetch(`${API}${path}`, {
++        headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
++        ...options,
++      });
++      const data = await response.json().catch(() => ({}));
++      if (!response.ok) throw new Error((data.rejected ?? []).join('；') || `HTTP ${response.status}`);
++      if (data.ok === false) throw new Error((data.rejected ?? []).join('；') || '操作没有成功');
++      return data;
++    }
++
++    function SnButton({ children, onClick, disabled, kind = '' }) {
++      return h('button', {
++        type: 'button',
++        className: `snv-btn ${kind}`.trim(),
++        disabled: Boolean(disabled),
++        onClick,
++      }, children);
++    }
++
++    function SnChip({ tone = '', children }) {
++      return h('span', { className: `snv-chip ${tone}`.trim() }, children);
++    }
++
++    function snCard(title, value, hint, tone = '') {
++      return h('div', { className: `snv-card ${tone}`.trim() },
++        h('div', { className: 'snv-card-title' }, title),
++        h('div', { className: 'snv-card-value' }, value),
++        h('div', { className: 'snv-card-hint' }, hint));
++    }
++
++    function snTime(value) {
++      try {
++        const date = new Date(value);
++        if (Number.isNaN(date.getTime())) return String(value ?? '');
++        return date.toLocaleString('zh-CN', { hour12: false });
++      } catch {
++        return String(value ?? '');
++      }
++    }
++
++    function snSpan(seconds) {
++      const n = Number(seconds);
++      if (!Number.isFinite(n) || n < 0) return '—';
++      if (n < 60) return `${Math.round(n)} 秒`;
++      const m = Math.floor(n / 60), s = Math.round(n % 60);
++      return `${m} 分 ${s} 秒`;
++    }
++
++    /**
++     * 用一句话回答「为什么没有出图」。
++     *
++     * 帧数在涨、出图是 0，是最容易被当成故障的现象，其实多数时候是**镜头没动** ——
++     * 留帧判据一帧都没到，拼图自然不封箱。这几条文案只复用 `runner.status()` 里
++     * 已有的计数，不新增服务端字段。
++     */
++    function snVerdict(cap) {
++      const stats = cap?.stats ?? {};
++      const frames = Number(cap?.frames ?? stats.frames ?? 0);
++      const kept = Number(stats.kept ?? 0);
++      const sheets = Number(cap?.sheets ?? stats.sheets ?? 0);
++      const running = Boolean(cap?.running);
++      if (sheets > 0) return { tone: 'ok', text: `已出 ${sheets} 张图，模型拿到的是拼好的这张。` };
++      if (!running) return { tone: '', text: '没在采集；点「开始看」才会开始攒帧。' };
++      if (frames === 0) return { tone: 'warn', text: '一帧都没抓到：先看下面的「最近错误」，多半是 ffmpeg 没起来。' };
++      if (kept === 0) return { tone: 'warn', text: `抓了 ${frames} 帧，一帧都没留下 —— 画面没变化，不出图是正常的。换个会动的画面再试。` };
++      return { tone: 'warn', text: `留下了 ${kept} 帧，还没封箱成图 —— 等下一帧或超时触发。` };
++    }
++
++    function SnEventTable({ events, empty }) {
++      if (!events?.length) return h('div', { className: 'snv-empty' }, empty);
++      return h('table', { className: 'snv-table' },
++        h('thead', null, h('tr', null,
++          h('th', null, '时间'), h('th', null, '动作'), h('th', null, '结果'), h('th', null, '说明'))),
++        h('tbody', null, events.map((event, index) => h('tr', { key: `${event.at ?? ''}-${index}` },
++          h('td', null, snTime(event.at)),
++          h('td', null, SN_ACTION[event.action] ?? event.action ?? '—'),
++          h('td', null, event.ok === false ? h(SnChip, { tone: 'bad' }, '失败') : h(SnChip, { tone: 'ok' }, '完成')),
++          h('td', null, event.note ?? '—')))));
++    }
++
++    function SnOverview({ status, life, act, busy, refresh }) {
++      const cap = life?.status?.capture ?? {};
++      const win = life?.status?.window ?? {};
++      const lp = life?.status?.loop ?? null;
++      const sheets = cap.sheets ?? cap.stats?.sheets ?? 0;
++      const values = status?.values ?? {};
++      const recent = (life?.journal?.events ?? []).slice(0, 6);
++      return h(Fragment, null,
++        h('div', { className: 'snv-grid' },
++          snCard('采集', cap.running ? '正在看' : '没在看',
++            cap.running
++              ? `${cap.source?.kind ?? '屏幕'} · ${cap.frames ?? 0} 帧 · ${snSpan(cap.since)}`
++              : '开始后按节奏出图，静止画面几乎不花 token',
++            cap.running ? 'ok' : ''),
++          snCard('悬浮窗', win.alive ? (win.hidden ? '在跑，已藏起' : '在跑') : '没开',
++            win.alive
++              ? `pid ${win.pid ?? '—'} · 心跳 ${win.heartbeatAgeSec ?? '—'}s 前`
++              : '桌面上的那个小窗，不是这个网页',
++            win.alive ? (win.hidden ? 'warn' : 'ok') : ''),
++          snCard('陪看会话', lp ? (lp.stopped ? '已停' : '在跑') : '没起',
++            lp
++              ? `叫醒 ${lp.wakes ?? 0} 次 · ${lp.session ?? '未绑定会话'}`
++              : '开始看之后才会绑定到当前聊天',
++            lp && !lp.stopped ? 'ok' : ''),
++          snCard('本次出图', `${sheets} 张`,
++            `${values.fps ?? '—'} fps · ${values.pace ?? '—'} 节奏 · 队列 ${cap.pending ?? 0}`,
++            sheets > 0 ? 'ok' : '')),
++        h('div', { className: 'snv-actions' },
++          h(SnButton, { kind: 'primary', onClick: () => act('start'), disabled: Boolean(busy) }, busy === 'start' ? '启动中…' : '开始看'),
++          h(SnButton, { onClick: () => act('stop'), disabled: Boolean(busy) }, busy === 'stop' ? '停止中…' : '停止'),
++          h(SnButton, { onClick: () => act('window-open'), disabled: Boolean(busy) }, '打开悬浮窗'),
++          h(SnButton, { onClick: () => act('window-close'), disabled: Boolean(busy) }, '关闭悬浮窗'),
++          h(SnButton, { kind: 'quiet', onClick: refresh, disabled: Boolean(busy) }, '刷新')),
++        h('div', { className: 'snv-section' },
++          h('h3', null, '最近动作'),
++          h(SnEventTable, { events: recent, empty: '还没有动作记录。开始看一次，这里会出现时间线。' })));
++    }
++
++    function SnSessions({ life, act, busy }) {
++      const cap = life?.status?.capture ?? {};
++      const lp = life?.status?.loop ?? null;
++      const sessions = (life?.journal?.events ?? []).filter(event => event.action === 'start' || event.action === 'stop');
++      return h(Fragment, null,
++        h('p', { className: 'snv-note' },
++          '一次「看」= 一次陪看会话：开始后采集和常驻循环一起起，按节奏叫醒模型；停止、关窗或收工都会结束它。'),
++        h('div', { className: 'snv-grid' },
++          snCard('当前采集', cap.running ? '在跑' : '停',
++            cap.running ? `${cap.source?.kind ?? '屏幕'} · ${cap.frames ?? 0} 帧 · 队列 ${cap.pending ?? 0}` : '没有采集进程',
++            cap.running ? 'ok' : ''),
++          snCard('当前循环', lp ? (lp.stopped ? '已停' : '在跑') : '没起',
++            lp ? `会话 ${lp.session ?? '未绑定'} · 叫醒 ${lp.wakes ?? 0} 次` : '开始看后自动起',
++            lp && !lp.stopped ? 'ok' : '')),
++        h('div', { className: 'snv-actions' },
++          h(SnButton, { kind: 'primary', onClick: () => act('start'), disabled: Boolean(busy) }, '开始陪看'),
++          h(SnButton, { onClick: () => act('stop'), disabled: Boolean(busy) }, '结束本次'),
++          h(SnButton, { onClick: () => act('window-open'), disabled: Boolean(busy) }, '叫回悬浮窗')),
++        h('div', { className: 'snv-section' },
++          h('h3', null, '会话时间线'),
++          h(SnEventTable, { events: sessions, empty: '还没有开始/结束记录。' })));
++    }
++
++    function SnRecords({ life }) {
++      const events = life?.journal?.events ?? [];
++      return h(Fragment, null,
++        h('p', { className: 'snv-note' },
++          '这里只记动作元数据：什么时候开始/停止、开没开窗、成功没有。不保存画面、帧或窗口标题；画面只走模型，生命周期记录留在本机。'),
++        h('div', { className: 'snv-section' },
++          h('h3', null, `全部动作（${events.length}）`),
++          h(SnEventTable, { events, empty: '还没有记录。' })),
++        h('div', { className: 'snv-section' },
++          h('h3', null, '记录文件'),
++          h('div', { className: 'snv-path' }, life?.journal?.path ?? life?.path ?? '—')));
++    }
++
++    function SnDebug({ status, life, act, busy, refresh }) {
++      const cap = life?.status?.capture ?? {};
++      const win = life?.status?.window ?? {};
++      const lp = life?.status?.loop ?? null;
++      const listen = cap.listen ?? {};
++      const lastError = cap.lastError ?? win.reason ?? lp?.reason ?? '';
++      const lastErrorText = typeof lastError === 'string' ? lastError : (lastError ? JSON.stringify(lastError) : '');
++      const source = typeof cap.source === 'string'
++        ? cap.source
++        : (cap.source?.kind ?? cap.source?.type ?? '—');
++      const tick = cap.running ? cap.since : cap.idleSec;
++      const stats = cap.stats ?? {};
++      const takes = cap.takes ?? {};
++      const reserved = cap.reserved ?? null;
++      const verdict = snVerdict(cap);
++      const avgScore = Number(stats.scoreN) > 0 ? Math.round(Number(stats.scoreSum) / Number(stats.scoreN)) : null;
++      const tiers = Object.entries(stats.tierHist ?? {}).map(([tier, n]) => `${tier}×${n}`).join(' ') || '—';
++      const pairs = [
++        ['采集', cap.running ? '在跑' : '停'],
++        ['源', source],
++        ['画质', cap.quality ?? '—'],
++        ['帧 / 出图', `${cap.frames ?? 0} 帧 / ${cap.sheets ?? stats.sheets ?? 0} 张`],
++        ['留下的帧', stats.kept ?? 0],
++        ['判据 切/标/底', `${stats.cuts ?? 0} / ${stats.marks ?? 0} / ${stats.floors ?? 0}`],
++        ['重复跳过', stats.dupSkipped ?? 0],
++        ['分数 均/最高', avgScore === null ? '—' : `${avgScore} / ${stats.scoreMax ?? '—'}`],
++        ['档位分布', tiers],
++        ['首帧至今', cap.secondsSinceWake == null ? '—' : snSpan(cap.secondsSinceWake)],
++        ['叫醒空手', `${takes.peekEmpty ?? 0} / ${takes.peek ?? 0}`],
++        ['预留图', reserved ? `seq ${reserved.seq} · ${reserved.ageSec}s` : '—'],
++        ['队列', cap.pending ?? 0],
++        ['溢出', stats.overflow ?? 0],
++        [cap.running ? '已运行' : '已停', snSpan(tick)],
++        ['唤醒 / 会话', `${lp?.wakes ?? 0} 次 / ${lp?.session ?? '—'}`],
++        ['窗口', win.alive ? `pid ${win.pid ?? '?'}` : (win.pid ? `已退出（${win.pid}）` : '没开')],
++        ['心跳', win.heartbeatAgeSec == null ? '—' : `${win.heartbeatAgeSec} 秒前`],
++        ['听声音', listen.enabled ? '在听' : (listen.reason ? String(listen.reason) : '没在听')],
++      ];
++      return h(Fragment, null,
++        h('p', { className: 'snv-note' },
++          '调试页每 1.5 秒自动刷新；点「开始看」会自动切到这里。显示的是宿主真实状态，只读，不会改配置。'),
++        h('div', { className: 'snv-row' },
++          h(SnButton, {
++            kind: cap.running ? 'quiet' : 'primary',
++            onClick: () => act('start'),
++            disabled: Boolean(busy),
++          }, cap.running ? '重新开始' : '开始看'),
++          h(SnButton, { kind: 'quiet', onClick: () => act('stop'), disabled: !cap.running || Boolean(busy) }, '停止'),
++          h(SnButton, { kind: 'quiet', onClick: refresh }, '刷新')),
++        lastErrorText ? h('div', { className: 'snv-error' }, `最近错误：${lastErrorText}`) : null,
++        h('div', { className: 'snv-section' },
++          h('h3', null, '实时状态'),
++          h('div', { className: 'snv-row' },
++            h(SnChip, { tone: verdict.tone }, verdict.text)),
++          h('div', { className: 'snv-debug-grid' }, pairs.map(([key, value]) => h('div', { className: 'snv-kv', key },
++            h('div', { className: 'snv-kv-k' }, key),
++            h('div', { className: 'snv-kv-v' }, String(value)))))),
++        h('div', { className: 'snv-section' },
++          h('h3', null, '最近动作'),
++          h(SnEventTable, { events: (life?.journal?.events ?? []).slice(0, 6), empty: '还没有动作。' })),
++        h('div', { className: 'snv-section' },
++          h('h3', null, '原始状态'),
++          h('details', { className: 'snv-details' },
++            h('summary', null, '展开 runner.status() / loop / window'),
++            h('pre', { className: 'snv-pre' }, JSON.stringify({
++              capture: cap,
++              loop: lp,
++              window: win,
++              tuning: status?.values ?? null,
++            }, null, 2)))));
++    }
++
++    function SnPrivacy({ status, life, act, busy }) {
++      const win = life?.status?.window ?? {};
++      const confirmAct = (action, message) => {
++        if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm(message)) return;
++        void act(action);
++      };
++      return h(Fragment, null,
++        h('p', { className: 'snv-note' },
++          '隐私边界：抓到的画面只作为模型输入；本插件不落盘画面。生命周期记录也只是动作，不含屏上内容。随时可以一键停掉采集和悬浮窗。'),
++        h('div', { className: 'snv-actions' },
++          h(SnButton, { kind: 'danger', onClick: () => confirmAct('stop', '停止采集和陪看循环？'), disabled: Boolean(busy) }, '停止采集与陪看'),
++          h(SnButton, { kind: 'danger', onClick: () => confirmAct('window-close', '关闭桌面悬浮窗？'), disabled: Boolean(busy) }, '关闭悬浮窗'),
++          h(SnButton, { onClick: () => confirmAct('clear', '清空生命周期记录？只删动作日志，不碰配置。'), disabled: Boolean(busy) }, '清空动作记录')),
++        h('div', { className: 'snv-section' },
++          h('h3', null, '当前状态'),
++          h('div', { className: 'snv-row' },
++            h(SnChip, { tone: life?.status?.capture?.running ? 'ok' : '' }, life?.status?.capture?.running ? '采集在跑' : '采集停了'),
++            h(SnChip, { tone: win.alive ? 'ok' : '' }, win.alive ? '悬浮窗在' : '悬浮窗不在'),
++            h(SnChip, null, '画面不落盘'))),
++        h('div', { className: 'snv-section' },
++          h('h3', null, '文件位置'),
++          h('div', { className: 'snv-path' }, `配置：${status?.path ?? '—'}`),
++          h('div', { className: 'snv-path' }, `生命周期：${life?.journal?.path ?? life?.path ?? '—'}`),
++          h('div', { className: 'snv-path' }, '悬浮窗日志：~/.dsh/see-now-window.log')));
++    }
++
++    function SnSettings() {
++      return h('div', { className: 'snv-embed' }, h(SettingsPage));
++    }
++
++    function SeeNowPanel() {
++      const [tab, setTab] = useState('overview');
++      const [status, setStatus] = useState(null);
++      const [life, setLife] = useState(null);
++      const [error, setError] = useState('');
++      const [toast, setToast] = useState('');
++      const [busy, setBusy] = useState('');
++
++      const refresh = useCallback(async () => {
++        try {
++          const [nextStatus, nextLife] = await Promise.all([snRequest('/status'), snRequest('/lifecycle')]);
++          setStatus(nextStatus);
++          setLife(nextLife);
++          setError('');
++        } catch (failure) {
++          setError(failure.message);
++        }
++      }, []);
++
++      useEffect(() => { void refresh(); }, [refresh]);
++
++      // 提示条自己下台：动作已经完成，留着只会盖住下一次的状态。
++      useEffect(() => {
++        if (!toast) return undefined;
++        const timer = setTimeout(() => setToast(''), 4000);
++        return () => clearTimeout(timer);
++      }, [toast]);
++
++      const capRunning = Boolean(life?.status?.capture?.running);
++      useEffect(() => {
++        if (tab !== 'debug' && !capRunning) return undefined;
++        const timer = setInterval(() => {
++          // 窗口在后台时没人看这页，别再按 1.5 秒去敲宿主。
++          if (typeof document !== 'undefined' && document.hidden) return;
++          void refresh();
++        }, 1500);
++        return () => clearInterval(timer);
++      }, [tab, capRunning, refresh]);
++
++      const act = useCallback(async (action) => {
++        setBusy(action);
++        setError('');
++        setToast('');
++        try {
++          const next = await snRequest('/lifecycle', {
++            method: 'POST',
++            body: JSON.stringify({ action }),
++          });
++          // 回包已经是完整的一份（status + journal），不用再 GET 两趟。
++          setLife(next);
++          if (action === 'start' && next?.ok !== false) setTab('debug');
++          setToast(`${SN_ACTION[action] ?? action}：完成`);
++        } catch (failure) {
++          setError(failure.message);
++        } finally {
++          setBusy('');
++        }
++      }, []);
++
++      const cap = life?.status?.capture ?? {};
++      const win = life?.status?.window ?? {};
++      const lp = life?.status?.loop ?? null;
++      const dots = [
++        h('span', { key: 'cap', className: `snv-dot ${cap.running ? 'ok' : ''}` }, cap.running ? '正在看' : '没在看'),
++        h('span', { key: 'win', className: `snv-dot ${win.alive ? 'ok' : ''}` }, win.alive ? '悬浮窗开着' : '悬浮窗没开'),
++        h('span', { key: 'loop', className: `snv-dot ${lp && !lp.stopped ? 'ok' : ''}` }, lp ? (lp.stopped ? '循环已停' : '陪看循环在跑') : '无循环'),
++      ];
++      let content = null;
++      if (tab === 'overview') content = h(SnOverview, { status, life, act, busy, refresh });
++      else if (tab === 'sessions') content = h(SnSessions, { life, act, busy });
++      else if (tab === 'records') content = h(SnRecords, { life });
++      else if (tab === 'debug') content = h(SnDebug, { status, life, act, busy, refresh });
++      else if (tab === 'settings') content = h(SnSettings);
++      else content = h(SnPrivacy, { status, life, act, busy });
++
++      return h('main', { className: 'snv' },
++        h('style', null, SN_CSS),
++        h('header', { className: 'snv-head' },
++          h('div', null,
++            h('p', { className: 'snv-kicker' }, 'VIVY · 感知'),
++            h('h1', null, '我看到了'),
++            h('p', { className: 'snv-sub' }, '看屏幕、听声音、管住陪看的开始与结束。配置和记录都在这一页。')),
++          h('div', { className: 'snv-dots' }, ...dots)),
++        h('div', { className: 'snv-tabs', role: 'tablist', 'aria-label': '我看到了导航' },
++          SN_TABS.map(([id, label]) => h('button', {
++            key: id,
++            type: 'button',
++            role: 'tab',
++            id: `snv-tab-${id}`,
++            'aria-controls': `snv-panel-${id}`,
++            'aria-selected': tab === id,
++            className: tab === id ? 'snv-tab on' : 'snv-tab',
++            onClick: () => setTab(id),
++          }, label))),
++        h('div', {
++          className: 'snv-body',
++          role: 'tabpanel',
++          id: `snv-panel-${tab}`,
++          'aria-labelledby': `snv-tab-${tab}`,
++        },
++          error ? h('div', { className: 'snv-alert', role: 'alert' },
++            h('span', null, error),
++            h(SnButton, { kind: 'quiet', onClick: refresh }, '重试')) : null,
++          toast ? h('div', { className: 'snv-toast' }, toast) : null,
++          content));
++    }
++
+     // ── 接进 shell ────────────────────────────────────────────────────────────
+     function apply(ctx) {
+       ctx.effect(() => {
+@@ -882,19 +1337,26 @@ window.__ModuleLoader__.load({
+         return () => style.remove();
+       }, 'dsh-see-now: styles');
+ 
+-      ctx.slots.inject('settings.section', () => ctx.slots.register({
+-        name: 'settings.section',
++      /* VIVY心核：整页管理面板，不再占用 DSH 设置里的独立分区。
++         `dsh-vivy-studio` 按可访问名把它归到「心核」，order 16 接在「进化」之后。 */
++      ctx.slots.inject('main', () => ctx.slots.register({
++        name: 'main',
++        key: 'see-now',
++        inject: () => ({}),
++      }, SeeNowPanel));
++
++      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
++        name: 'sidebar.panellist',
+         id: 'see-now',
+-        order: 43,
+-        label: () => t('nav'),
+-        locale: NS,
+-      }, () => h(SettingsPage)));
++        order: 16,
++        label: () => '我看到了',
++      }, EyeIcon));
+     }
+ 
+     exports.apply = apply;
+     exports.inject = inject;
+     exports.name = 'dsh-see-now';
+-    exports.__test = { draftOf, mergeValues, patchOf, num, TEXT, localDraftOf, localPatchOf, shouldShowLocal };
++    exports.__test = { draftOf, mergeValues, patchOf, num, TEXT, localDraftOf, localPatchOf, shouldShowLocal, SN_TABS, snVerdict };
+     return module.exports;
+   },
+ });
+diff --git a/src/index.js b/src/index.js
+index 49b137e..0fd281e 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -540,13 +540,13 @@ export async function apply(ctx) {
+  *
+  * 这里整段包在 try 里：面板是附加能力，挂不上只该少一页设置，不该影响看屏幕。
+  */
+-function installSettings(ctx, log) {
++function installSettings(ctx, log, lifecycle) {
+   try {
+     if (typeof ctx?.inject !== 'function') {
+       log('宿主没有 ctx.inject，跳过设置页接口');
+       return;
+     }
+-    const handle = createSettingsApi({ logger: ctx?.logger });
++    const handle = createSettingsApi({ logger: ctx?.logger, lifecycle });
+     ctx.inject(['webServer'], (scoped) => {
+       scoped.effect(
+         () =>
+@@ -604,7 +604,47 @@ async function registerAll(ctx) {
+   const tuning = readTuning();
+   if (tuning.warnings.length) log?.(`[see-now] ${tuning.warnings.join('；')}`);
+ 
+-  installSettings(ctx, log);
++  /**
++   * 面板的生命周期动作。`runner` / `loop` / `ensureLoop` 都在下面才声明 ——
++   * 这里只交出闭包，路由第一次被调用时它们已经初始化完毕。
++   */
++  const lifecycle = {
++    status: () => ({
++      capture: runner.status(),
++      window: windowReport(),
++      loop: loop?.state() ?? null,
++    }),
++    start: async () => {
++      try {
++        const built = srcOf({});
++        if (built.error) return { ok: false, reason: built.error };
++        const started = await runner.start({ src: built.src ?? { kind: 'screen' } });
++        if (started?.error) return { ok: false, reason: started.error };
++        ensureLoop(null);
++        return { ok: true, note: built.src?.kind ?? 'screen' };
++      } catch (err) {
++        return { ok: false, reason: String(err?.message ?? err) };
++      }
++    },
++    stop: async () => {
++      try { runner.stop(); } catch { /* 已经停了 */ }
++      try { stopLoop('用户从面板停止'); } catch { /* 没起循环 */ }
++      return { ok: true };
++    },
++    open: async () => {
++      try {
++        const r = await openWindow({ log });
++        return { ok: r?.ok !== false, reason: r?.reason, note: r?.already ? 'already' : 'opened' };
++      } catch (err) {
++        return { ok: false, reason: String(err?.message ?? err) };
++      }
++    },
++    close: async () => {
++      try { closeWindow(); return { ok: true }; } catch (err) { return { ok: false, reason: String(err?.message ?? err) }; }
++    },
++  };
++
++  installSettings(ctx, log, lifecycle);
+   const runner = createRunner({
+     ffmpegPath: ffmpeg.path,
+     log,
+diff --git a/src/lifecycle-store.mjs b/src/lifecycle-store.mjs
+new file mode 100644
+index 0000000..5001bfd
+--- /dev/null
++++ b/src/lifecycle-store.mjs
+@@ -0,0 +1,107 @@
++/**
++ * 「我看到了」的生命周期流水。
++ *
++ * 只记**动作与结果**，不记画面、不记帧、不记窗口标题 —— 这样它既能回答
++ * "上一次到底看没看、为什么停"，又不会变成第二份屏幕录像。
++ *
++ * 文件在 `~/.dsh/see-now/lifecycle.jsonl`，一行一个事件；超过 512KB 时保留最近
++ * 500 行重写，避免长期开着把磁盘写满。
++ *
++ * @module src/lifecycle-store.mjs
++ */
++
++import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
++import { dirname, join } from 'node:path';
++import { tuningPath } from './tuning.js';
++
++const MAX_BYTES = 512 * 1024;
++const KEEP_LINES = 500;
++/** 一行事件几十字节；按 320 给足余量，读不满再退回整份读。 */
++const LINE_BUDGET = 320;
++
++export function lifecyclePath(env = process.env) {
++  return join(dirname(tuningPath(env)), 'see-now', 'lifecycle.jsonl');
++}
++
++/** 追加一条；任何写盘失败都不能把正在做的动作带崩。 */
++export function appendLifecycle(event, env = process.env) {
++  const path = lifecyclePath(env);
++  try {
++    mkdirSync(dirname(path), { recursive: true });
++    const line = `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`;
++    appendFileSync(path, line, 'utf8');
++    trim(path);
++    return path;
++  } catch {
++    return path;
++  }
++}
++
++function trim(path) {
++  try {
++    if (statSync(path).size <= MAX_BYTES) return;
++    const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean);
++    writeFileSync(path, `${lines.slice(-KEEP_LINES).join('\n')}\n`, 'utf8');
++  } catch {
++    /* 修不掉就让它长着，下一次再试 */
++  }
++}
++
++/**
++ * 只读文件尾部够 `limit` 条用的那点字节。
++ *
++ * 面板在调试页每 1.5 秒读一次；整份读在裁剪阈值内是 512KB，等于把「看状态」
++ * 变成持续 IO。按行预算切尾巴之后，单次读的量只跟 `limit` 有关。
++ */
++function readTail(path, limit) {
++  const size = statSync(path).size;
++  const want = Math.min(size, Math.max(4096, limit * LINE_BUDGET));
++  const start = size - want;
++  const buf = Buffer.allocUnsafe(want);
++  const fd = openSync(path, 'r');
++  try {
++    readSync(fd, buf, 0, want, start);
++  } finally {
++    closeSync(fd);
++  }
++  return { text: buf.toString('utf8'), partial: start > 0 };
++}
++
++/** 最新在前，最多 `limit` 条。坏行直接跳过，不因一行 JSON 坏了整页打不开。 */
++export function readLifecycle({ limit = 80, env = process.env } = {}) {
++  const path = lifecyclePath(env);
++  if (!existsSync(path)) return { path, events: [] };
++  let text = '';
++  let partial = false;
++  try {
++    ({ text, partial } = readTail(path, limit));
++  } catch {
++    return { path, events: [] };
++  }
++  let lines = text.split('\n').filter(Boolean);
++  // 从头切进来的第一行是半截：先丢掉，不然它会被当成坏行静默跳过。
++  if (partial) lines = lines.slice(1);
++  const events = lines
++    .slice(-limit)
++    .reverse()
++    .map((line) => {
++      try {
++        return JSON.parse(line);
++      } catch {
++        return null;
++      }
++    })
++    .filter(Boolean);
++  return { path, events };
++}
++
++export function clearLifecycle(env = process.env) {
++  const path = lifecyclePath(env);
++  try {
++    mkdirSync(dirname(path), { recursive: true });
++    writeFileSync(path, '', 'utf8');
++  } catch {
++    /* 清不掉时保留原文件，UI 下次读到的仍是旧记录 */
++  }
++  return path;
++}
+diff --git a/src/settings-api.mjs b/src/settings-api.mjs
+index f805392..6c37fd2 100644
+--- a/src/settings-api.mjs
++++ b/src/settings-api.mjs
+@@ -1,5 +1,5 @@
+ /**
+- * 设置页背后的三条路由，全在 `/api/see-now/` 下。
++ * 「我看到了」背后的四条路由，全在 `/api/see-now/` 下。
+  *
+  * | 方法 | 路径 | 作用 |
+  * |---|---|---|
+@@ -7,6 +7,7 @@
+  * | POST | `/config` | 提交要改的键；校验通过才落盘（`see-now.json`） |
+  * | POST | `/local`  | 改转写服务的地址与凭据（`asr.json`） |
+  * | GET/POST | `/window` | 看/改悬浮窗外观（`watch-window.json` 的 `glass`） |
++ * | GET/POST | `/lifecycle` | 「我看到了」的生命周期：状态 + 动作流水；POST start/stop/window/clear |
+  *
+  * ## 为什么这么几条
+  *
+@@ -24,7 +25,8 @@
+ 
+ import { rejectionFor } from './settings-trust.js';
+ import { asrPath, readAsrConfig, writeAsrConfig } from './asr-store.mjs';
+-import { readWindowStyle, setWindowStyle, setWindowHidden, setWindowDanmaku } from './window.js';
++import { readWindowStyle, setWindowStyle, setWindowHidden, setWindowDanmaku, openWindow, closeWindow, windowReport } from './window.js';
++import { appendLifecycle, clearLifecycle, lifecyclePath, readLifecycle } from './lifecycle-store.mjs';
+ import {
+   readTuning,
+   writeTuning,
+@@ -77,7 +79,16 @@ function valuesOf(tuning) {
+   return values;
+ }
+ 
+-export function createSettingsApi({ logger } = {}) {
++/** 生命周期状态永远不该把路由打崩；失败就回一个能显示的错误对象。 */
++function safeStatus(lifecycle) {
++  try {
++    return lifecycle?.status?.() ?? null;
++  } catch (err) {
++    return { error: String(err?.message ?? err) };
++  }
++}
++
++export function createSettingsApi({ logger, lifecycle } = {}) {
+   function log(line) {
+     try {
+       logger?.info?.(line);
+@@ -257,6 +268,60 @@ export function createSettingsApi({ logger } = {}) {
+         return;
+       }
+ 
++      if (route === '/lifecycle') {
++        if (!lifecycle) {
++          send(res, 503, { ok: false, rejected: ['生命周期接口没有接线'] });
++          return;
++        }
++        if (method === 'GET' || method === 'HEAD') {
++          send(res, 200, {
++            ok: true,
++            status: safeStatus(lifecycle),
++            journal: readLifecycle({ limit: 80 }),
++            path: lifecyclePath(),
++          });
++          return;
++        }
++        if (method !== 'POST') {
++          send(res, 405, { ok: false, rejected: ['只支持 GET / POST'] });
++          return;
++        }
++
++        let body;
++        try {
++          body = await readJson(req);
++        } catch (err) {
++          send(res, 400, { ok: false, rejected: [`请求体不是合法 JSON：${err?.message ?? err}`] });
++          return;
++        }
++        const action = String(body?.action ?? '').trim().toLowerCase();
++        if (!['start', 'stop', 'window-open', 'window-close', 'clear'].includes(action)) {
++          send(res, 400, { ok: false, rejected: [`没有这个动作：${action || '(空)'}`] });
++          return;
++        }
++
++        let result = { ok: true };
++        if (action === 'start') result = (await lifecycle.start?.()) ?? { ok: false, reason: '启动接口没有接线' };
++        else if (action === 'stop') result = (await lifecycle.stop?.()) ?? { ok: false, reason: '停止接口没有接线' };
++        else if (action === 'window-open') result = (await lifecycle.open?.()) ?? { ok: false, reason: '开窗接口没有接线' };
++        else if (action === 'window-close') result = (await lifecycle.close?.()) ?? { ok: false, reason: '关窗接口没有接线' };
++        else if (action === 'clear') clearLifecycle();
++
++        const ok = result?.ok !== false;
++        appendLifecycle({ action, ok, note: result?.reason ?? result?.note ?? null });
++        log(`see-now: 生命周期 ${action} ${ok ? 'ok' : 'failed'}`);
++        send(res, 200, {
++          ok,
++          action,
++          result,
++          rejected: ok ? [] : [result?.reason ?? '动作失败'],
++          status: safeStatus(lifecycle),
++          journal: readLifecycle({ limit: 80 }),
++          path: lifecyclePath(),
++        });
++        return;
++      }
++
+       send(res, 404, { ok: false, rejected: [`没有这条路由：${route}`] });
+     } catch (err) {
+       // 兜底：任何未预料的异常都要变成一条结构化的答复，而不是断掉的连接 ——
+diff --git a/test/client-wiring.test.mjs b/test/client-wiring.test.mjs
+index f6568e0..c020b5e 100644
+--- a/test/client-wiring.test.mjs
++++ b/test/client-wiring.test.mjs
+@@ -97,16 +97,21 @@ function runApply() {
+   return { effects, registered, injected };
+ }
+ 
+-test('注册进 settings.section，id 与 order 固定', () => {
++test('注册 main 与侧栏「我看到了」；不再占用设置分区', () => {
+   const { registered, injected } = runApply();
+-  assert.deepEqual(injected, ['settings.section']);
+-  assert.equal(registered.length, 1);
+-  const { def } = registered[0];
+-  assert.equal(def.name, 'settings.section');
+-  assert.equal(def.id, 'see-now');
+-  assert.equal(def.order, 43);
+-  assert.equal(def.locale, 'settings.seeNow');
+-  assert.equal(def.label(), '看你看的东西');
++  assert.deepEqual(injected, ['main', 'sidebar.panellist']);
++  assert.equal(registered.length, 2);
++  assert.equal(registered.some((entry) => entry.def.name === 'settings.section'), false);
++
++  const sidebar = registered.find((entry) => entry.def.name === 'sidebar.panellist');
++  assert.ok(sidebar, 'sidebar.panellist is missing');
++  assert.equal(sidebar.def.id, 'see-now');
++  assert.equal(sidebar.def.order, 16);
++  assert.equal(sidebar.def.label(), '我看到了');
++
++  const main = registered.find((entry) => entry.def.name === 'main');
++  assert.ok(main, 'main is missing');
++  assert.equal(main.def.key, 'see-now');
+ });
+ 
+ test('样式表挂上了，并且带一个能摘掉的清理函数', () => {
+@@ -117,14 +122,44 @@ test('样式表挂上了，并且带一个能摘掉的清理函数', () => {
+   assert.equal(typeof styleNodes[0].remove, 'function');
+ });
+ 
+-test('第一帧（还在读）也能渲染出一个元素，不会抛', () => {
++test('面板第一帧能渲染出外壳，不会抛', () => {
+   const { registered } = runApply();
+-  // 槽位拿到的是 `() => h(SettingsPage)`：外面这层是组件引用，真渲染要再调一次
+-  const outer = registered[0].render();
+-  assert.equal(typeof outer.type, 'function');
+-  const element = outer.type(outer.props);
+-  assert.equal(element.type, 'div');
+-  assert.equal(element.props.className, 'sn_root');
++  const main = registered.find((entry) => entry.def.name === 'main');
++  assert.ok(main, 'main is missing');
++  const element = main.render();
++  assert.equal(element.type, 'main');
++  assert.equal(element.props.className, 'snv');
++});
++
++test('调试页在导航里，并且保留原五页', () => {
++  assert.deepEqual(mod.__test.SN_TABS.map(([id]) => id), ['overview', 'sessions', 'records', 'debug', 'settings', 'privacy']);
++});
++
++// 调试页最常被问的一句是「帧在涨，为什么出图是 0」。判据只能是已有的计数，
++// 不新增服务端字段，所以这四条要能各说各话。
++test('snVerdict 把「0 张」分成四种成因', () => {
++  const { snVerdict } = mod.__test;
++
++  // 没在跑
++  assert.equal(snVerdict({ running: false }).tone, '');
++  assert.match(snVerdict({ running: false }).text, /没在采集/);
++
++  // 一帧都没抓到 → 要人去看最近错误
++  const noFrames = snVerdict({ running: true, frames: 0, stats: { kept: 0, sheets: 0 } });
++  assert.equal(noFrames.tone, 'warn');
++  assert.match(noFrames.text, /一帧都没抓到/);
++
++  // 抓到了但一帧没留 → 画面没变化，这是正常现象，别当故障
++  const noKept = snVerdict({ running: true, frames: 156, stats: { kept: 0, sheets: 0 } });
++  assert.equal(noKept.tone, 'warn');
++  assert.match(noKept.text, /156 帧/);
++  assert.match(noKept.text, /画面没变化/);
++
++  // 留了帧还没封箱 / 已经出图
++  assert.match(snVerdict({ running: true, frames: 20, stats: { kept: 3, sheets: 0 } }).text, /还没封箱/);
++  const done = snVerdict({ running: true, frames: 20, stats: { kept: 9, sheets: 2 } });
++  assert.equal(done.tone, 'ok');
++  assert.match(done.text, /2 张图/);
+ });
+ 
+ // ── 补丁构造（纯函数部分）─────────────────────────────────────────────────────
+diff --git a/test/lifecycle-api.test.mjs b/test/lifecycle-api.test.mjs
+new file mode 100644
+index 0000000..84107f4
+--- /dev/null
++++ b/test/lifecycle-api.test.mjs
+@@ -0,0 +1,96 @@
++import test, { before, after } from 'node:test';
++import assert from 'node:assert/strict';
++import http from 'node:http';
++import { mkdtempSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++
++let home;
++let server;
++let base;
++let calls;
++
++before(async () => {
++  home = mkdtempSync(join(tmpdir(), 'dsh-see-life-api-'));
++  process.env.DSH_HOME = home;
++  calls = [];
++  const { createSettingsApi, ROUTE_PREFIX } = await import('../src/settings-api.mjs');
++  const lifecycle = {
++    status: () => ({ capture: { running: calls.includes('start') }, window: { alive: false }, loop: null }),
++    start: async () => { calls.push('start'); return { ok: true, note: 'screen' }; },
++    stop: async () => { calls.push('stop'); return { ok: true }; },
++    open: async () => { calls.push('open'); return { ok: true, note: 'opened' }; },
++    close: async () => { calls.push('close'); return { ok: true }; },
++  };
++  const handle = createSettingsApi({ lifecycle });
++  server = http.createServer((req, res) => {
++    handle(req, res, undefined).catch((err) => {
++      res.writeHead(500);
++      res.end(String(err?.message ?? err));
++    });
++  });
++  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
++  base = `http://127.0.0.1:${server.address().port}${ROUTE_PREFIX}`;
++});
++
++after(() => {
++  server?.close();
++  if (home) rmSync(home, { recursive: true, force: true });
++});
++
++async function getLifecycle() {
++  const res = await fetch(`${base}/lifecycle`);
++  return { code: res.status, body: await res.json() };
++}
++
++async function act(action) {
++  const res = await fetch(`${base}/lifecycle`, {
++    method: 'POST',
++    headers: { 'content-type': 'application/json' },
++    body: JSON.stringify({ action }),
++  });
++  return { code: res.status, body: await res.json() };
++}
++
++test('GET /lifecycle 回状态、流水路径与空记录', async () => {
++  const { code, body } = await getLifecycle();
++  assert.equal(code, 200);
++  assert.equal(body.ok, true);
++  assert.equal(body.status.capture.running, false);
++  assert.equal(body.journal.path, join(home, 'see-now', 'lifecycle.jsonl'));
++  assert.deepEqual(body.journal.events, []);
++});
++
++test('POST /lifecycle start 落到生命周期回调并写一条记录', async () => {
++  const { code, body } = await act('start');
++  assert.equal(code, 200);
++  assert.equal(body.ok, true);
++  assert.equal(body.action, 'start');
++  assert.deepEqual(calls, ['start']);
++  assert.equal(body.journal.events[0].action, 'start');
++  assert.equal(body.journal.events[0].note, 'screen');
++  assert.equal(body.status.capture.running, true);
++});
++
++test('window-open / stop 都走同一条路由', async () => {
++  await act('window-open');
++  await act('stop');
++  const { body } = await getLifecycle();
++  assert.deepEqual(calls, ['start', 'open', 'stop']);
++  assert.deepEqual(body.journal.events.map((event) => event.action), ['stop', 'window-open', 'start']);
++});
++
++test('未知 action 是 400，不会误写', async () => {
++  const before = (await getLifecycle()).body.journal.events.length;
++  const { code, body } = await act('nonsense');
++  assert.equal(code, 400);
++  assert.equal(body.ok, false);
++  assert.equal((await getLifecycle()).body.journal.events.length, before);
++});
++
++test('clear 只清流水，配置不碰', async () => {
++  const { code, body } = await act('clear');
++  assert.equal(code, 200);
++  assert.equal(body.ok, true);
++  assert.deepEqual(body.journal.events.map((event) => event.action), ['clear']);
++});
+diff --git a/test/lifecycle-store.test.mjs b/test/lifecycle-store.test.mjs
+new file mode 100644
+index 0000000..64bd6cc
+--- /dev/null
++++ b/test/lifecycle-store.test.mjs
+@@ -0,0 +1,59 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { appendLifecycle, clearLifecycle, lifecyclePath, readLifecycle } from '../src/lifecycle-store.mjs';
++
++test('生命周期流水只记动作，最新在前，可清空', (t) => {
++  const home = mkdtempSync(join(tmpdir(), 'see-now-life-'));
++  t.after(() => rmSync(home, { recursive: true, force: true }));
++  const env = { ...process.env, DSH_HOME: home };
++
++  appendLifecycle({ action: 'start', ok: true, note: 'screen' }, env);
++  appendLifecycle({ action: 'stop', ok: false, note: 'no-session' }, env);
++
++  const { path, events } = readLifecycle({ env });
++  assert.equal(path, lifecyclePath(env));
++  assert.equal(path, join(home, 'see-now', 'lifecycle.jsonl'));
++  assert.equal(events.length, 2);
++  assert.equal(events[0].action, 'stop');
++  assert.equal(events[0].ok, false);
++  assert.equal(events[1].action, 'start');
++  assert.equal(events[1].note, 'screen');
++
++  clearLifecycle(env);
++  assert.deepEqual(readLifecycle({ env }).events, []);
++});
++
++test('坏行不会让整份记录读不出来', (t) => {
++  const home = mkdtempSync(join(tmpdir(), 'see-now-life-bad-'));
++  t.after(() => rmSync(home, { recursive: true, force: true }));
++  const env = { ...process.env, DSH_HOME: home };
++  appendLifecycle({ action: 'start', ok: true }, env);
++  const path = lifecyclePath(env);
++  writeFileSync(path, `${readFileSync(path, 'utf8')}not-json\n`, 'utf8');
++  const { events } = readLifecycle({ env });
++  assert.equal(events.length, 1);
++  assert.equal(events[0].action, 'start');
++});
++
++// 面板在调试页每 1.5 秒读一次：只读尾巴，但不能因此少一条或多出半截行。
++test('limit 只返回最近几条，且从文件尾部读起', (t) => {
++  const home = mkdtempSync(join(tmpdir(), 'see-now-life-limit-'));
++  t.after(() => rmSync(home, { recursive: true, force: true }));
++  const env = { ...process.env, DSH_HOME: home };
++
++  // 每条都带一段注释，把总长撑过单次读的预算，逼出「从中间切进来」的分支。
++  for (let i = 1; i <= 300; i += 1) {
++    appendLifecycle({ action: 'start', ok: true, note: `#${i} ${'x'.repeat(200)}` }, env);
++  }
++
++  const { path, events } = readLifecycle({ limit: 5, env });
++  assert.equal(path, lifecyclePath(env));
++  assert.equal(events.length, 5);
++  assert.deepEqual(events.map((event) => event.note.split(' ')[0]), ['#300', '#299', '#298', '#297', '#296']);
++
++  // 半截行不能变成一条坏记录混在里面
++  assert.ok(events.every((event) => typeof event.action === 'string'));
++});

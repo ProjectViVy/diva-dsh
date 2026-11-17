@@ -14,8 +14,9 @@ import { join } from 'node:path'
 import {
   ARTIFACTS, BROKEN, DSH_JS, OK, PROFILE, ROOT, STATE_SHARE, SERVICE_URL,
   alive, clearStaleLock, fail, lockPath, manuallyStopped, markManuallyStopped, outcome,
-  partErrors, processes, pruneLogs, recordPid, report, runtimeUp, serving, sleep, state,
+  home, partErrors, processes, pruneLogs, recordPid, report, runtimeUp, serving, sleep, state,
 } from './lib/vivy.mjs'
+import { applyReset, pendingRequest } from '../plugins/dsh-superagent-reset/lib/reset.mjs'
 import { ensureRootWorkspace, panelLinkFromLogs, prepareLocalDirectories, sourceRuntimeInvocation, verifyPinnedSubmodule } from './lib/source.mjs'
 import { ensureSurfcoreAdapter } from './lib/surfcore.mjs'
 import { componentMigrationReady } from './lib/component-setup.mjs'
@@ -204,6 +205,13 @@ async function start() {
     }
     mkdirSync(ARTIFACTS, { recursive: true })
     pruneLogs()
+    // 「设置 → 通用 → 初始化 Superagent 会话」排的队在这里执行：此刻 host 还没起来，
+    // 那些文件没人打开，rename 才搬得动。搬失败就留着标记，下次启动再试一次。
+    if (pendingRequest(home()) !== null) {
+      const result = applyReset(home(), new Date().toISOString())
+      if (result.ok) console.log(`Superagent reset: moved ${result.moved.length} item(s) to ${result.backup}`)
+      else console.error(`Superagent reset failed for ${result.failures.map(item => item.path).join(', ')}; it stays queued for the next start.`)
+    }
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-')
     const log = join(ARTIFACTS, `vivy-dsh-${PROFILE}-${stamp}-${process.pid}.log`)
     const fd = openSync(log, 'a')
