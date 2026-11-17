@@ -360,7 +360,7 @@ test('voice mapping validation follows the selected pack and supports explicit c
     const pack = join(dir, 'packs', id); mkdirSync(pack, { recursive: true })
     writeFileSync(join(pack, 'config.toml'), `[voice.characters]\n${name} = "voice-id"\n`)
   }
-  assert.deepEqual((await service.rules()).ttsCharactersByRoute, { local: ['local-name'], cloud: ['cloud-name'] })
+  assert.deepEqual((await service.rules()).ttsCharactersByRoute, { local: ['local-name'], cloud: ['cloud-name'], dashscope: [] })
   await assert.rejects(service.saveRules({ route: 'local', ttsCharacter: 'cloud-name' }), /local-name/)
   await assert.rejects(service.saveRules({ route: 'cloud', ttsCharacter: 'local-name' }), /cloud-name/)
   await assert.rejects(service.saveRules({ route: 'local', ttsCharacter: 'external', allowUnverifiedCharacter: 'true' }), /allowUnverifiedCharacter/)
@@ -387,7 +387,7 @@ test('voice mapping validation preserves existing settings and accepts a custom 
 test('voice rules expose saved mapping names separately for each route', async t => {
   const { dir, service } = make(t)
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ voice: { tts: { route: 'local', character: '当前本地', routeVoiceSelections: { local: { character: '过期本地' }, cloud: { character: '保存的云端' } } } } }))
-  assert.deepEqual((await service.rules()).ttsCharacterByRoute, { local: '当前本地', cloud: '保存的云端' })
+  assert.deepEqual((await service.rules()).ttsCharacterByRoute, { local: '当前本地', cloud: '保存的云端', dashscope: '' })
 })
 
 
@@ -417,7 +417,7 @@ test('voice operator can validate text synthesis through the local bridge withou
 test('voice service lists packs and saves settings independently of SurfCore', async (t) => {
   const { dir, service } = make(t)
   const list = await service.list()
-  assert.deepEqual(list.packs.map(pack => pack.id), ['voice-local', 'voice-cloud'])
+  assert.deepEqual(list.packs.map(pack => pack.id), ['voice-local', 'voice-cloud', 'voice-dashscope'])
   assert.equal(list.packsDir, join(dir, 'packs'))
   await service.saveRules({ triggerWho: 'owner', maxPerMinute: 3, aiEnabled: true, route: 'cloud' })
   const rules = await service.rules()
@@ -2134,7 +2134,7 @@ test('voice management requires an authenticated local session', async (t) => {
     return { status, data }
   }
   assert.equal((await request('/dsh-voice/api/voice/packs', false)).status, 401)
-  assert.equal((await request('/dsh-voice/api/voice/packs', true)).data.packs.length, 2)
+  assert.equal((await request('/dsh-voice/api/voice/packs', true)).data.packs.length, 3)
   assert.equal((await request('/dsh-voice/api/voice/packs/cloud-config?id=..%2F..%2Foutside', true)).status, 400)
 })
 

@@ -20,6 +20,7 @@
     "setup:surfcore-adapter": "node scripts/setup-surfcore-adapter.mjs",
     "setup:third-party": "node scripts/setup-third-party.mjs",
     "setup:user-plugins": "node scripts/setup-user-plugins.mjs",
+    "setup:capability-hub": "node scripts/setup-capability-hub.mjs",
     "start": "node scripts/vivy-dsh.mjs start",
     "stop": "node scripts/vivy-dsh.mjs stop",
     "restart": "node scripts/vivy-dsh.mjs restart",
