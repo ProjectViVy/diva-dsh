@@ -781,6 +781,8 @@
 
 ## Archive Index
 
+- **DV-WS-005 二次推送核对（done，2026-11-18）** → [v0.5.0 日志](docs/logs/2026-11-workspace-upload/v0.5.0-push/summary.md)。owner: lead；v0.4.0 之后的世界网关语音/模思工作已推送（voice `6cebdf6`、capability-hub `1fb9bc3`、根仓 `52d18ab`+`d7bc24b`+`e2d0a7f`），superagent pin 由本地独有的 `6337fc8` 改为上游同树的 `8c32a9d`。27 个仓本地独有提交全 0。未同步：核对期间另一会话正在写的 ASR 接线（未提交、无测试），没有动。下一步：ASR 落定后再做一轮同步。
+
 - **DV-WS-004 分仓推送（done，2026-11-17）** → [v0.4.0 日志](docs/logs/2026-11-workspace-upload/v0.4.0-push/summary.md)。owner: codex-20261117-push；11 个自有子仓已推送，Harness/Evolution 使用 codex/native-refinement-20261117，其余 main；25 个固定 SHA 远端 fetch 成功。根仓源码 main 已由 a431930 快进至 aa0112e，随后补推本轮文档回执。下一步：按已有任务执行完整 setup 与宿主重启验收；无强推，未改变既有测试限制。
 
 - **DV-WS-003 整理并分仓提交现有成果（done，2026-11-17）** → [v0.3.0 日志](docs/logs/2026-11-workspace-upload/v0.3.0-local-commits/summary.md)。owner: codex-20261117-commits；11 个子仓 12 笔、根仓 8 笔本地提交，3 个新插件已登记子模块，25 个 gitlink 与本机 HEAD 一致。根全量进程级关闭 autocrlf 后 1475/1465/0/10；Harness 两项 Windows 权限断言仍失败，Laputa 首轮超时后完整复跑通过。下一步：用户要求上传时先推送各子仓再推根仓；完整 setup 与重启验收另行执行。本轮未推送。
