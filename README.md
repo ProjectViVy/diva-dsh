@@ -56,7 +56,7 @@ flowchart LR
 
 ## 特性一览
 
-- **源码级启动器** —— `npm run setup && npm start` 在一个目录里把 DSH、Superagent 与全部插件装好、编译好、连起来；不写系统环境变量，不装全局命令。
+- **源码级启动器** —— `npm run setup` 构建 DSH、Superagent 与自有插件；再用 `npm run setup:third-party` 构建并注册社区插件，最后 `npm start`。全部留在项目目录，不写系统环境变量，不装全局命令。
 - **人格（Laputa）** —— 六份手写 Markdown 注入系统提示词（`MISSION` / `IDENTITY` / `RELATIONSHIP` / `REDLINE` / `DREAM` / `DARK`），带安全读取边界、版本历史与来源标注。
 - **分层记忆** —— 会话与社交记忆（记忆卡、衰减、QQ / B 站同步）与长期语义记忆（SQLite + sqlite-vec 向量检索、记忆宫殿、跨项目隧道、时序知识图谱、日记）分工明确，可分别停用。
 - **语音与识别** —— 本地 TTS、语音包安装与管理、带账本的发送编排（`prepare-send` / `commit-send` / `abort-send`），以及本地 SenseVoice 语音识别；界面统一收在「设置 → 语音」。
@@ -83,7 +83,7 @@ diva-dsh/
 
 ### 模块仓库
 
-本仓库共 18 个 submodule：3 个上游源码 + 15 个本地模块。本地模块各自建仓在 <https://github.com/vivy-dsh> 下，
+本仓库共 25 个 submodule：3 个上游源码 + 20 个自有模块 + 2 个第三方社区插件。自有模块各自建仓在 <https://github.com/vivy-dsh> 下，
 **移植类模块的版权归上游原作者**，本仓库只做 DeepSeek Harness / 本项目的移植与适配。
 
 克隆时用 `git clone --recurse-submodules <仓库地址>`；已有目录里用 `git submodule update --init --recursive`。
@@ -107,17 +107,24 @@ diva-dsh/
 | `plugins/dsh-surfcore-adapter` | `dsh-surfcore-adapter` | 本项目原创（配合 Mieksido/surfcore） | — | — |
 | `plugins/dsh-vivy-studio` | `dsh-vivy-studio` | mastwet/vivy-studio；内嵌 LXGW WenKai 字体 | mastwet / LXGW | SIL OFL |
 | `plugins/dsh-vivy-tone` | `dsh-vivy-tone` | 本项目原创 | — | — |
+| `plugins/capability-hub` | `word-gateway` | 本项目原创；外部能力接线 | — | 见模块许可 |
+| `plugins/dsh-see-now` | `dsh-see-now` | 看屏幕与生命周期面板 | — | 见模块许可 |
+| `plugins/dsh-daily` | `dsh-daily` | 本项目原创；内含 genui 渲染子集 | dsh-external（genui 子集） | MIT |
+| `plugins/dsh-superagent-reset` | `dsh-superagent-reset` | 本项目原创；会话备份与初始化 | — | MIT |
+| `plugins/dsh-ui-scope` | `dsh-ui-scope` | 本项目原创；genui 会话范围限制 | — | MIT |
+| `third-party/dsh-context` | bowenliang123/dsh-context | 第三方社区插件 | 见模块许可 | 见模块许可 |
+| `third-party/genui` | vivy-dsh/dsh-genui | omdsh-dev/dsh-genui | dsh-external | MIT |
 | `stage-app` | `dsh-stage-app` | 本项目原创；`demo/` 为 Live2D 官方示例模型 | Live2D Inc.（仅 `demo/`、`vendor/`） | 专有 |
 
 ### 公开分发前的授权注意事项
 
-项目里有两处资产**不能随仓库分发**，仓库里已经做了排除，改动时不要把它们加回来：
+以下三类资产**不能随仓库分发**，工作树已做排除，改动时不要把它们加回来；排除规则不会移除旧 Git 历史中的文件：
 
 - **Live2D Cubism Core**（`stage-app/vendor/live2dcubismcore.min.js`）是 Live2D 的专有 Core，
   `.gitignore` 已排除；使用者需按 Live2D 授权条款自行获取后放入 `vendor/`，舞台缺它时会明确报错而不是白屏。
 - **鲸鱼娘模型本身**（本机在 `$DSH_HOME/live2d/models/`）同样**不入库**。它由使用者自行下载后通过
   `node scripts/import-model.mjs <模型目录>` 导入；仓库只提供导入与校验，不提供模型。
-- `stage-app/demo/Hiyori/` 是 Live2D 官方示例模型，版权归 Live2D Inc.；使用与再分发受 Live2D 条款约束。
+- `stage-app/demo/Hiyori/` 是 Live2D 官方示例模型，版权归 Live2D Inc.；已取消跟踪，需使用者自行获取，使用受 Live2D 条款约束。
 - `dsh-mempalace` 的上游 `pi-mempalace` 仓库**没有 LICENSE 文件**（GitHub 许可证检测为 `null`）。
   没有许可文件时默认「保留所有权利」，若要继续公开分发，建议先与上游确认。
 
@@ -133,8 +140,26 @@ diva-dsh/
 
 ```sh
 npm run setup
+npm run setup:third-party
 npm start
 ```
+
+### 开发服务器
+
+首次运行先执行 `npm run setup` 和 `npm run setup:third-party`。开发时在根目录执行：
+
+```sh
+just                     # 输出使用教程
+just dev                 # 构建、监听 DSH 源码并启动前台服务
+just dev --skip-build     # 已有构建产物时跳过首次全量构建
+node scripts/dev.mjs      # 不通过 just，直接运行同一脚本
+```
+
+使用项目内的依赖、`DSH_HOME` 和 `superagent-local` profile，无需全局 pnpm。
+若后台服务正在运行，先执行 `npm run stop`；开发服务在终端前台运行，按 Ctrl+C 退出。
+面板地址以启动输出为准。此入口监听 DSH 自身源码；本地插件仍需各自构建。
+可用 `just dev --help` 查看参数；`--poll=1000` 调整源码轮询间隔，其他参数转交 DSH。
+开发监听期间不要同时执行 `npm run setup` 或另一轮构建，以免同时写构建产物。
 
 `setup` 会按主仓库记录的提交初始化 Git submodule，在项目内安装 DSH、Superagent 和 SurfCore 的依赖、安装记忆宫殿的 SQLite 原生依赖、编译所需源码，并创建独立配置。运行中的服务需要先用 `npm run stop` 停止，才能重新执行 `setup`。也可以在克隆时使用 `git clone --recurse-submodules <仓库地址>`。
 

@@ -1,0 +1,150 @@
+# 根因定位
+
+用户日志为 6 个 gate 通过、Web build 失败。平台不匹配 WARN 后构建继续，实际失败发生在 esbuild 删除临时输入文件。
+
+独立调用同版本 esbuild：1048500 字符输入通过；1048600 与 1500000 字符输入失败。系统默认临时目录、项目外专用目录、全新临时子目录都失败；延迟交付文件 500ms 也失败。文件不是只读，ACL 包含当前 Administrator FullControl；Node 能删除同一文件。没有足够证据认定是 Defender、具体 ACL 或操作系统安全软件所致。
+
+esbuild JS 在输入超过 1 MiB 时先写临时文件；原生端读取后执行 os.Remove，失败即返回错误。写文件失败时，JS 原有逻辑改用管道传输。上游依据：[esbuild v0.25.12 service.go](https://github.com/evanw/esbuild/blob/v0.25.12/cmd/esbuild/service.go#L1088)。本机依赖代码也核对过。
+
+## 已验证
+
+- 修复前最小 1.5 MB transform 失败；强制走管道的探针通过。
+- 新回归测试在无兼容层时失败；启用 NODE_OPTIONS 兼容层后 1/1 通过，覆盖同步/异步 transform 与普通文件写入。
+- `node --check scripts/dev.mjs`、`node --check scripts/lib/esbuild-pipe.cjs`：通过。
+
+## 运行验证
+
+- `node scripts/dev.mjs`（与 just dev 同一入口）：7 passed / 0 failed / 0 skipped，50.24 秒；Web build 11.94 秒通过。
+- 随后 Vite watch 完成初次重建（built in 4957ms），类型监听报告 0 errors；superagent-local 进程监听本机端口，HTTP 401（鉴权响应）。本轮无相同 remove 错误。
+- 试启动的开发服务与整个监听进程树已按具体 PID 清理，无残留匹配进程。
+- `just`：中文教程正常，退出码 0。
+- `npm test`：退出 1；1351 tests，1225 pass、120 fail、6 skipped、0 cancelled，64.18 秒。新回归测试通过。既有测试债务见 DV-TEST-001，本轮没有对 120 项逐项做变更前后归因；失败名称附下。
+- 完整开发构建日志 `.artifacts/just-dev-fixed.log`；根测试日志 `.artifacts/esbuild-pipe-root-tests.log`（本地缓存，不入库）。
+
+## 未验证
+
+Windows 原生进程删除被拒的更底层原因；浏览器交互和真实终端 Ctrl+C。兼容层绕过已定位的失败路径，不代表更改了系统权限。
+
+## 本轮根测试失败名称
+
+- ✖ QQ alignment scan retries rotation before writing any candidates (5.7801ms)
+- ✖ the internal handler answers the component surface (12.9364ms)
+- ✖ 挂上了（面板 401 = 会话中间件在拦）→ 退出码 0 并给出下一步 (935.1446ms)
+- ✖ 没挂上（asr 404 而对照 voice 401）→ 退出码 1 且点名"重启" (703.7225ms)
+- ✖ 路由在了但 connection 服务缺失（503）→ 不许说成"没挂上" (828.81ms)
+- ✖ 插件入口导出契约：名字、两个必需服务、apply (0.2681ms)
+- ✖ project loader exposes message feed pagination without changing IDs (202.3577ms)
+- ✖ DM peek runs through the project loader without advancing either cursor mode (248.8225ms)
+- ✖ owner DM peek does not advance the cursor when the latest message is from self (125.9682ms)
+- ✖ initializing or updating all-person DM mode preserves the owner cursor (615.1924ms)
+- ✖ malformed DM session responses cannot initialize the all-person baseline (789.589ms)
+- ✖ invalid DM cursor contents are preserved by polling, baseline and acknowledgement (190.6301ms)
+- ✖ DM baseline preserves the previous cursor if atomic publication fails (591.8385ms)
+- ✖ migrated Bilibili watch history combines platform records with independent memory through the real loader (184.213ms)
+- ✖ migration copies public feed and legacy session inputs into the memory inbox and records verified sources (932.6094ms)
+- ✖ moving a project rewrites only its own pinned profile links and matching lock specifiers (24.8814ms)
+- ✖ profile dependency relocation resumes after interruption between its two files (172.6484ms)
+- ✖ profile dependency relocation leaves unrelated links sharing an old path prefix untouched (14.7535ms)
+- ✖ relocated profile links pass a real offline frozen pnpm install (2399.0069ms)
+- ✖ paths default inside the project home and only accept absolute overrides (1.795ms)
+- ✖ the state directory is 0700, the database 0600, and durability pragmas are set (29.6361ms)
+- ✖ the declared append-only and domain guards all exist in the schema (29.2008ms)
+- ✖ updating or deleting a stored evidence row is refused by the database itself (32.2734ms)
+- ✖ a snapshot backup is readable, private, and refused while writes are still pending (528.6477ms)
+- ✖ recordEvidence stores one row and returns its content address (28.1381ms)
+- ✖ replaying the same evidence is idempotent even with a different clock (32.4994ms)
+- ✖ a dedupe key reused with different content conflicts instead of overwriting (33.2762ms)
+- ✖ a dedupe key is derived when absent and a ticket stays optional (699.716ms)
+- ✖ evidence must carry a locator and a summary (51.1884ms)
+- ✖ derived material must cite evidence that is already stored (30.6908ms)
+- ✖ a record over the configured ceiling is refused before it reaches the file (26.5455ms)
+- ✖ an unusable subject or a foreign subject closes the loop with zero rows (36.9402ms)
+- ✖ a proposal needs a ticket and a candidate that belongs to one owner (34.2874ms)
+- ✖ the candidate body stays outside the store and only its digest is recorded (36.426ms)
+- ✖ replaying a proposal is idempotent and rewriting its head version conflicts (538.8466ms)
+- ✖ a proposal must stand on stored evidence, and derived material alone is not enough (72.466ms)
+- ✖ the ticket of a proposal may not disagree with the evidence it cites (49.1626ms)
+- ✖ advancing a proposal needs the current digest and appends a version row (268.9362ms)
+- ✖ an unknown or terminal proposal cannot be advanced (63.8185ms)
+- ✖ a validation binds to the proposal head it actually checked (40.6536ms)
+- ✖ the verdict must be stated, and a failed one is still kept (34.8232ms)
+- ✖ a publish needs a passed validation bound to the proposal head (43.5056ms)
+- ✖ the library itself refuses a live publish without a matching passed validation (32.1464ms)
+- ✖ an owner without versioned writes keeps the candidate a proposal (669.9086ms)
+- ✖ a live publication must carry the owner reference and only its declared fields (1097.4949ms)
+- ✖ publishing marks the proposal published and appends one live row (1677.5902ms)
+- ✖ one validation supports exactly one publication (36.6316ms)
+- ✖ a stale expectedLivePublicationId conflicts and writes nothing (42.4398ms)
+- ✖ a second live row for one asset is refused by the library (35.1414ms)
+- ✖ rollback appends a new live row and keeps every historical row (916.2501ms)
+- ✖ publish-knowledge commits through the owner and records its reference (31.1088ms)
+- ✖ generic publish and rollback refuse MemPalace without the owner API (36.7167ms)
+- ✖ rollback-knowledge rolls the owner back and records the new revision (37.9067ms)
+- ✖ a rolled-back owner revision is never recorded as a live publication (27.5268ms)
+- ✖ an expectedLiveDigest that disagrees with the live publication conflicts before the owner commits (36.2062ms)
+- ✖ publish-knowledge forwards the caller anchor so the store re-checks it after the owner commit (40.3895ms)
+- ✖ a failed rollback record is reconciled by retrying with the same commitKey (48.1513ms)
+- ✖ a failed owner reference compensates the commit and records nothing (34.1755ms)
+- ✖ an owner RPC error is reconciled through status, never retried (36.3583ms)
+- ✖ verifyHistory recomputes digests, links and guards (38.9833ms)
+- ✖ verifyHistory reports a record whose stored digest no longer matches (953.7696ms)
+- ✖ getRecord reads the head version and can replay the whole history (236.1237ms)
+- ✖ listByTicket groups every kind that shares one ticket (38.8638ms)
+- ✖ a ticket query walks the index instead of scanning the history (31.9552ms)
+- ✖ records of another subject never surface in a query (32.5044ms)
+- ✖ listing proposals filters by state and clamps the page size (38.3843ms)
+- ✖ listing publications and validations keeps one row per record (70.3996ms)
+- ✖ GET /store describes the database without ever failing the panel (27.8715ms)
+- ✖ the record routes keep the loopback, origin and session guards (28.3419ms)
+- ✖ POST /evidence and GET /evidence round-trip one record (475.4902ms)
+- ✖ the write routes reject junk bodies and stale expectations (39.718ms)
+- ✖ the panel can follow one ticket end to end through the API (41.515ms)
+- ✖ GET /verify sweeps the store and clamps its budget (33.7166ms)
+- ✖ a body over the ceiling is refused with 413 and nothing is written (30.8116ms)
+- ✖ POST /publish-knowledge and /rollback-knowledge use the configured owner (32.7502ms)
+- ✖ the internal endpoint opens the store lazily and only behind the component token (55.1311ms)
+- ✖ a refused cross-domain edit becomes one Evidence and one Proposal, digest only (41.1754ms)
+- ✖ every owned kind in one refinement is handed over separately (55.4041ms)
+- ✖ a missing request id writes the ledger, raises nothing, and creates no Proposal (524.2871ms)
+- ✖ the pending ledger drains on the next forward and the file is deleted (34.2691ms)
+- ✖ replaying the same candidate adds no second row (36.8097ms)
+- ✖ an unavailable Evolution defers the candidate that carries a request id and load drains it (44.4747ms)
+- ✖ 路径安全：越界、编码绕过、非法编码都拿不到文件 (1.3811ms)
+- ✖ 工具层：schema 能被宿主的真校验器接受 (0.541ms)
+- ✖ QQ public sync retries a snapshot when the bridge rotates the feed during reading (11.1133ms)
+- ✖ memory batch actions reject oversized selections instead of silently ignoring records (418.2065ms)
+- ✖ Bilibili network refresh does not block unrelated memory writes (801.6558ms)
+- ✖ memory names MemPalace only in the single component call (8.3624ms)
+- ✖ MemPalace retires identity.txt only in the one-time migration (27.8926ms)
+- ✖ MemPalace no longer reads identity.txt (5.7283ms)
+- ✖ the record layer is the only place that opens a database (2.2981ms)
+- ✖ the mutation scanner detects a synthetic violation (435.8772ms)
+- ✖ standalone mempalace installation confines caches and temporary files to the project (4.2859ms)
+- ✖ a fresh profile receives a local state directory and requested port (7.1618ms)
+- ✖ setup relocates its own profile state path after the whole project moves (11.2774ms)
+- ✖ a build patch is restored even when the build fails (118.4631ms)
+- ✖ the build patch handles mixed line endings across source files (1016.3803ms)
+- ✖ setup initializes an empty nested submodule at the recorded commit (12354.2362ms)
+- ✖ multiple build patches apply in order and restore in reverse (1049.7645ms)
+- ✖ a later patch failure restores the earlier patches (1769.2285ms)
+- ✖ the pinned SurfCore sources carry the ingest anchors exactly once and stay untouched (1218.3938ms)
+- ✖ a moved project can rebuild its own SurfCore adapter links (7391.1503ms)
+- ✖ Bilibili night planning honors zero limits and appends events to the local diary log (619.5318ms)
+- ✖ Bilibili selftest reads the project configuration and fails when dependency checks fail (108.1838ms)
+- ✖ Bilibili dependency probe preserves existing files and cleans up its own temporary directory (389.0614ms)
+- ✖ the actual SurfCore loader applies the role-free alignment brief transformation (1038.376ms)
+- ✖ SurfCore startup restores only globally enabled extension activation without starting platforms (104.6476ms)
+- ✖ Bilibili wake prompt uses project-local tool and diary paths without role cards (6.2508ms)
+- ✖ transformed SurfCore host starts offline and rejects removed management routes (1212.5273ms)
+- ✖ resolves the state directory the same way for the plugin and the CLI (2.3532ms)
+- ✖ configuration (3.2141ms)
+- ✖ voice core audio library resolution stays inside the library (601.753ms)
+- ✖ installer child uses project-local home, temporary and package cache paths (2675.3673ms)
+- ✖ cancelling the installer also stops subprocesses launched by its bootstrap (1979.3739ms)
+- ✖ a startup timeout reports cleanup failure and keeps the workers tracked (3.0725ms)
+- ✖ offline voice pack import preserves its source and repairs paths in the final project directory (1204.2037ms)
+- ✖ offline import accepts the project-local Python layout produced by online installation (81.3329ms)
+- ✖ a bundled voice pack repairs its paths after moving the project directory (12.5852ms)
+- ✖ synthesis talks to the selected loopback engine and stores audio inside its own state directory (6.0123ms)
+- ✖ voice preview uses the selected local route and writes only into the voice cache (10.8802ms)
+- ✖ 宿主半边满足 Loader 契约（设置页逻辑全在浏览器端） (0.2385ms)

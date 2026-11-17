@@ -1,15 +1,15 @@
 # AutoDream 与手动 refine
 
-AutoDream 由 `dsh-evolution` 在运行时启动就绪后检查一次。默认要求距离上次完成的自动或手动精炼至少 24 小时，并且有至少 5 个新增会话、10 条去重的一手事件。设置位于「进化 → AutoDream」。插件热重载不重复触发，也没有常驻轮询。
+AutoDream 由 `dsh-evolution` 在运行时启动就绪后检查一次，之后每 15 分钟再检查。默认要求距离上次精炼尝试（成功的或失败的）至少 24 小时，并且有至少 5 个新增会话、10 条去重的一手事件。设置位于「进化 → AutoDream」。插件热重载不会重复起定时器。
 
-满足条件只会提交普通 Superagent Input。自动请求的 `human` 为 `false`；Policy 可以拒绝或延迟。只有拿到运行中 Ticket 的 Dream 执行器才能处理该请求：它是一个没有 shell、没有文件工具的专用执行模式，只用 `dream_refine` 工具读冻结材料并提交计划（见 [Dream 执行器](dream-executor.md)）。手动 refine 跳过数量和冷却门槛，但使用同一候选与批准流程。
+满足条件后不经过任何准入：插件先冻结材料、写入请求日志，再用与上游 webhook 相同的方式自建一个会话（解析 preset → 建 Workspace 并挂载 → `agents.create` → 只读权限 → 命名 → 下发首条消息）。会话跑在自己的 agent preset「自动精炼」（`dsh-autodream`）里，没有 shell、没有文件工具，只用 `dream_refine` 读冻结材料并提交计划（见 [Dream 执行器](dream-executor.md)）。手动 refine 跳过数量和冷却门槛，但使用同一候选与批准流程；两种请求同一时刻只允许一个在跑。
 
 ```mermaid
 flowchart TD
-  A[启动检查 / 手动 refine] --> B[普通 Input]
-  B --> C[Superagent Policy / Eval]
-  C --> D[Dream 执行器 Ticket（无 shell / 无文件工具）]
-  D --> E[claim：冻结原始事件引用]
+  A[定时检查 / 手动 refine] --> B[门槛：冷却 + 会话数 + 一手证据]
+  B --> C[冻结快照并写入请求日志]
+  C --> D[自建精炼会话（自动精炼模式，无 shell / 无文件工具）]
+  D --> E[claim：建立运行记录，冻结原始事件引用]
   E --> F[evidence 分页读材料 + 逐会话事实卡]
   F --> G[plan：内联提交计划]
   G --> H[execute：暂存候选，等待人工决定]
@@ -26,20 +26,20 @@ flowchart TD
 
 ## Executor 工作流程
 
-`npm run setup:components` 安装受管理的 `diva-dream` skill；已有同名用户 skill 会被保留并报告冲突。Input 正文只说明用哪个工具，不再给 CLI 路径。
+`npm run setup:components` 安装受管理的 `diva-dream` skill；已有同名用户 skill 会被保留并报告冲突。首条消息只说明用哪个工具，不再给 CLI 路径。
 
-Dream 执行器按顺序调用 `dream_refine` 的六个命令：`claim`、`evidence`、`baseline`、`plan`、`execute`、`status`。工具自己解析 Ticket → 起源 Input → 冻结请求，模型不需要也不允许传请求 ID 或 Ticket ID；每次调用都由 `authorize()` 复核 Ticket 存活、主体和归属。
+Dream 执行器按顺序调用 `dream_refine` 的六个命令：`claim`、`evidence`、`baseline`、`plan`、`execute`、`status`。工具用调用它的会话 ID 解析冻结请求，模型不需要也不允许传会话 ID；请求 ID 只在同一会话可能对应多个请求时用于消歧。每次调用都由 `authorize()` 复核请求存活、主体和归属。
 
-- `claim` 只返回每会话的引用条数，不返回材料本身。
-- `evidence` 不带 `session` 时列出会话；带 `session/offset/limit` 返回一页引用（默认 30，最多 80），带 `ref` 返回单条事件全文（≤6 kB）。材料按请求缓存在内存里，分页不会重复扫描 4 MB。
+- `claim` 只返回每会话的引用条数，不返回材料本身；它同时建立运行记录（2 小时时限）。
+- `evidence` 不带 `session` 时列出会话；带 `session/offset/limit` 返回一页引用（默认 30，最多 80），带 `ref` 返回单条事件全文（≤6 kB）。材料按请求缓存在该会话的工具里，分页不会重复扫描 4 MB。
 - `plan` 直接接收计划对象，写入日志后由所有者暂存候选；计划在接受后不可变。
 - `execute` 只把候选交给所有者，然后进入等待人工批准；它不会验证、不会发布、也不会写入可发现的技能目录。
 
-计划格式见 [diva-dream](../skills/diva-dream/SKILL.md)，执行模式边界见 [Dream 执行器](dream-executor.md)。Ticket 必须实际关联该请求的 Input，且仍有运行中的 Assignment。不产生修改也可以完成：提交实际分析过的事实卡和 coverage，以及空候选数组。成功无修改也更新冷却时间。调度、取消和恢复归 Superagent，Dream 只记录业务阶段。`scripts/dream-refine.mjs` 保留给有 shell 的人调试，不再下发给 Dream 会话。
+计划格式见 [diva-dream](../skills/diva-dream/SKILL.md)，执行模式边界见 [Dream 执行器](dream-executor.md)。不产生修改也可以完成：提交实际分析过的事实卡和 coverage，以及空候选数组。成功无修改也更新冷却时间。超过 2 小时未完成的请求被标为超时、运行标为受阻并释放会话；不会自动重试。`scripts/dream-refine.mjs` 保留给有 shell 的人调试，不下发给 Dream 会话。
 
 ## 技能候选的批准
 
-技能候选保存在 `$DSH_HOME/harness/skill-owner`，位于技能发现目录之外。批准界面在「进化 → 审批」标签的待批列表里：展示技能 ID、来源工单、证据引用、与当前版本的逐行差异（`SKILL.md` 与附件分别展示）、附件全文，以及「批准并发布」「拒绝」。
+技能候选保存在 `$DSH_HOME/harness/skill-owner`，位于技能发现目录之外。批准界面在「进化 → 审批」标签的待批列表里：展示技能 ID、来源精炼请求、证据引用、与当前版本的逐行差异（`SKILL.md` 与附件分别展示）、附件全文，以及「批准并发布」「拒绝」。
 
 - 批准与发布是一次提交：先写发布状态，再写不可变的批准回执。发布失败（例如基线已被别的版本推进）时什么都不记录，候选留在待批列表；不会出现「已批准但不可见」的候选。
 - 发布前再次校验审阅时的 bundle 摘要仍与候选一致；成功即发布，provider 以 rank 390 让新版本对所有会话可见；已列出的旧定位器继续读旧版本。

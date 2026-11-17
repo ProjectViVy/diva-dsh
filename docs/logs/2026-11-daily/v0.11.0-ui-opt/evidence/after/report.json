@@ -1,0 +1,20 @@
+[
+  {
+    "file": "full-1024x800.png",
+    "state": "full",
+    "size": "1024x800",
+    "zoom": 1,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": []
+  },
+  {
+    "file": "full-390x844.png",
+    "state": "full",
+    "size": "390x844",
+    "zoom": 1,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": []
+  }
+]

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dsh-daily UI 复核预览</title>
+<!-- 只为了在真 Chrome 里看像素：diva 皮肤的纸面背景 + 真 React + 真 client.js。
+     会话与今日卡是本地 fixture（只读，不影响宿主）；client.js 直接引用仓库里的当前文件，
+     改完刷新即见。 -->
+<style>
+  :root {
+    --dsw-alias-bg-base: #fffdfa;
+    --dsw-alias-bg-layer-1: #ffffff;
+    --dsw-alias-bg-layer-2: #fbf6f1;
+    --dsw-alias-bg-layer-3: #f6f0ea;
+    --dsw-alias-brand-primary: #ea5560;
+    --dsw-alias-brand-text: #cf3f63;
+    --dsw-alias-label-primary: #241c16;
+    --dsw-alias-label-secondary: #6f6055;
+    --dsw-alias-label-tertiary: #8d7c70;
+    --dsw-specific-bubble: #fdeef1;
+    --dsw-specific-sidebar-fill: #fdf4ef;
+    --diva-gradient: linear-gradient(135deg, #ff9538 0%, #ff6f61 52%, #ff5c8a 100%);
+  }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(120% 80% at 12% 0%, #fff7ee 0%, transparent 62%),
+      radial-gradient(90% 70% at 90% 12%, #f6eef9 0%, transparent 60%),
+      #fffdfa;
+    color: #241c16;
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    text-wrap: pretty;
+  }
+  #app { height: 100vh; min-height: 0; }
+  #app > div { height: 100%; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="../../../../../deepseek-harness/node_modules/.pnpm/react@18.3.1/node_modules/react/umd/react.development.js"></script>
+<script src="../../../../../deepseek-harness/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/umd/react-dom.development.js"></script>
+<script>
+  window.module = { exports: {} };
+  window.__ModuleLoader__ = { load(spec) { window.__dailySpec = spec } };
+
+  /* ── fixture：会话与今日卡 ─────────────────────────────────────────────── */
+  var query = new URLSearchParams(location.search);
+  var state = query.get('state') || 'full';
+
+  function sourceOf(value) {
+    return { getSnapshot: function () { return value }, subscribe: function () { return function () {} } };
+  }
+
+  var chartSpec = {
+    title: '今天三件事',
+    items: [
+      { type: 'text', content: '三件事的投入大致是 6 : 3 : 2，写作占了大头，调试和复盘各留了一小段。' },
+      { type: 'chart', variant: 'bars', data: [
+        { label: '写作', value: 6 }, { label: '调试', value: 3 }, { label: '复盘', value: 2 }
+      ] }
+    ]
+  };
+  var tableSpec = {
+    title: '收尾清单',
+    items: [
+      { type: 'table', columns: ['项目', '状态'], rows: [['界面密度', '已收'], ['窄窗换行', '待看'], ['空态文案', '已改']] }
+    ]
+  };
+
+  var CHAT_LINES = [
+    { role: 'me', text: '今天先看下界面，整体再顺一遍。' },
+    { role: 'her', text: '好。左侧我按日常的纸墨先摆着，右侧今天有三张卡。\n```dsh-ui\n' + JSON.stringify(chartSpec) + '\n```\n你看密度够不够。' },
+    { role: 'me', text: '右侧的卡片再松一点，别那么挤；日期分区头也可以再清楚一些。' },
+    { role: 'her', text: '收到，先只动样式：纸色、字号、间距和分隔线，内容与结构都不碰。\n```dsh-ui\n' + JSON.stringify(tableSpec) + '\n```\n窄窗我也一并看。' }
+  ];
+
+  var entries = CHAT_LINES.map(function (line, i) {
+    var seq = i + 1;
+    if (line.role === 'me') {
+      return { type: 'event', event: { type: 'user/message', seq: seq, data: { source: { kind: 'user' }, content: [{ type: 'text', text: line.text }] } } };
+    }
+    return { type: 'event', event: { type: 'assistant/message', seq: seq, data: { message: { content: [{ kind: 'text', text: line.text }] } } } };
+  });
+
+  var todayCards = [{"title":"两条降价先停在线索级","body":"Qwen4-Max 与 Gemini 赠金两条降价消息，先停在「线索级」，别急着改额度账本。","nodes":[{"type":"row","wrap":true,"items":[{"type":"badge","label":"线索级","tone":"warn"},{"type":"badge","label":"待核实","tone":"warn"},{"type":"badge","label":"官网原文未现抓","tone":"accent"}]},{"type":"table","columns":["Qwen4-Max","数值"],"rows":[["总参 / 激活","2.4 万亿 / 71B"],["上下文","100 万 token"],["缓存命中","0.5 元 / 百万 tokens"],["Work360 单任务","26.58 → 11.16 元"],["token 消耗","Xhigh −24% · High −35%"],["API 通道","阿里 Token Plan"]]},{"type":"chart","kind":"bars","data":[{"label":"Xhigh","value":24},{"label":"High","value":35}]},{"type":"keyvalue","pairs":[{"key":"赠金额度","value":"300 美元"},{"key":"有效期","value":"90 天内用完"},{"key":"条款","value":"24:00 前注册或升级的账号不受影响"},{"key":"登记","value":"待核实线索"}]},{"type":"callout","tone":"warning","content":"官网原文还没现抓过，数字先记着，不下结论。"}]},{"title":"两个截止：37 分钟与 9 天","body":"一个只剩 37 分钟，一个还有 9 天，差的不是几个小时，是节奏。","nodes":[{"type":"grid","cols":2,"items":[{"type":"stat","label":"Gemini 赠金剩余","value":"37 分钟"},{"type":"stat","label":"Qwen4-Max 预览剩余","value":"9 天"}]},{"type":"callout","tone":"info","content":"把 37 分钟放在 9 天的尺上，Gemini 那条几乎看不见；两个窗口都不需要今晚动手。「24:00 前注册或升级」只是条款条件，不是待办。"}]},{"title":"注意力与两条时间尺度","body":"注意力反复回到算力在哪，而不是坐到桌前做点什么；情报窗口会关，动手不会跑。","nodes":[{"type":"list","items":[{"title":"两条时间尺度","desc":"情报窗口会关，动手不会跑——两件事的时间尺度本来就不一样。"},{"title":"他主动问的","desc":"「你现在跑在云服务器上面吗」——答复是跑在云上，不在那台 Windows 机器里；要碰本机文件和命令行，得靠授权连过去。"},{"title":"同期摆在面前的动手类邀请","desc":"两张星盘，太阳、月亮、上升各写三句；ESP 板子小屏，约 2 小时；最小 ReAct 循环，约半小时。"},{"title":"都是低压力邀请","desc":"抽屉里的板子不会长腿跑掉；今天他自己也说过两段都行、做完就收。"}]}]}];
+  var historyCards = [{"title":"genui 装进项目","body":"从上游 v0.16.0 源码装成第三方插件并 pin 在 commit 上，没给上游打补丁；你给的那个地址是同一仓库的 fork。"},{"title":"日常左栏能画卡了","body":"dsh-ui 围栏在左栏走和右栏同一份渲染器，26 种节点可画；不支持的整节点丢掉，兄弟节点还在，坏 JSON 退回原文。"}];
+
+  function jsonReply(body) { return { ok: true, json: async function () { return body } } }
+
+  window.fetch = async function (url) {
+    var target = String(url);
+    if (target.indexOf('/dsh-daily/api/today') !== -1) {
+      if (state === 'loading') return new Promise(function () {});
+      if (state === 'empty') return jsonReply({ ok: true, date: '2026-11-16', cards: [], html: null, history: [] });
+      return jsonReply({
+        ok: true,
+        date: '2026-11-16',
+        cards: todayCards,
+        html: null,
+        history: historyCards.length ? [{ date: '2026-11-15', cards: historyCards }] : []
+      });
+    }
+    throw new Error('unexpected fetch: ' + target);
+  };
+
+  var listState = { phase: 'ready', ids: ['orchestrator-demo'], byId: { 'orchestrator-demo': { displayTitle: 'dsh-superagent orchestrator', title: 'dsh-superagent orchestrator' } } };
+  var snapshot = { pendingSubmissions: [], running: false, openState: 'ready', blank: false, removed: false };
+  var feed = { entries: state === 'nochat' ? [] : entries, hasMore: false, revision: 1, change: { kind: 'replace', entries: state === 'nochat' ? [] : entries } };
+  var fakeSessions = {
+    list: sourceOf(listState),
+    refresh: async function () {},
+    retain: function () {
+      return {
+        ready: Promise.resolve({ session: sourceOf(snapshot), eventSource: sourceOf(feed) }),
+        release: function () {},
+      };
+    },
+  };
+</script>
+<script src="../../../../../plugins/dsh-daily/client.js"></script>
+<script>
+  var mod = window.__dailySpec.factory(function (name) {
+    if (name === 'react') return window.React;
+    throw new Error('unexpected require ' + name);
+  });
+  var registry = [];
+  mod.apply({
+    effect: function (fn) { fn(); },
+    slots: {
+      inject: function (name, cb) { cb(); },
+      register: function (def, Component) { registry.push({ def: def, Component: Component }); return function () {}; },
+    },
+    inject: function (names, cb) { cb({ sessions: fakeSessions }); },
+    get: function (name) { return name === 'sessions' ? fakeSessions : null; },
+  });
+  var Page = registry.find(function (entry) { return entry.def.name === 'main'; }).Component;
+  var root = window.ReactDOM.createRoot(document.getElementById('app'));
+  root.render(window.React.createElement(Page, {}));
+  window.__dailyReady = true;
+</script>
+</body>
+</html>

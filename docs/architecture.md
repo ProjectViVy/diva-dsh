@@ -75,6 +75,7 @@ Evolution 与 Superagent 发生职责重叠时，以 Superagent 主链为准。E
 - 重写 DSH 的 Session、Agent loop、Workspace 或技能加载器。
 - 建立一个包含所有数据的全局数据库或全局 Recap 单例。
 - 让 Superagent main Session 或某个 worker Session 成为独立人格。
+  （**注（2026-11-14 明确）**：「独立」指另立一个人格身份。main Session 挂载同一份 DIVA 人格与记忆**是项目目的**；worker Session 不挂载。见 `docs/logs/2026-11-daily-research/v0.2.0-card-contract/` 与 `TODOLIST.md` `DV-DOC-016` 修订 4。）
 - 让模型通过提示词绕过授权、审批或资产所有者直接写入。
 - 以管理页面改名代替控制链、数据所有权和恢复语义改造。
 
@@ -358,6 +359,55 @@ ActMem 标记已归档并退出活跃召回
 - ActMem 从 `memory-card-full.jsonl` 的持久化偏移生成 ArchiveIntent（首次启动从 EOF 开始，不回填存量）；投递前先查 `/archive/status`，回执写入 `archive-outbox/receipts.jsonl` 后才删除意图；不同 digest 的冲突项移入隔离目录，永不自动重试。
 - 未拿到回执前，本地 `fullArchivedAt` 只代表本地归档完成，投递状态由 `archiveOut` 单独投影；本地 JSONL 在 E2-S3 前保留为安全网。
 
+### 10.4 多向量空间与云端向量（2026-11-13）
+
+一个数据库可以同时持有多个向量空间：本地 384 维模型与云端（世界网关「向量化」插槽）任意维度并存，互不覆盖。
+
+空间标识与物理布局：
+
+- `space_id = "<source>-<[kind-]model-slug>@<dim>"`，例如 `local-xenova-all-minilm-l6-v2@384`、`cloud-dashscope-text-embedding-v4@512`。
+- 注册表 `embedding_spaces(space_id PK, provider, kind, model, dim, table_name UNIQUE, provenance, created_at)`；归属表 `memory_spaces(memory_rowid, space_id, created_at)`（一行可归属多个空间）。
+- 每个空间一张 `vec0` 表。`table_name` 由 `space_id` 生成，碰撞时追加 6 位摘要，因此同名模型换维度不会复用旧表。
+- 旧库首次打开时**原地收养**既有 `vec_memories`：不复制、不改名，注册 `provenance='legacy-adopted'` 并按 `rowid` 回填 `memory_spaces`；迁移前用 SQLite backup 写 `<stateDir>/backups/memories-<ISO>.db`。
+
+写入与检索语义：
+
+- 写入时校验向量宽度必须等于活动空间维度；不等则不写向量、`embedded` 保持 0，并记录 `MEMPALACE_SPACE_MISMATCH`，正文照常落库。
+- 语义检索只查活动空间的表，因此两套向量永不互相打分。
+- `reindex` 补齐「没有任何空间归属」或「`embedded = 0`」的行，返回 `{total, updated, failed, space_id, errors}`。
+- 切换 `embeddingSource` / 维度只切换活动空间：旧空间向量与正文全部保留，切回无需重建。
+
+云端适配（fail-closed）：
+
+| 情况 | 结果 |
+| --- | --- |
+| 插槽未配置 / 被禁用 / 占位符 baseURL / 不属于向量能力的 kind | 启动即拒绝，`MEMPALACE_SLOT_*`，面板给出可操作提示 |
+| 没有 key | `MEMPALACE_EMBEDDING_AUTH`，不发网络请求 |
+| 401/403 | `MEMPALACE_EMBEDDING_AUTH`，熔断 5 分钟 |
+| 429 / 5xx / 网络 / 超时 | 一次重试后 `MEMPALACE_EMBEDDING_RATE_LIMIT` / `_HTTP` / `_NETWORK` / `_TIMEOUT` |
+| 400 且报错提到 `dimensions` | 去掉该参数重试一次；仍失败则 `_HTTP` |
+| 返回维度 ≠ 活动空间维度 | `MEMPALACE_SPACE_MISMATCH`，提示把 `cloudEmbeddingDim` 改成实测值 |
+
+绝不自动在本地与云端之间回退：静默切换会让「看起来可检索」的历史脱离当前空间。
+
+键位来源：插件只读 `$DSH_HOME/capability-hub/registry.json` 的 `embedding` 插槽，密钥经 `ctx.credentials.resolve(authRef)` 解析，与环境变量同名（`DASHSCOPE_API_KEY` 等）。插件不修改世界网关状态。
+
+### 10.5 自动召回注入
+
+每个回合把「可能相关的旧事」注入上下文，位置是一条独立的 `mempalace:recall` 上下文：
+
+```text
+用户消息 → 记录本回合查询 → system-prompt/assemble 瀑布
+        → 查询向量（可超时） → 语义 + 关键字候选
+        → 四信号打分 → 过滤敏感 → 渲染带页眉页脚的块
+```
+
+- 打分固定为 `0.65·cosine + 0.15·lexical + 0.10·importance + 0.10·recency`（`recency = exp(-days/60)`）；没有查询向量时，后三项按 0.35 归一化。
+- 只对真人用户消息触发；子代理、system-prompt 快照与工具消息不触发；每条用户消息只注入一次（第 1 步把它写进会话日志的 runtime-context 消息，后续步骤从历史里读同一块），重复装配不再查询。
+- 超过 `recallTimeoutMs` 退回关键字召回；再失败则本回合不注入，装配继续。
+- 敏感内容（密钥、证件号/银行卡/手机号、私密话题）永不自动注入，`recallExcludeSensitive` 可关闭但默认开启。
+- 注入块自带页眉 `【想起的旧事】` 与页脚「这些是可能相关的旧事，不是当前事实……」，让模型区分旧事与当前事实。
+
 ## 11. Evolution：资产变更链路
 
 ### 11.1 与 Superagent 的生命周期区分
@@ -561,6 +611,10 @@ Laputa 面板当前实现（2026-11-04，E3-S3）：概览页显示 live revisio
 一次操作应能关联查看：输入、Ticket、ContextSnapshot、执行 Session、外部 Receipt、产生的 Evidence，以及后续 Proposal/Publication。
 
 界面不得把“尚未执行”“执行中”“结果未知”和“已成功”合并为同一种完成状态。
+
+### 15.1 面板外壳
+
+SurfCore 面板（`scripts/lib/surfcore-panel.mjs` 生成的客户端）与 ActMem 记忆卡、MemPalace 面板共用一套外壳约定：整块内容铺满面板，内部固定为「头部 / 标签栏 / 可滚动内容 / 底部操作」四段；只有内容区滚动，头部、标签栏和底部操作不随内容移动，面板外不再出现第二条滚动条。面板不再额外套一层居中卡片，宽度与内边距由外壳样式决定，页内组件只负责内容，不各自决定滚动容器。
 
 ## 16. 迁移阶段
 

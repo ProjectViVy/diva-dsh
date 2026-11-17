@@ -1,0 +1,42 @@
+[
+  {
+    "file": "full-1024x800.png",
+    "state": "full",
+    "size": "1024x800",
+    "zoom": 1,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": [
+      {
+        "rule": "smallText",
+        "label": "文字小于 11px",
+        "count": 13,
+        "examples": [
+          "th.dl-g-table-cell「项目」（10.5px）",
+          "th.dl-g-table-cell「状态」（10.5px）",
+          "span.dl-g-badge「线索级」（10.5px）"
+        ]
+      }
+    ]
+  },
+  {
+    "file": "full-390x844.png",
+    "state": "full",
+    "size": "390x844",
+    "zoom": 1,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": [
+      {
+        "rule": "smallText",
+        "label": "文字小于 11px",
+        "count": 13,
+        "examples": [
+          "th.dl-g-table-cell「项目」（10.5px）",
+          "th.dl-g-table-cell「状态」（10.5px）",
+          "span.dl-g-badge「线索级」（10.5px）"
+        ]
+      }
+    ]
+  }
+]

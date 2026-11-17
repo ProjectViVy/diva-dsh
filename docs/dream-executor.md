@@ -1,7 +1,7 @@
 # Dream executor
 
-AutoDream's worker is a dedicated execution mode, not an ordinary repository worker: it reads frozen
-evidence and submits candidates for human approval, and it cannot touch the workspace.
+AutoDream's refinement runs in its own Session type, not as an ordinary repository worker: it reads
+frozen evidence and submits candidates for human approval, and it cannot touch the workspace.
 
 ## Why
 
@@ -20,80 +20,114 @@ Two consequences shaped the design:
 
 ## The mode
 
-A Ticket is a Dream ticket when its **origin Input** carries Evolution's marker:
-`trigger.meta.input.layer === 'evolution'` and `externalEventId` starts with `dream_`
-(`plugins/dsh-evolution/src/dream.mjs` submits it that way). Title text and the `human` flag are not
-used: a manual refine is human-originated too.
+There is no ticket and no admission step in front of a refinement. `dsh-evolution` decides that a run
+should happen, freezes the material, and creates the Session itself — the same five steps upstream's
+webhook path uses for one incoming delivery (`@deepseek-ai/dsh-webhook` `createWebhookSession`):
 
-`patches/superagent-dream.patch` adds `DREAM_TOOLS` and selects it in `Sessions#workOnly`:
+1. resolve the agent preset and the permission preset;
+2. `workspaceRegistry.create(path)` and attach the Session to it;
+3. `agents.create({ sessionId, meta: { cwd, agentPreset }, setup })`, where `setup` mounts the preset
+   into the Agent's own scope;
+4. `permissionPresets.set(session, 'read-only')` and `sessionTitle.rename(session, …)`;
+5. one follow-up user message that states the request id and the workflow.
 
-```ts
-const DREAM_TOOLS = ['skill', 'dream_refine']
+`plugins/dsh-evolution/src/dream-session.mjs` owns that sequence. A Session is created only after the
+request is journaled, so the journal is the single authority for what a later call may do.
+
+### The preset
+
+A Dream Session runs under its own agent preset, `dsh-autodream` (displayed as 「自动精炼」), declared
+by `plugins/dsh-evolution/cordis.patch.yml` — the same `@deepseek-ai/dsh-agent-preset` row form the
+built-in modes use. It carries the skills and the compaction a long paged read needs, and no shell or
+file tools; it is not a hidden mode, so its description says whom it is for.
+
+The preset bounds what *exists*, but a root-registered tool is still visible to every Session, so the
+launcher narrows the surface in the Session's own scope:
+
+```js
+agentCtx.tools.restrict({ allow: ['skill'] })
+agentCtx.tools.register(dreamToolDefinition(dream))
 ```
 
-Everything else the Executor Session could use — `read`, `write`, `edit`, `glob`, `grep`, `bash`,
-`pwsh`, `job_*`, `web_*`, `subagent`, `todo_write` — is masked by the existing `tools.restrict`
-mechanism. The Executor's own ticket tools (`orchestrator_ack`, reports) are not masked, so the worker
-can still accept and report its Assignment.
+`tools.restrict()` only accepts names of global tools, which is why `dream_refine` is registered inside
+the scope instead of being listed: a restriction never hides a scoped registration. Everything else —
+`read`, `write`, `edit`, `glob`, `grep`, `bash`, `pwsh`, `job_*`, `web_*`, `subagent`, `todo_write` —
+is masked. The Session also has no ticket tools, because there is no ticket.
 
-Detection is fail-safe in one direction only: if `dream_refine` is not registered (plugin disabled),
-the Dream session is left with `skill` alone and cannot claim anything. It never falls back to the
-workspace tool set.
+Detection is fail-safe in one direction only: if `skill` is not a global tool, `restrict` throws and the
+request is journaled as `failed` — it never falls back to the unrestricted surface. If the domain tool
+cannot be registered, the Session is left with `skill` alone and can never claim.
 
 ## The tool
 
-`dream_refine` is registered by `plugins/dsh-evolution` (its `dream-tool.mjs`) and needs no request or
-ticket argument: the worker Session ID is `worker-<ticketId>`, and every call resolves the request
-through `Ticket` → origin Input → frozen request. `authorize()` in `dream.mjs` re-checks liveness,
-subject and ticket ownership on every call.
+`dream_refine` is registered by `plugins/dsh-evolution` (its `dream-tool.mjs`) inside the Session scope
+and needs no request argument: the calling Session id (`dream-<uuid>`) is the binding, and every call
+resolves the frozen request through it. `authorize()` in `dream.mjs` matches
+`request.agentSessionId === sessionId` and re-checks liveness, subject and the frozen plan on every call.
 
 | command | effect |
 | --- | --- |
-| `claim` | freezes the run, returns ref counts per source session (not the material); binds this ticket to that request |
+| `claim` | creates the run record (2 h deadline) and returns ref counts per source session, not the material |
 | `evidence` | no session: list sessions; with `session/offset/limit`: a page of 30 (max 80) refs; with `ref`: one event in full (≤6 kB) |
 | `baseline` | persona revision and skill entries a plan may change |
 | `plan` | submits the plan object inline; the journal freezes it and stages each candidate through its owner |
 | `execute` | moves candidates to `pending_review`; never publishes |
 | `status` | this run's phase and per-candidate state |
 
-The material is read once per request and cached in process memory for the pages that follow. Every
-command after `claim` carries the bound request id: one Ticket may own several Dream Inputs (the
-2026-11-10 run owned two), and without that binding `authorize()` would fall back to "the first request
-this Ticket owns".
+The material is read once per request and cached in the tool definition of that Session. Every command
+after `claim` carries the bound request id, so an owner callback can be matched against exactly one
+frozen run even though a Session could name another request.
 
 Owner staging must keep that binding too. The candidate handed to `/candidates` (harness) or
 `/candidates/stage` (Laputa) carries `requestId`, and each owner forwards it into its own
-`/dream/authorize` call; otherwise a Ticket with an older Dream Input authorizes against that older
-run and every staging attempt fails with `Exact skill entry absent from frozen Dream plan`. `baseline`
-calls the Laputa channel with an empty body on purpose: a body-less internal call is a `GET`, and that
-channel only serves `POST` (`Unknown Laputa owner operation`).
+`/dream/authorize` call; without it a second run's older plan could authorize a candidate.
+`baseline` calls the Laputa channel with an empty body on purpose: a body-less internal call is a
+`GET`, and that channel only serves `POST` (`Unknown Laputa owner operation`).
+
+## The schedule
+
+`startDreamSchedule()` runs the eligibility check at application-ready and then every 15 minutes
+(`ctx.effect` owns the timer). One check reads the journal, applies the gate — enabled, cooldown,
+≥5 new sessions, ≥10 deduplicated primary events — and, only when every condition holds, scans the
+evidence and creates one Session.
+
+- The cooldown anchors on `max(lastCompletedAt, lastAttemptAt)`: a run that dies without completing
+  must not be retried by the next tick.
+- One refinement at a time: a request inside its 2 h deadline, whose run is not settled, holds the gate
+  (`in_progress`) whatever its snapshot.
+- `maintain()` settles a request that outlived its deadline as `timed_out`, marks its run `blocked`, and
+  disposes the Agent. Nothing retries automatically.
 
 ## What stays the same
 
-- Admission, Ticket creation and retries belong to Superagent; Evolution only submits the Input.
 - Skill candidates are published by a human in the evolution panel's `审批` tab; persona proposals in
   Laputa's persona panel. `execute` stages and stops.
-- `scripts/dream-refine.mjs` remains as a debugging CLI for a human with a shell; Dream Sessions no
-  longer receive it.
+- `scripts/dream-refine.mjs` remains as a debugging CLI for a human with a shell; Dream Sessions do
+  not receive it.
+- The record store's `ticket_id` column stays: it is the external work-item id, and nothing writes to it
+  from this path.
 
 ## Verification
 
-- `patches/superagent-dream.patch` applies after the other eleven patches and the bundle rebuilds
-  (`npm run build:bundle`, exit 0), which type-checks it.
-- `tests/dream-tool.test.mjs` covers ticket binding, paging, detail, plan pass-through, execute and
-  refusal of a non-Dream Session.
-- `tests/source-runtime.test.mjs` pins the manifest order including the new patch.
+- `npm run build:bundle` exits 0 with eleven Superagent patches; `git -C superagent status --short` is
+  clean afterwards, and `git -C superagent grep -n "dsh-autodream"` is empty.
+- `node --test plugins/dsh-evolution/tests/*.mjs` covers launch wiring, Session binding, paging, plan
+  pass-through, the run deadline and the one-run gate.
+- `node --test tests/dream-preset.test.mjs` pins the preset row, the launcher's tool surface and the
+  absence of the retired patch.
 
 ## Limits
 
-- A running instance keeps the old Executor until `npm run stop && npm start`; the patch changes
-  Superagent, so a restart is required (`npm run build:bundle` already rebuilt the bundle).
+- A running instance keeps the previous build until `npm run stop && npm start`; the preset row and the
+  launcher both ship with the plugin, so a restart is required.
 - The tool's page size is a context-budget guard, not a security boundary; the boundary is the absence
   of shell and file tools.
-- If `dsh-evolution` is disabled, Dream Sessions can do nothing at all — intended, and visible as a
-  blocked Ticket rather than a silent regression.
+- If `dsh-evolution` is disabled, no Dream Session is created at all.
+- `owner-candidates.ts` in `dsh-continual-harness` is still the prepared (unwired) producer for the
+  record store; the evolution panel's 「进化 → 进化记录」 therefore stays empty. See TODOLIST DV-EV-017.
 
 ## Rollback
 
-Remove `superagent-dream.patch` from `patches/superagent-patches.json`, restore the test's list, and run
-`npm run build:bundle` — the source tree is never edited directly, the patch only exists at build time.
+Revert the plugin changes and `patches/superagent-patches.json` (which no longer lists a Dream patch),
+then run `npm run build:bundle`. The retired build-time patch is kept out of the tree in
+`.artifacts/retired/` for reference; the source tree is never edited directly.

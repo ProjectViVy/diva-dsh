@@ -1,0 +1,34 @@
+/* 左栏气泡里的 Markdown：和 genui 卡同一套纸面，不引第三方样式。 */
+.dl-md{min-width:0}
+.dl-md>:first-child{margin-top:0}
+.dl-md>:last-child{margin-bottom:0}
+.dl-md p{margin:0}
+.dl-md p+p{margin-top:9px}
+.dl-md h1,.dl-md h2,.dl-md h3,.dl-md h4,.dl-md h5,.dl-md h6{margin:14px 0 7px;line-height:1.35;font-weight:650;letter-spacing:-.01em;color:var(--dl-ink)}
+.dl-md h1{font-size:18px}
+.dl-md h2{font-size:16.5px}
+.dl-md h3{font-size:15px}
+.dl-md h4{font-size:14px}
+.dl-md h5,.dl-md h6{font-size:13px;color:var(--dl-ink-2)}
+.dl-md ul,.dl-md ol{margin:8px 0;padding-left:20px}
+.dl-md li{margin:4px 0}
+.dl-md li::marker{color:var(--dl-ink-3)}
+.dl-md li>p{margin:0}
+.dl-md li ul,.dl-md li ol{margin:4px 0}
+.dl-md blockquote{margin:10px 0;padding:2px 0 2px 12px;border-left:3px solid var(--dl-rule-strong);color:var(--dl-ink-2)}
+.dl-md blockquote>:first-child{margin-top:0}
+.dl-md blockquote>:last-child{margin-bottom:0}
+.dl-md code{font-family:var(--dl-mono);font-size:.92em;background:var(--dl-paper-3);border:1px solid var(--dl-rule-soft);border-radius:5px;padding:1px 5px}
+.dl-md pre{margin:10px 0;padding:11px 13px;background:var(--dl-paper-2);border:1px solid var(--dl-rule);border-radius:10px;overflow:auto;line-height:1.55}
+.dl-md pre code{background:transparent;border:0;padding:0;font-size:12px;white-space:pre;word-break:normal}
+.dl-md a{color:var(--dl-accent-ink);text-decoration:underline;text-underline-offset:3px}
+.dl-md a:hover{color:var(--dl-ink)}
+.dl-md hr{border:0;border-top:1px solid var(--dl-rule);margin:12px 0}
+.dl-md strong{font-weight:650}
+.dl-md em{font-style:italic}
+.dl-md del{color:var(--dl-ink-3)}
+.dl-md-table{min-width:0;overflow-x:auto;margin:10px 0}
+.dl-md table{width:100%;border-collapse:collapse;font-size:12.5px}
+.dl-md th{padding:6px 8px;text-align:left;font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--dl-ink-3);border-bottom:1px solid var(--dl-rule)}
+.dl-md td{padding:7px 8px;border-bottom:1px solid var(--dl-rule-soft);vertical-align:top;word-break:break-word}
+.dl-md tr:last-child td{border-bottom:0}

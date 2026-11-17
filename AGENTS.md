@@ -9,7 +9,7 @@
 ## 0. 这个仓库是什么
 
 - **源码级启动器**：在一个目录里构建并运行 DSH、Superagent 和 16 个本地插件，不装全局 `dsh`/`pnpm`，不改 shell 配置。
-- **20 个 submodule**：3 个上游（`deepseek-harness/`、`superagent/`、`plugins/surfcore/`）+ 16 个本地仓（`vivy-dsh/*`，含 `plugins/capability-hub` → `word-gateway`）+ 1 个第三方社区插件（`third-party/dsh-context`），每个插件都是独立 git 仓。
+- **25 个 submodule**：3 个上游（`deepseek-harness/`、`superagent/`、`plugins/surfcore/`）+ 20 个自有仓（`vivy-dsh/*`，含 `plugins/capability-hub` → `word-gateway`）+ 2 个第三方社区插件（`third-party/dsh-context`、`third-party/genui`），每个插件都是独立 git 仓。
 - 根仓库自己只有：`scripts/`（安装/启停/接线）、`tests/`（启动器与插件行为）、`patches/`（Superagent 补丁）、`docs/`、`skills/`、`stage-app/`、`third-party/`（第三方插件锚定与 pin），以及 submodule 指针。
 
 ## 1. 改哪里
@@ -19,7 +19,7 @@
 | Superagent 行为 | `patches/superagent-*.patch`（清单在 `patches/superagent-patches.json`） | 直接改 `superagent/` |
 | SurfCore 行为 | `scripts/lib/surfcore-*.mjs` 的锚点补丁（内存打补丁 + `sourceSha256` 漂移校验） | 直接改 `plugins/surfcore/`：子模块只读，`setup` 重渲染会覆盖 |
 | DSH 本体行为 | 优先用插件实现；确实要改才进 `patches/` | 直接改 `deepseek-harness/` |
-| 新插件 / 新能力 | `plugins/<name>`（独立仓）+ 根 `scripts/setup-<name>.mjs` 接线 | 把实现塞进根仓库 |
+| 新插件 / 新能力 | `plugins/<name>`（独立仓）+ 根 `scripts/setup-<name>.mjs` 接线；只给自己用的私有插件 → `user-plugins/`（规则见该目录 README，`npm run setup:user-plugins`） | 把实现塞进根仓库 |
 | 第三方社区插件 | `third-party/<name>`（submodule）+ `third-party/pins.json` 锚定 tag + `scripts/setup-third-party.mjs` | 混进 `plugins/`（那是我们自己的仓）；把构建产物 `lib/` 提交进子模块 |
 | 启动器 / 安装 / 编排 | `scripts/*.mjs` + `tests/*.test.mjs` | — |
 | 设计文档 | `docs/`（架构正家 `docs/architecture.md`） | 散落在根目录 |
