@@ -44,8 +44,12 @@ test('首次运行建出语音包目录与启用的 tts 插槽', t => {
   assert.equal(registry.slots.tts.kind, 'dashscope')
   assert.equal(registry.slots.tts.authRef, 'DASHSCOPE_API_KEY')
   assert.equal(registry.slots.tts.model, 'qwen3-tts-flash')
-  // 别的插槽不能被这个脚本动过
-  assert.equal(registry.slots.asr, undefined)
+  // 识别与合成共用一把 key 与一个接入点：asr 插槽一起接线，否则面板的「识别」里没有世界网关可选
+  assert.equal(registry.slots.asr.enabled, true)
+  assert.equal(registry.slots.asr.kind, 'dashscope')
+  assert.equal(registry.slots.asr.authRef, 'DASHSCOPE_API_KEY')
+  assert.equal(registry.slots.asr.model, 'qwen-audio-3.0-asr-flash')
+  assert.equal(registry.slots.asr.baseURL, registry.slots.tts.baseURL)
 })
 
 test('重跑是幂等的：文件内容不变，也不清掉已有插槽', t => {
@@ -71,6 +75,9 @@ test('重跑是幂等的：文件内容不变，也不清掉已有插槽', t => 
   assert.equal(registry.slots.tts.model, 'qwen-audio-3.1-tts-flash')
   assert.equal(registry.slots.tts.note, '手填的')
   assert.equal(registry.slots.asr.enabled, true)
+  // asr 同理：用户手填的接入点与模型不能被脚本改掉
+  assert.equal(registry.slots.asr.baseURL, 'https://example.com')
+  assert.equal(registry.slots.asr.model, 'qwen-audio-3.0-asr-flash')
 })
 
 test('registry 读坏时停下，不覆盖用户配置', t => {
@@ -86,11 +93,19 @@ test('registry 读坏时停下，不覆盖用户配置', t => {
 
 test('模型与 baseURL 可以用环境变量指定', t => {
   const dir = home(t)
-  const result = run(dir, { DSH_TTS_MODEL: 'qwen-audio-3.1-tts-flash', DSH_TTS_BASE_URL: 'https://abc.cn-beijing.maas.aliyuncs.com' })
+  const result = run(dir, {
+    DSH_TTS_MODEL: 'qwen-audio-3.1-tts-flash',
+    DSH_TTS_BASE_URL: 'https://abc.cn-beijing.maas.aliyuncs.com',
+    DSH_ASR_MODEL: 'qwen-audio-3.1-asr-flash',
+  })
   assert.equal(result.status, 0, result.stderr)
   const registry = JSON.parse(readFileSync(join(dir, 'capability-hub', 'registry.json'), 'utf8'))
   assert.equal(registry.slots.tts.model, 'qwen-audio-3.1-tts-flash')
   assert.equal(registry.slots.tts.baseURL, 'https://abc.cn-beijing.maas.aliyuncs.com')
+  assert.equal(registry.slots.asr.model, 'qwen-audio-3.1-asr-flash')
+  // asr 默认跟着 tts 的接入点走（它们本来就是同一个 workspace），DSH_ASR_BASE_URL 只用来覆盖
+  // 「已存在且仍是 {WorkspaceId} 占位」的 asr 接入点，不是每次启动都强制改写。
+  assert.equal(registry.slots.asr.baseURL, registry.slots.tts.baseURL)
 })
 
 test('没有 DSH_HOME 时拒绝运行，别往别处写', t => {

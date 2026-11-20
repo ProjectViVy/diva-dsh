@@ -52,6 +52,9 @@ async function mountAsr(t, { rejection = () => false, connection = true } = {}) 
     get(name) {
       return name === 'connection' && connection ? { requestRejection: req => rejection(req) } : undefined
     },
+    // 真 DSH 的 ctx.inject(names, callback)：服务就位才回调，返回取消订阅。
+    // 这个替身没有 capabilityHub，回调就不会触发——正好是「网关没挂载」这条路径。
+    inject(_names, _callback) { return () => {} },
     logger: { info() {}, warn() {}, error() {} },
     effect(callback) { effects.push(callback); return () => {} },
   }

@@ -670,3 +670,50 @@ test('disposing the section releases timers and the preview URL', async () => {
   assert.ok(clearedIntervals.length >= 2, 'dispose 必须清理语音包与云端轮询')
   assert.ok(requests.length > 0)
 })
+
+// 「现在用的是本地包还是世界网关的包」必须一眼看得出来：
+// 之前总览把 dashscope 线路写成「本地合成」，语音包页也没有「当前来源」标记。
+test('总览把当前来源写清楚：识别引擎点名、合成线路指到具体语音包', async () => {
+  const gatewayPack = { id: 'voice-dashscope', name: '世界网关语音包', installed: true, running: true, external: true, port: null, archives: [] }
+  const { store, entries } = harness({
+    packs: [LOCAL_PACK, gatewayPack],
+    handle: async request => {
+      if (request.url === '/dsh-asr/api/asr/rules' && (request.method ?? 'GET') === 'GET') {
+        return response({ ...ASR_RULES, engine: 'gateway' })
+      }
+      if (request.url === '/dsh-asr/api/asr/catalog') {
+        return response({
+          ok: true,
+          engine: 'gateway',
+          engines: [
+            { id: 'sensevoice', name: 'SenseVoiceSmall（本地）', location: 'host-local', ready: false, languages: ['auto'] },
+            { id: 'gateway', name: '世界网关（千问）', location: 'cloud', ready: true, languages: ['auto'], model: { name: 'qwen-audio-3.0-asr-flash' } },
+          ],
+        })
+      }
+      if (request.url === '/dsh-voice/api/voice/rules' && (request.method ?? 'GET') === 'GET') {
+        return response({ ...TTS_RULES, route: 'dashscope', character: 'Cherry' })
+      }
+      return undefined
+    },
+  })
+  store.ensureLoaded()
+  await flush()
+
+  const overview = renderText(entries[0].component({ store }))
+  assert.match(overview, /世界网关（千问） · 云端/, `识别来源应点名世界网关：${overview.slice(0, 400)}`)
+  assert.match(overview, /世界网关语音包/, `合成来源应指到具体语音包：${overview.slice(0, 400)}`)
+  assert.match(overview, /当前合成来源/)
+  assert.ok(!/当前线路：本地语音包/.test(overview), 'dashscope 线路不能被写成本地合成')
+
+  store.setTab('asr')
+  const asrTab = renderText(entries[0].component({ store }))
+  assert.match(asrTab, /当前来源：世界网关（千问）（云端 · 音频会发给世界网关）/, `识别页要写清来源：${asrTab.slice(0, 400)}`)
+  assert.match(asrTab, /只对「本机 SenseVoice」生效/)
+
+  store.setTab('packs')
+  const packsTab = renderText(entries[0].component({ store }))
+  assert.match(packsTab, /当前合成来源/)
+  assert.match(packsTab, /未使用/, '非当前线路的语音包要标成未使用')
+})
+

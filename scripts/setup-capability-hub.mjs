@@ -18,6 +18,9 @@ const PACK_ID = 'voice-dashscope'
 
 const TTS_MODEL = process.env.DSH_TTS_MODEL || 'qwen3-tts-flash'
 const TTS_BASE = process.env.DSH_TTS_BASE_URL || 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com'
+// 识别默认用 3.0：同一段 2 秒官方样例里 3.0 首词正确，3.1 首词错（样本小，足以选默认、不足以定优劣）。
+const ASR_MODEL = process.env.DSH_ASR_MODEL || 'qwen-audio-3.0-asr-flash'
+const ASR_BASE = process.env.DSH_ASR_BASE_URL || 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com'
 
 function writeAtomic(file, body) {
   writeFileSync(`${file}.tmp`, body, { mode: 0o600 })
@@ -66,11 +69,24 @@ try {
     authRef: current.authRef || 'DASHSCOPE_API_KEY',
     note: current.note ?? '',
   }
+  // asr 插槽与 tts 同一把 key、同一个接入点：一起接线，面板里「识别」才有世界网关可选。
+  const currentAsr = slots.asr ?? {}
+  const nextAsr = {
+    ...currentAsr,
+    enabled: true,
+    kind: 'dashscope',
+    baseURL: String(currentAsr.baseURL ?? '').includes('{WorkspaceId}') && process.env.DSH_ASR_BASE_URL ? ASR_BASE : (currentAsr.baseURL || next.baseURL),
+    model: process.env.DSH_ASR_MODEL || currentAsr.model || ASR_MODEL,
+    authRef: currentAsr.authRef || next.authRef,
+    note: currentAsr.note ?? '',
+  }
   const before = JSON.stringify(current)
-  if (before !== JSON.stringify(next) || !registry) {
-    writeAtomic(registryFile, `${JSON.stringify({ version: 1, ...(registry ?? {}), slots: { ...slots, tts: next } }, null, 2)}\n`)
+  const beforeAsr = JSON.stringify(currentAsr)
+  if (before !== JSON.stringify(next) || beforeAsr !== JSON.stringify(nextAsr) || !registry) {
+    writeAtomic(registryFile, `${JSON.stringify({ version: 1, ...(registry ?? {}), slots: { ...slots, tts: next, asr: nextAsr } }, null, 2)}\n`)
   }
   console.log(`capability-hub: tts 插槽已启用（${next.kind} / ${next.model}）`)
+  console.log(`capability-hub: asr 插槽已启用（${nextAsr.kind} / ${nextAsr.model}）`)
 
   // 3. 剩下的手动步骤
   const placeholder = next.baseURL.includes('{WorkspaceId}')
