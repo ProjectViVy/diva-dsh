@@ -38,4 +38,15 @@
 
 ## 4. 推送与远端核对
 
-（推送后补：远端 tip 与本地 HEAD 是否逐个相等、`rev-list --count --all --not --remotes` 复算是否为 0）
+| # | 命令 | 结果 |
+| --- | --- | --- |
+| 18 | `git -C plugins/asr push origin main` | `49f6a48..e9dc44b`（快进） |
+| 19 | `git -C plugins/voice push origin main` | `6cebdf6..0e87e6b`（快进） |
+| 20 | `git -C plugins/capability-hub push origin main` | `1fb9bc3..937e811`（快进） |
+| 21 | 根仓 `git push origin main` | `9c272c3..c107c7d`（快进） |
+| 22 | 四个仓 `git rev-parse HEAD` 与 `git ls-remote origin refs/heads/main` 逐对比较 | **逐个相等**：根 `c107c7d…`、asr `e9dc44b…`、voice `0e87e6b…`、capability-hub `937e811…` |
+| 23 | 26 个仓（根 + 25 个 submodule）`git rev-list --count HEAD --not --remotes` | **全部 0**：没有任何「本地有、上游没有」的提交 |
+| 24 | 根仓 `git status --porcelain`（推送后） | 空；三个插件仓同样为空 |
+
+全程普通 `git push`，没有 `--force`、没有重写任何远端历史；四条推送都是 fast-forward。
+推送顺序是**先三个子仓、后根仓**，这样根仓的 gitlink 指向的提交在被引用之前就已经在上游可取。

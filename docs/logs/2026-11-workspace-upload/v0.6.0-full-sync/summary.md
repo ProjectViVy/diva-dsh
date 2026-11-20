@@ -5,8 +5,10 @@
 ## 一句话结论
 
 工作区里**最后一处未提交的开发**（世界网关 = 能力服务 / ASR 接入那批改动）已提交并推送到上游：
-3 个插件仓各 1 条 commit、根仓 2 条 commit（代码 + 文档）。全量套件 **1495 项 / 1485 通过 / 0 失败 / 10 跳过，exit 0**。
-其余 22 个 submodule 本来就没有「本地有、上游没有」的提交，本轮没动。
+3 个插件仓各 1 条 commit、根仓 3 条 commit（代码 + 文档 + 推送核对）。全量套件
+**1495 项 / 1485 通过 / 0 失败 / 10 跳过，exit 0**。四条推送都是 fast-forward，
+推送后 26 个仓（根 + 25 个 submodule）的「本地有、上游没有」提交全部为 0。
+其余 22 个 submodule 本来就没有未推送提交，本轮没动它们的指针。
 
 ## 上传前的工作区状态（先核，再传）
 
@@ -36,7 +38,8 @@
 | commit | 内容 |
 | --- | --- |
 | `c84b578` `feat: wire the capability hub asr slot and cover the gateway engine` | `scripts/setup-capability-hub.mjs` 接 asr 插槽；新增 `tests/asr-gateway-engine.test.mjs`（8 条）；`tests/voice-settings-client.test.mjs` +47；**修掉两条测试回归**（见下）；3 个 gitlink 指针 |
-| 本目录所在 commit `docs: ...` | 补 `docs/logs/2026-11-world-gateway/v0.2.0-capability-service-asr/` 四件套 + `TODOLIST.md` |
+| `c107c7d` `docs: record the gateway asr capability service and this full sync` | 补 `docs/logs/2026-11-world-gateway/v0.2.0-capability-service-asr/` 四件套 + 本目录 + `TODOLIST.md` |
+| 紧接着的 `docs: record the push verification` | 把推送后的远端 tip 与 26 个仓的未推送计数写进本目录 `verification.md` §4 |
 
 ## 上传核对时发现的问题（都已修，且都在本轮）
 
