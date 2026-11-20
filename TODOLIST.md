@@ -8,9 +8,14 @@
 
 ## NOW（≤40 行、≤3 条；没有就写「无」，不要编）
 
-- [ ] **DV-VOICE-003 世界网关语音包已接好、真 key 验过，只差重启生效** `sev-P2`
-  状态: waiting-user（`npm run stop && npm start` 之后语音页会多出「世界网关（千问）」线路，已是默认）｜ 详见 `## 活跃` 里的完整条目
-  下一步：重启 → 语音页选「世界网关（千问）」点试听确认出声 → 按 `docs/logs/2026-11-world-gateway/v0.1.4-voice-dashscope/acceptance.md` 过失败路径。
+- [ ] **DV-VOICE-004 世界网关=能力服务（ASR+TTS 统一供给）已实现、真 key 验过，只差重启生效** `sev-P1`
+  状态: waiting-user（代码、测试、隔离实例端到端全过；**要重启 3082 一次**）｜ 详见 `## 活跃` 的完整条目
+  下一步：`npm run stop && npm start` → 语音页「识别」引擎选「世界网关（千问）」→ 输入框麦克风说话，应出文字。
+
+- [ ] **DV-VOICE-005 把世界网关语音包做成 diva 的默认语音能力** `sev-P2`
+  状态: blocked-on-decision（默认策略二选一待主人拍板）｜ owner: lead ｜ Scope: plugins/capability-hub/src、plugins/asr/src、plugins/voice/src、scripts/setup-capability-hub.mjs、docs/logs/2026-11-world-gateway/v0.2.x-default-voice/、TODOLIST.md
+  已确认的硬约束：世界网关 = 百炼账号的 key + **该账号自己的** workspace 域名 + 联网 + 按量计费。别人要用只能填他自己的 key，**不能打包我们的 key**；所以「其他用户一进来就能用」= 一进来就默认走网关 + 缺 key 时明确告诉他缺什么，而不是我们替他付钱。详见 `## 活跃` 的完整条目。
+  下一步：主人选默认策略（A 网关优先+失败回退本地 / B 纯网关、缺 key 就明说不可用），再改默认值与提示。
 
 - [ ] **DV-UI-022 今日卡契约 v2：卡片可带 genui nodes，11 节简报按新格式重写** `sev-P2`
   状态: waiting-user（代码、内容、隔离实例验证完成；**宿主 route 改了，要重启 3082 一次**）｜ owner: today-v2 ｜ 开始: 2026-11-16 23:43 ｜ 完成: 2026-11-16 23:5x ｜ Scope: plugins/dsh-daily/index.js、plugins/dsh-daily/client.js、tests/daily-today.test.mjs、tests/daily-client.test.mjs、.artifacts/dsh-home/today/2026-11-16.json、TODOLIST.md、docs/logs/2026-11-daily/v0.10.0-today-nodes/
@@ -21,19 +26,32 @@
   未验证：3082 重启后的真面板观感；窄窗 <1080px 的换行；worker 自动写 nodes（提示词仍只教 title/body，触发链未接）。
   日志：docs/logs/2026-11-daily/v0.10.0-today-nodes/
 
+## 活跃
+
 - [ ] **DV-SETUP-002 启动器 stop/status 杀不到控制记录之外的 DSH 进程** `sev-P3`
-  状态: todo（2026-11-17 00:1x 安装 dsh-oil-ui 时暴露）｜ owner: 待认领 ｜ Scope: scripts/vivy-dsh.mjs、scripts/lib/vivy.mjs、tests/source-runtime.test.mjs、TODOLIST.md
+  状态: todo（2026-11-17 00:1x 安装 dsh-oil-ui 时暴露；2026-11-19 从 NOW 挪到活跃，P3 不占 NOW）｜ owner: 待认领 ｜ Scope: scripts/vivy-dsh.mjs、scripts/lib/vivy.mjs、tests/source-runtime.test.mjs、TODOLIST.md
   现象：3082 上有 DSH 服务在跑（先后是 PID 32236、17496），但 `npm run status` 报 `pids: []`、`health: null`、`manually_stopped: true`，`npm run stop` 打印 stopped 却什么也没杀；`npm start` 会撞「An existing service answers at 3082」。
   原因：stop 只按控制文件记录的 pid（`processes()` = 记录 pid 且 serving）杀进程；不由 launcher 启动的实例没有记录，被当成「没有服务」。
   下一步：stop/status 在记录为空但端口有应答时，按端口与命令行识别同 profile 的服务并明确列出（不自动杀）；重启前给出可执行提示，避免「以为停了其实没停」。
 
-## 活跃
-
 - [ ] **DV-VOICE-004 世界网关定位为「能力服务」：ASR + TTS 统一供给，语音版块标清来源** `sev-P1`
-  状态: doing ｜ owner: lead ｜ 开始: 2026-11-18 07:05 ｜ Scope: plugins/capability-hub/src、plugins/asr/src、plugins/voice/src/client.js、scripts/setup-capability-hub.mjs、tests/*、docs/logs/2026-11-world-gateway/v0.2.0-capability-service-asr/、TODOLIST.md
+  状态: waiting-user（代码、测试、隔离实例端到端全过；**要重启 3082 一次**）｜ owner: lead ｜ 开始: 2026-11-18 07:05 ｜ 完成: 2026-11-19 00:3x ｜ Scope: plugins/capability-hub/src、plugins/asr/src、plugins/voice/src/client.js、scripts/setup-capability-hub.mjs、tests/*、docs/logs/2026-11-world-gateway/v0.2.0-capability-service-asr/、TODOLIST.md
   目标：主人 2026-11-18 07:04「网关明确将其定位为某种服务——为外部组件提供……输入框的输入按钮特性应该由语音输入统一管理，后面数字人的语音合成、语音识别都应该在这边进行统一管理……语音版块很多还是没有清晰的标识，要明确可选究竟用的是本地语音包还是世界网关的包。现在我们在收世界网关接入能力，所以 asr tts 都需要真实能在语音版块接入。」——三件事：①能力服务化（asr/tts 都从 `capabilityHub` 取，消费者不各自直连上游）；②语音版块把「来源」写在明面上（本地包 / 世界网关）；③网关真能跑 ASR，并在语音版块的识别里可选。
-  已定事实（本轮实测）：base64 音频必须用 **data URL** 形状（`data:audio/wav;base64,…`）才被接受，裸 base64 串返回 500；兼容模式 `/audio/transcriptions` 是 404；ASR 走 `/api/v1/services/aigc/multimodal-generation/generation` + `parameters.format/sample_rate`。实测 4.4s 中文 wav → 200，转写与原文一致，耗时约 21s（含一次传输重试）。ASR 面板规范音频是 16kHz/16bit/单声道，故 `sample_rate: '16000'`。
-  下一步：hub 侧 asr 适配器 + `transcribe` + `/asr` 路由 → asr 插件 `gateway` 引擎（走进程内）→ 语音版块来源标识 → 测试与四件套。
+  已定事实（本轮实测）：base64 音频必须用 **data URL** 形状（`data:audio/wav;base64,…`）才被接受，裸 base64 串返回 500；兼容模式 `/audio/transcriptions` 是 404；ASR 走 `/api/v1/services/aigc/multimodal-generation/generation` + `parameters.format/sample_rate`。实测 4.64s 中文 wav → 200，转写与原文一致，耗时约 21.7s。ASR 面板规范音频是 16kHz/16bit/单声道，故 `sample_rate: '16000'`。四字头的 3.0 首词正确、3.1 首词错，故 asr 默认模型取 `qwen-audio-3.0-asr-flash`。
+  进度：①`capabilityHub` 现在给 `speak('tts')` / `transcribe('asr')` / `status(cap)` 三个方法（新增 `adapters/dashscope-asr.mjs`、`createTranscribe`、`POST /api/asr`、路由体上限 12MB）；②`plugins/asr` 新增第二个引擎 `gateway`（id `gateway`，名称「世界网关（千问）」，`location:'cloud'`，`languages:['auto']`——语言提示尚未验证透传，就不写 zh/en 假装支持），走 `ctx.inject(['capabilityHub'])` 进程内调用，`status()` 用 3 秒 TTL 快照向网关要就绪度；③语音面板四处标清来源，并修掉「dashscope 线路在总览被写成本地语音包」的真 bug；④`scripts/setup-capability-hub.mjs` 幂等接线 `asr` 插槽（与 tts 共用 key/baseURL，模型可用 `DSH_ASR_MODEL` 覆盖）。
+  验证：hub `tests/asr.test.mjs` 13/13；引擎 `tests/asr-gateway-engine.test.mjs` 8/8；面板标识 `tests/voice-settings-client.test.mjs` 22/22；隔离实例 3099 端到端：`GET /dsh-asr/api/asr/catalog` 列出 `gateway / 世界网关（千问） / cloud / ready=true / qwen-audio-3.0-asr-flash`，踢引擎后 `POST /dsh-asr/api/asr/transcribe` 返回 200、「你好，我是Diva。这是一条语音合成冒烟测试。」、21.7s。
+  下一步：主人 `npm run stop && npm start` → 语音页「识别」选「世界网关（千问）」→ 输入框麦克风说话应出文字；未验证项见 summary.md。
+  未验证：`/dsh-capability-hub/api/asr` 这条 HTTP 面的活体往返（只做了单元测试，进程内路径才是面板真正走的）；多语言提示透传；连续多次识别的限流与计费表现。
+  日志：docs/logs/2026-11-world-gateway/v0.2.0-capability-service-asr/
+  追加（2026-11-21 07:0x，上传轮）：日志目录当时没落盘，本轮补了四件套 + evidence；补记时复跑三个套件全绿，全量 1495/1485/0/10 exit 0。上传核对抓到两处测试回归并修掉：`tests/capability-hub-setup.test.mjs` 仍断言「脚本不碰 asr 插槽」（脚本已改成接线 asr）、`tests/asr-mount.test.mjs` 的假 ctx 没有 `inject`（插件新增 `ctx.inject`，缺它会让 apply() 抛错且测试进程挂住）。代码已随本轮提交推到上游，记录见 docs/logs/2026-11-workspace-upload/v0.6.0-full-sync/。
+
+- [ ] **DV-VOICE-005 把世界网关语音包做成 diva 的默认语音能力（新装用户进来就有声音）** `sev-P2`
+  状态: blocked-on-decision（默认策略二选一待主人拍板）｜ owner: lead ｜ 开始: 2026-11-19 00:41 ｜ Scope: plugins/capability-hub/src、plugins/asr/src、plugins/voice/src、scripts/setup-capability-hub.mjs、docs/logs/2026-11-world-gateway/v0.2.x-default-voice/、TODOLIST.md
+  目标：主人 2026-11-19 00:41「之后看看能不能将这个世界网关语音包作为 diva 默认的，这样就不用一启动然后发现没有语音输入输出能力了，其他用户一进来就能够启用 diva 的语音能力。」
+  已确认事实：①**这台机器实际上已经是默认**——`$DSH_HOME/voice/config.json` 的 `voice.tts.route=dashscope`、`$DSH_HOME/asr/config.json` 的 `asr.engine=gateway`；但 asr 那条是 2026-11-19 我在 3099 隔离实例测试时写入**共享 DSH_HOME** 的结果（当次只隔离了 profile 与端口，没隔离 home），不是发货默认值，已在 summary 里如实记录；②**发货默认值仍是** `route=local`（要下载安装本地包）+ `ASR_DEFAULTS.engine='sensevoice'`（要下载模型）；③硬约束：世界网关 = 百炼账号的 key + 该账号自己的 workspace 域名 + 联网 + 按量计费，**别人要用只能填他自己的 key**，不能打包我们的 key，否则等于把账号送出去。
+  可做（按价值排序）：1) 新装默认 `route=dashscope`、`asr.engine=gateway`（不下载任何东西，填一把 key 就有声）；2) 未就绪时在总览顶部明说缺什么（缺 key / 缺 baseURL / 401 / 无网），并给直达入口——链已经通了（`capabilityHub.status` → 引擎 `status()` → 面板），只差把它抬到最显眼位置；3) 回退：网关不可用时落回本地包（`pickFallbackRoute` 已存在，但只认 local/cloud，判据要加 dashscope 未就绪）；4) `npm run setup` 读 `DASHSCOPE_API_KEY` / `DSH_*_BASE_URL`，有就自动接线、没有就打印「填 key 即用」；5) 文档与 `config.example` 写清「自带 key」。
+  待拍板：A 网关优先 + 失败自动回退本地（不容易一启动没声音，但用户可能听不出是谁在说）；B 纯网关，缺 key 就明说不可用（更诚实，符合「不假装成功」，但新装没配 key 时确实没有语音）。
+  下一步：主人选 A/B → 改默认值 + 提示位置 + 回退判据 + 测试 → 四件套。
 - [ ] **DV-DOC-017 世界网关：MOSS（模思）预接线 —— `moss` 接入点 + MOSS-Live 实时语音插槽** `sev-P2`
   状态: waiting-user（代码、测试、文档完成；**要重启 3082 一次**才能看到六张卡）｜ owner: lead ｜ 开始: 2026-11-18 03:05 ｜ 完成: 2026-11-18 03:2x ｜ Scope: plugins/capability-hub/src/{capabilities.mjs,registry.mjs,candidates.mjs,catalog.mjs,client.js}、plugins/capability-hub/tests/{registry,candidates,catalog,client-render}.test.mjs、plugins/capability-hub/README.md、plugins/capability-hub/scripts/explore-endpoints.mjs、docs/research/moss-world-gateway-wiring.md、docs/logs/2026-11-world-gateway/v0.1.5-moss-prefab/、TODOLIST.md
   目标：主人 2026-11-18 03:03「将 platform.moss.cn 的模型页与 MOSS-Live 参考接入，先做预制接线保证能力，后面再进行实际应用开发」——只接线（接入点、基址、模型候选、实时语音插槽），不做适配器与真实调用。
